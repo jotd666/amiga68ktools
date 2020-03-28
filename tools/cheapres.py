@@ -22,6 +22,7 @@ class Template:
         self.__handle2libname ={}
         self.__entitytype = {}
         self.__lab2line = {}
+        self.__audio_offsets = {4:"ac_len",6:"ac_per",8:"ac_vol",10:"ac_dat"}
 
     def init_from_sys_args(self,debug_mode = True):
         """ standalone mode """
@@ -358,10 +359,30 @@ class Template:
 
     def __custom_offset_replace(self,m):
         sep,offset,regnum = m.groups()
+        symbolic_offset = None
+
         if int(regnum) == self.__hardbase:
             offset = self.__parse_int(offset)
-            offset = self.__custom_dict.get(offset,offset)
-        return "{}({},A{})".format(sep,offset,regnum)
+            symbolic_offset = self.__custom_dict.get(offset)
+            if not symbolic_offset:
+                higher_bits = offset>>4
+                # check if not audio or bitplane or other stuff not in .i file because
+                # needs some offset
+                if 0xA <= higher_bits <= 0xD:
+                    sub_offset = self.__audio_offsets.get(offset & 0xF)
+                    if sub_offset:
+                        symbolic_offset = "{}+{}".format(self.__custom_dict.get(offset & 0xF0),sub_offset )
+                else:
+                    # bitplanes, sprites, colors...
+                    for c in [[0xE,0xF],[0x12,0x13],[0x14,0x15,0x16,0x17],[0x18,0x19,0x1A,0x1B]]:
+                        if higher_bits in c:
+                            base = c[0]<<4
+                            symbolic_offset = "{}+{}".format(self.__custom_dict.get(base),offset-base)
+                            break
+
+
+
+        return "{}({},A{})".format(sep,symbolic_offset or offset,regnum)
 
     def __identify_custom_registers(self):
         self.__hardbase = None
