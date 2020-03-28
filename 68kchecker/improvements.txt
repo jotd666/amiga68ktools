@@ -1,0 +1,12 @@
+
+label error when another file is referenced:
+
+I always can join all the files before parse, but of course catch this situation and print a meaningful error for not python literate people.
+
+2.- Don't worry about this, but the syntax of the old assemblers used for these sources usually gave me a 
+few exceptions with things how using '*' for comments and similar. How your tool support the syntax of IRA and VASM (i have used the assembly output of VBCC for test, too),
+i think that implement the syntax of "ye olde and wacky" assemblers is lose the time
+
+3.- Don't support label names with less of 3 char
+
+4. label: instruction on the same line

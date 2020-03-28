@@ -1,0 +1,85 @@
+start:
+	MOVE.L	#1234,D0
+cpudeploop:
+	dbf	D0,cpudeploop
+	rts
+
+c:
+	MOVE.L	#1234,D0
+loop2:
+	move.l	D0,(A0)+
+	dbf	D0,loop2
+	rts
+
+	MOVE.L	#1234,D0
+	;;  vicious CPU dependent loop
+cpudeploop2:
+	subq.l	#1,D0
+	tst.l	D0
+	beq.b	e
+	bra	cpudeploop2
+e:	
+	rts
+
+;;; below:	no violations should be detected
+LAB_0F95:
+	TST.B	15(A3,D5)		;27F40: 4A33500F
+	BNE.S	LAB_0F96		;27F44: 6606
+	SUBQ	#1,D5			;27F46: 5345
+	TST	D5			;27F48: 4A45
+	BPL.S	LAB_0F95		;27F4A: 6AF4
+;;; lea A1:	 addition:	 no problem
+LAB_0717:
+	CMP	(A1),D6			;16CF6: BC51
+	BEQ	LAB_0718		;16CF8: 6700000C
+	LEA	230(A1),A1		;16CFC: 43E900E6
+	DBF	D7,LAB_0717		;16D00: 51CFFFF4
+	CLR	D5			;16D04: 4245
+	;; (A5)+:	 edge effect:	 no prob
+LAB_02A9:
+	SUB	D2,(A5)+		;0F6D8: 955D
+	DBF	D7,LAB_02A9		;0F6DA: 51CFFFFC
+
+	;; add + cmp/tst operation with indirect mode somewhere
+LAB_1E35:
+	CMP.B	(A0),D0			;3D092: B010
+	BNE.S	LAB_1E36		;3D094: 660E
+	ADDQ.L	#1,D1			;3D096: 5281
+	ADDQ.L	#1,A0			;3D098: 5288
+	CMP	#$007F,D1		;3D09A: B27C007F
+	BCC.S	LAB_1E36		;3D09E: 6404
+	SUBQ	#1,D2			;3D0A0: 5342
+	BNE.S	LAB_1E35		;3D0A2: 66EE
+
+	;; call to a routine:	 edge effect
+LAB_1CE5:
+	MOVE	D2,-(A7)		;3605E: 3F02
+	JSR	LAB_1CF4(PC)		;36060: 4EBA014C
+	ADDQ	#2,A7			;36064: 544F
+	ADDQ	#1,D2			;36066: 5242
+LAB_1CE6:
+	CMP	-6714(A4),D2		;36068: B46CE5C6
+	BLT.S	LAB_1CE5		;3606C: 6DF0
+
+	;; bra within the loop:	 edge effect
+LAB_0BAD:
+	BRA	LAB_0BB7		;0F316: 6000009A bra intermediaire: quit
+LAB_0BAE:
+	TST.L	182(A5)			;0F31A: 4AAD00B6
+	BEQ.S	LAB_0BAF		;0F31E: 6706
+	SUBQ.L	#1,182(A5)		;0F320: 53AD00B6
+	BNE.S	LAB_0BAD		;0F324: 66F0
+LAB_0BAF:
+	MOVE.L	230(A5),D0		;0F326: 202D00E6
+	BNE.S	LAB_0BB1		;0F32A: 6604
+
+	;; JSR within the loop:	 OK
+LAB_04AC:
+	TST	LAB_14B2		;07A08: 4A790002B470
+	BEQ	LAB_04AC		;07A0E: 6700FFF8
+	LEA	LAB_04AF,A0		;07A12: 41F900007A34
+	JSR	LAB_070D		;07A18: 4EB90000F2C8
+	BPL.S	LAB_04AD		;07A1E: 6A02
+	BRA.S	LAB_04AC		;07A20: 60E6
+LAB_04AD
+		
