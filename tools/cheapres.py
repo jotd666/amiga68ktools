@@ -16,6 +16,7 @@ class Template:
         self.__input_file = None
         self.__output_file = None
         self.__lvo_dict = {}
+        self.__custom_dict = {}
         self.__libname2handle ={}
         self.__libname2libstr ={}
         self.__handle2libname ={}
@@ -44,6 +45,13 @@ class Template:
 ##        self.__output_file = my_arg_1
 ##        self.__doit()
 
+    @staticmethod
+    def __parse_int(v):
+        if v.startswith("$"):
+            return int(v[1:],16)
+        else:
+            return int(v)
+
     def __do_init(self):
         self.__opts = None
         self.__args = None
@@ -52,7 +60,7 @@ class Template:
         self.__doit()
 
     def __purge_log(self):
-        if self.__logfile != "":
+        if self.__logfile:
             try:
                 os.remove(self.__logfile)
             except:
@@ -61,8 +69,8 @@ class Template:
     def __message(self,msg):
         msg = self.__PROGRAM_NAME+(": %s" % msg)+os.linesep
         sys.stderr.write(msg)
-        if self.__logfile != "":
-            f = open(self.__logfile,"ab")
+        if self.__logfile:
+            f = open(self.__logfile,"a")
             f.write(msg)
             f.close()
 
@@ -71,6 +79,18 @@ class Template:
 
     def __warn(self,msg):
         self.__message("Warning: "+msg)
+
+    def __load_custom_file(self):
+        custom_file = os.path.join(self.__PROGRAM_DIR,"custom.i")
+        if os.path.exists(custom_file):
+            pass
+        else:
+            self.__error("Installation error: cannot find %s" % custom_file)
+        with open(custom_file) as f:
+            for line in f:
+                toks = line.split()
+                if len(toks)>2 and toks[1].lower()=="equ":
+                    self.__custom_dict[self.__parse_int(toks[2])] = toks[0]
 
     def __load_lvo_file(self):
         lvo_file = os.path.join(self.__PROGRAM_DIR,"LVOs.i")
@@ -92,7 +112,7 @@ class Template:
                 else:
                     toks = line.split()
                     if len(toks)>2 and toks[1].lower()=="equ":
-                        self.__lvo_dict[(current_key,int(toks[2]))] = toks[0]
+                        self.__lvo_dict[(current_key,self.__parse_int(toks[2]))] = toks[0]
 
         self.__libname2handle = {k:k.title()+"Base" for k,_ in self.__lvo_dict}
         self.__libname2libstr = {k:k.title()+"Name" for k,_ in self.__lvo_dict}
@@ -159,11 +179,17 @@ class Template:
     __EXECCOPY_RE = re.compile("MOVE.*ABSEXECBASE.*,(LAB_....)\s",flags=re.I)
     __LAB_RE = re.compile("(LAB_....|ABSEXECBASE(\.W)?)",flags=re.I)
     __LABELDECL_RE = re.compile("(LAB_....):",flags=re.I)
+    __LEAHARDBASE_RE = re.compile("LEA\s+HARDBASE,A([0-6])",flags=re.I)
     __SET_AX_RE = re.compile("MOVEA?\.L\s+([\S]+),A([0-6])\s",flags=re.I)
     __SYSCALL_RE = re.compile("(JMP|JSR)\s+(-\d+)\(A6\)",flags=re.I)
     __SYSCALL_RE2 = re.compile("(JMP|JSR)\s+\((-\d+),A6\)",flags=re.I)
     __VALID_BASE = re.compile("([\-\w]{3,}(\(A\d\))?)",flags=re.I)
-    __ADDRESS_REG_RE = re.compile("A([0-6])")
+    __ADDRESS_REG_RE = re.compile("A([0-6])",flags=re.I)
+    __RETURN_RE = re.compile(r"\b(RT[SED])\b",flags=re.I)
+    __AX_DI_RE = re.compile("([\s,])(\$[0-9A-F]+|\d+)\(A([0-6])\)",flags=re.I)
+    __AX_DI_RE_2 = re.compile("([\s,])\((\$[0-9A-F]+|\d+),A([0-6])\)",flags=re.I)
+    __HEXDATA_RE = re.compile("(?:.*;.*:\s+|DC.[WLB]\s+\$)([A-F\d]+)",flags=re.I)
+
     def __name_execbase_copies_id_labels(self):
         execbase_copies = {"ABSEXECBASE","ABSEXECBASE.W"}
         for i,line in enumerate(self.__input_lines):
@@ -180,8 +206,15 @@ class Template:
 
     def __identify_libs(self,debug=False):
         current_libbase = [None]*7
+
         for i,line in enumerate(self.__input_lines):
             line = line.replace(" (UNKNOWN)","")
+
+            if self.__RETURN_RE.search(line):
+                if debug:
+                    print("libbase reset due to RTx instruction")
+                current_libbase = [None]*7
+                continue
 
             m = self.__SET_AX_RE.search(line)
             if m:
@@ -207,14 +240,17 @@ class Template:
             if m:
                 libname = self.__handle2libname.get(current_libbase[6])
                 if libname:
-                    offset = int(m.group(2))
+                    offset = self.__parse_int(m.group(2))
                     key = (libname,offset)
                     call_name = self.__lvo_dict.get(key)
                     if call_name:
                         self.__input_lines[i] = "\t{}\t({},A6)\t;{} {}.{} (off={})\n".format(m.group(1),
                         call_name,line.partition(";")[2].rstrip(),libname,self.__entitytype[libname],offset)
                 else:
-                    self.__input_lines[i] = line.rstrip() + " (UNKNOWN)\n"
+                    line = line.rstrip()
+                    if ";" not in line:
+                        line += "\t;"
+                    self.__input_lines[i] = line + " (UNKNOWN)\n"
 
     __MOVE_LIBHANDLE_RE = re.compile("MOVE\.L\t(.*Base)(?:\(PC\))?,(LAB_[\w\+]+)")
 
@@ -235,7 +271,6 @@ class Template:
                 self.__input_lines[i] = newline
 
 
-    __HEXDATA_RE = re.compile("(?:.*;.*:\s+|DC.[WLB]\s+\$)([A-F\d]+)",re.I)
 
     def __get_hex_data(self,line):
         m = self.__HEXDATA_RE.search(line)
@@ -258,7 +293,7 @@ class Template:
                         if m:
                             library_name = None
                             label = m.group(1)
-                            offset = int(m.group(2)) if m.group(2) else 0
+                            offset = self.__parse_int(m.group(2)) if m.group(2) else 0
                             labline = self.__lab2line.get(label)
                             if labline is not None:
                                 b = b''
@@ -321,6 +356,33 @@ class Template:
             if newline != line:
                 self.__input_lines[i] = newline
 
+    def __custom_offset_replace(self,m):
+        sep,offset,regnum = m.groups()
+        if int(regnum) == self.__hardbase:
+            offset = self.__parse_int(offset)
+            offset = self.__custom_dict.get(offset,offset)
+        return "{}({},A{})".format(sep,offset,regnum)
+
+    def __identify_custom_registers(self):
+        self.__hardbase = None
+
+        for i,line in enumerate(self.__input_lines):
+            if self.__hardbase:
+                pass
+            m = self.__LEAHARDBASE_RE.search(line)
+            if m:
+                self.__hardbase = int(m.group(1))
+            else:
+                m = self.__RETURN_RE.search(line)
+                # reset on RTE/RTS
+                if m:
+                    self.__hardbase = None
+                else:
+                    newline = self.__AX_DI_RE.sub(self.__custom_offset_replace,line)
+                    newline = self.__AX_DI_RE_2.sub(self.__custom_offset_replace,newline)
+                    if newline != line:
+                        self.__input_lines[i] = newline
+
     def __doit(self):
 
         if self.__input_file == self.__output_file:
@@ -332,6 +394,7 @@ class Template:
             output_file = self.__output_file
 
         self.__load_lvo_file()
+        self.__load_custom_file()
 
         # reading the full file lines
         with open(self.__input_file) as f:
@@ -342,7 +405,7 @@ class Template:
         self.__name_execbase_copies_id_labels()
 
         # first pass to identify exec calls
-        self.__identify_libs(debug=True)
+        self.__identify_libs(debug=False)
 
         # now locate the library names if possible, around the "OpenLibrary" calls
         self.__locate_library_names()
@@ -352,9 +415,11 @@ class Template:
 
         self.__identify_libhandle_copies()
 
-        #if rc != 0:
-        #    self.__error("Abort return code %d" % rc)
+        # now try to replace $DFF000-based stuff
+        self.__identify_custom_registers()
 
+
+        #sys.stdout.write("".join(self.__input_lines))
         with open(output_file,"w") as f:
             f.writelines(self.__input_lines)
 
