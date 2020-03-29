@@ -357,7 +357,12 @@ class Template:
             if newline != line:
                 self.__input_lines[i] = newline
 
-    def __custom_offset_replace(self,m):
+    def __custom_offset_replace_1(self,m):
+        return self.__custom_offset_replace(m,True)
+    def __custom_offset_replace_2(self,m):
+        return self.__custom_offset_replace(m,False)
+
+    def __custom_offset_replace(self,m,old_style):
         sep,offset,regnum = m.groups()
         symbolic_offset = None
 
@@ -382,7 +387,7 @@ class Template:
 
 
 
-        return "{}({},A{})".format(sep,symbolic_offset or offset,regnum)
+        return ("{}{}(A{})" if old_style else "{}({},A{})").format(sep,symbolic_offset or offset,regnum)
 
     def __identify_custom_registers(self):
         self.__hardbase = None
@@ -399,8 +404,10 @@ class Template:
                 if m:
                     self.__hardbase = None
                 else:
-                    newline = self.__AX_DI_RE.sub(self.__custom_offset_replace,line)
-                    newline = self.__AX_DI_RE_2.sub(self.__custom_offset_replace,newline)
+                    # we use 2 different replace methods, because we don't want to change the asm
+                    # "style" (68000: 12(A0), 68020+ (12,A0)) for all lines, creates too many diffs
+                    newline = self.__AX_DI_RE.sub(self.__custom_offset_replace_1,line)
+                    newline = self.__AX_DI_RE_2.sub(self.__custom_offset_replace_2,newline)
                     if newline != line:
                         self.__input_lines[i] = newline
 
