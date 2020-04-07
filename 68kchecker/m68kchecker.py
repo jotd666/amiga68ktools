@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
 import os,sys,re
-import getopt,exceptions,traceback
+import getopt,traceback
 import glob
 
 import asm_parsing
@@ -26,8 +26,7 @@ class M68kChecker:
 
         try:
             self.__do_init()
-        except:
-          if sys.exc_info()[0] != exceptions.SystemExit:
+        except Exception:
             if debug_mode:
                 # get full exception traceback
                 traceback.print_exc()
@@ -201,7 +200,7 @@ class M68kChecker:
                 if last_op.write and last_op.addressing_mode == asm_parsing.AddressingMode.DIRECT:
                     # check if this is a label with an offset added to it (move D0,LAB_XXXX+2)
                     target = i.operand[1].token[0]
-                    if target.find('+') == -1 and asm_file.label_address.has_key(target):
+                    if target.find('+') == -1 and target in asm_file.label_address:
                         label_address = asm_file.label_address[target]
                         ia2 = -1
                         for ia2i in ial:
@@ -247,7 +246,7 @@ class M68kChecker:
                     jump_label = last_op.token[0]
 
                     # locate address of label
-                    if asm_file.label_address.has_key(jump_label):
+                    if jump_label in asm_file.label_address:
                         label_address = asm_file.label_address[jump_label]
                         delta = ia - label_address
                         if delta > 0 and delta < 10:  # > 10: big loop, no need to analyse (todo: support comments)
@@ -362,11 +361,11 @@ class M68kChecker:
                                 self.__report_violation(asm_file,start_line=ia,message="operand '%s' not allowed" % tl)
 
     def __process_file(self,filepath):
-        f = open(filepath,"rb")
-        c1=ord(f.read(1))
-        c2=ord(f.read(1))
-        c3=ord(f.read(1))
-        c4=ord(f.read(1))
+        with open(filepath,"rb") as f:
+            c1=ord(f.read(1))
+            c2=ord(f.read(1))
+            c3=ord(f.read(1))
+            c4=ord(f.read(1))
         if (c1<<24) + (c2<<16) + (c3<<8) + c4 == 0x3F3:
             # this is an executable: use IRA to disassemble it
             ira_path = os.path.join(self.__PROGRAM_DIR,"ira","ira")

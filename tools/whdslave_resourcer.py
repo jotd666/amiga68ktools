@@ -30,7 +30,7 @@ class WrongPatchArgException(Exception):
     pass
 
 class WHDSlaveResourcer:
-    __VERSION_NUMBER = "0.91"
+    __VERSION_NUMBER = "0.92"
     __MODULE_FILE = __file__
     __PROGRAM_NAME = os.path.basename(__MODULE_FILE)
     __PROGRAM_DIR = os.path.abspath(os.path.dirname(__MODULE_FILE))
@@ -707,7 +707,7 @@ _kickname   dc.b    '%s',0
             raise WrongPatchArgException("Wrong patch arg: %s" % arg)
         return rval
 
-    def __decode_abort(self,end,start,step):
+    def __decode_abort(self,end,start):
         """
         decode normal abort call
         """
@@ -869,9 +869,9 @@ _kickname   dc.b    '%s',0
         output_asm_lines = (self.__HEADER % (self.__VERSION_NUMBER,slave_basename,SLAVE_FUTURE_VERSION,slave_version,flags_str,basemem_size,exec_install,current_dir_dc,key_debug,
         key_exit,expmem_size,kickname_dc,kick_size,kick_crc,current_dir_string,game_name,copyright_string,asm_info_string,kick_string,version_id)).split("\n")
 
-        # this is an executable: use IRA to disassemble it
+        # this is an executable: use IRA to disassemble it, hoping it's in the path
 
-        ira_path = os.path.join(self.__PROGRAM_DIR,"ira","ira")
+        ira_path = "ira"
 
 
         temp_slave = os.path.join(self.__temp_directory,slave_basename)

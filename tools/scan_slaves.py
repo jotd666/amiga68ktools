@@ -1,5 +1,5 @@
 import os,csv,glob,re,sys,csv
-import find,fnmatch
+import fnmatch
 
 import whdload_slave
 
@@ -11,19 +11,20 @@ else:
     os.mkdir(output_dir)
 cache_file = os.path.join(output_dir,"cache.txt")
 
-if os.path.exists(cache_file):
-    f = open(cache_file,"rb")
+if False: #os.path.exists(cache_file):
+    f = open(cache_file,"r")
     filelist = [l.strip() for l in f]
     f.close()
 else:
-    f = find.Find()
-    filelist = f.init(root_dir)
-    f = open(cache_file,"wb")
-    for l in filelist:
-        f.write(l+"\n")
-    f.close()
+    filelist = [os.path.join(root,f) for root,_,files in os.walk(root_dir) for f in files]
 
-slave_list = filter(lambda l : fnmatch.fnmatch(l,"*.slave") and os.path.exists(l),filelist)
+
+    with open(cache_file,"w") as f:
+        for l in filelist:
+            f.write(l)
+            f.write("\n")
+
+slave_list = [l for l in filelist if fnmatch.fnmatch(l,"*.slave") and os.path.exists(l)]
 
 
 slave_dir_base = dict()
@@ -31,6 +32,7 @@ slave_dir_base = dict()
 nbtot=len(slave_list)
 rows = []
 a600_candidates = []
+c512_candidates = []
 for i,slave in enumerate(slave_list):
     print("Analyzing %s (%d of %d)" % (os.path.basename(slave),i+1,nbtot))
     d = os.path.dirname(slave)
@@ -74,17 +76,25 @@ for i,slave in enumerate(slave_list):
     rows.append(row)
     if (has_cdtv_data or not has_diskfiles) and ws.basemem_size+ws.expmem_size<600000 and ws.kick_size==0:
         a600_candidates.append(row)
+    if ws.basemem_size<600000:
+        c512_candidates.append(row)
+
 title_line = ["slave","info","copyright","diskfiles","nb_regular_files","has_cdtv","basemem","expmem","totalmem","flags","kick_name","kick_size","path","copycmd"]
 
 output_database = os.path.join(output_dir,"database.csv")
 output_a600_database = os.path.join(output_dir,"a600_database.csv")
-f = open(output_database,"wb")
-c = csv.writer(f,delimiter=';',quotechar='"')
-c.writerow(title_line)
-c.writerows(rows)
-f.close()
-f = open(output_a600_database,"wb")
-c = csv.writer(f,delimiter=';',quotechar='"')
-c.writerow(title_line)
-c.writerows(a600_candidates)
-f.close()
+output_c512_database = os.path.join(output_dir,"chip512_database.csv")
+with open(output_database,"w",newline="",encoding="utf-8") as f:
+    c = csv.writer(f,delimiter=';',quotechar='"')
+    c.writerow(title_line)
+    c.writerows(rows)
+
+with open(output_a600_database,"w",newline="",encoding="utf-8") as f:
+    c = csv.writer(f,delimiter=';',quotechar='"')
+    c.writerow(title_line)
+    c.writerows(a600_candidates)
+
+with open(output_c512_database,"w",newline="",encoding="utf-8") as f:
+    c = csv.writer(f,delimiter=';',quotechar='"')
+    c.writerow(title_line)
+    c.writerows(c512_candidates)

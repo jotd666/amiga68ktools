@@ -1,10 +1,13 @@
-import os,sys,subprocess,shutil,glob
+import os,sys,subprocess,shutil,glob,colorama
+colorama.init()
 
 tmparc = []
 progdir = os.path.dirname(__file__)
 
 local_mode = True
-temp = r"C:\DATA\jff\AmigaHD\Download\whdload" if local_mode else os.getenv("TEMP")
+temp = r"K:\jff\AmigaHD\Download\whdload" if local_mode else os.getenv("TEMP")
+
+c = colorama.Fore.LIGHTGREEN_EX
 
 if len(sys.argv)<2:
     print("missing slave dev dir arg(s)")
@@ -23,8 +26,8 @@ try:
             print(slave)
             with open(slave,"rb") as f:
                 contents = f.read()
-                if b"DEBUG MODE" in contents:
-                    raise Exception("Cannot distribute a 'DEBUG MODE' slave")
+                if b"DEBUG MODE" in contents or b"CHIP MODE" in contents:
+                    raise Exception("Cannot distribute a 'DEBUG/CHIP MODE' slave")
             shutil.copy(slave,usrdir)
         for s in ["src","source"]:
             sd = os.path.join(usrdir,s)
@@ -98,6 +101,8 @@ try:
         server.quit()
         print("Done.")
 except Exception as e:
-    print("Error: "+str(e))
-finally:
-    input("Press a key to exit")
+    c = colorama.Fore.LIGHTRED_EX
+    print("Error: {}{}{}".format(c,e,colorama.Fore.RESET))
+
+print("{}Press a key to exit{}".format(c,colorama.Fore.RESET))
+input()

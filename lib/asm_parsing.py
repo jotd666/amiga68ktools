@@ -208,13 +208,13 @@ class AsmBuffer:
             return rval
 
         def get(self,address):
-           if self.label.has_key(address):
+           if address in self.label:
                return self.label[address]
-           elif self.instruction.has_key(address):
+           elif address in self.instruction:
                return self.instruction[address]
-           elif self.constant.has_key(address):
+           elif address in self.constant:
                return self.constant[address]
-           elif self.section.has_key(address):
+           elif address in self.section:
                return self.section[address]
            else:
                return self.other[address]
@@ -235,8 +235,8 @@ class AsmBuffer:
 
         self.__build_tokens(lines)
 
-        k = self.linedict.instruction.keys()
-        k.sort()
+        k = sorted(self.linedict.instruction)
+
         self.__last_instruction_address = k[-1]
         self.__instruction_addresses = set(k)
 
@@ -244,7 +244,7 @@ class AsmBuffer:
         return self.__instruction_addresses
 
     def is_instruction(self,address):
-        return self.linedict.instruction.has_key(address)
+        return address in self.linedict.instruction
 
     def get_instruction(self,address):
         return self.linedict.instruction[address]
@@ -569,13 +569,13 @@ PIPO EQU 12
     # dump everything
     for i in addresses:
         s = a.linedict.get(i)
-        print str(s)
-    print "==========="
+        print(str(s))
+    print("===========")
     # dump only instructions
 
     ia = a.get_instruction_addresses()
     for i in ia:
-        print str(a.get_instruction(i))
+        print(str(a.get_instruction(i)))
 
 ##    print a.label
 ##    print a.constant

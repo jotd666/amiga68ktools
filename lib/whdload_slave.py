@@ -26,7 +26,7 @@ class WHDLoadSlave:
         return self.raw_bytes != other.raw_bytes
 
     def __init__(self,slave):
-
+        self.slave = slave
         with open(slave,"rb") as f:
             header = f.read(0x20)
             contents = f.read()

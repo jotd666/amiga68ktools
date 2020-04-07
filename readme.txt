@@ -14,9 +14,11 @@ tools.wmake.py
 tools/make_cdtv_iso.py: not my work, but interesting: creates ISO files for CDTV
 tools/whdload_slave.py: can parse a whdload slave and extract info from it
 tools/cheapres.py: cheap resourcer from IRA disassembled source. Names system calls (using LVOs.i)
+                   and also names custom registers offsets
 tools/wdate.py: same as amiga wdate (whdload), but in python for cross compilation
 tools/whdslave_resourcer.py: disassembles whdload slave (ira) and tries to find patchlists & resload calls
 tools/scan_slaves.py: scans a directory tree for whdload slaves/games and creates a sheet with characteristics (memory, ecs/aga...)
+tools/find_memory_gaps.py: scans a winuae memory dump for "empty" areas (useful to insert savebuffers/cdbuffers)
 
 * 68kchecker: program to find possible self-modifying code or cpu dependent code or other from IRA source
 
