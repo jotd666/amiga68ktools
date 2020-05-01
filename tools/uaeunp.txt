@@ -1,0 +1,78 @@
+UAEUNP
+======
+
+uaeunp is simple command line file extractor supporting multiple (mostly Amiga specific) file formats.
+
+Disk images:
+
+- ADF and HDF. HDF support currently needs lots of memory.
+- DMS (DiskMasher). Automatically brute-forces encrypted DMS files.
+- DSQ (DiskSqueeze)
+- FDI (Formatted Disk Image)
+- IPF (SPS / CAPS disk images)
+- WRP (Warp, note that there are multiple different "warp" formats. Only one is supported.)
+
+Disk image is internally converted to standard ADF before extraction. Following filesystems
+supported: OFS, FFS, SFS and SFS2. Non-AmigaDOS formatted images are not supported. Block size
+is automatically detected.
+
+Archives:
+
+- 7Zip
+- LHA/LZH
+- LZX
+- RAR (unrar.dll or archiveaccess.dll required)
+- ZIP
+
+Miscellaneous formats:
+
+- Amiga RDB (Rigid Disk Block) partition table
+- GZIP compression
+
+USAGE
+-----
+
+<source> = path to directory. Path is not restricted to real physical path, virtual path inside archives and disk images are fully supported. (for example: "package.zip\dms\wb310.dms\wb310.adf\wb310.adf.dir\s" is 100% valid and working path and lists contents of directory 's')
+
+package.zip is real file. dms is normal directory inside the archive. wb310.dms is file inside the archive. wb310.adf is unpacked virtual image of wb310.dms, wb310.adf.dir is virtual directory of wb310.adf, s is directory inside adf file. Number of recursive virtual directories is unlimited. 
+
+Basic list files and directories:
+
+"uaeunp <source>"
+
+List all files and directories recursively:
+
+"uaeunp <source> **"
+
+Extract single file:
+
+"uaeunp -x <source> <name of file to extract> [<destination file name>]"
+
+Extract all recursively:
+
+"uaeunp -x <source> **"
+
+Extract all recursively to current directory (does not create subdirectories):
+
+"uaeunp -e <source> <match string>" *=all, *.adf only adfs etc..
+
+UAEUNP?
+-------
+
+Because it is basically command line "frontend" for WinUAE's transparent "archives as harddrive" framework.
+
+EXAMPLES
+--------
+
+List wb310.adf root directory: "uaeunp wb310.adf"
+
+Extract all files recursively in wb310.adf: "uaeunp wb310.adf **" (single * = extract only current directory)
+       
+Output s/shell-startup as text: "uaeunp wb310.adf\s shell-startup -o"
+
+Decompress DMS to adf: "uaeunp wb310.dms wb310.adf"
+
+List contents of DMS: "uaeunp wb310.dms\wb310.adf.dir"
+
+List contents of adf inside lha archive: "uaeunp archive.lha\wb310.adf\wb310.adf.dir"
+

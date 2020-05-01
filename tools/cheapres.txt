@@ -1,0 +1,13 @@
+usage is: cheapres.py -i input_file.asm -o output_file.asm.
+
+Omitting the output overwrites the input (which can be regenerated at will probably)
+
+Dependencies are kept to their minimum (no other python modules than already existing builtins, maybe it would even run on amiga in python 2.4 with minimum adaptations).
+
+
+FAQ
+
+Q: how cheapres recognize the different libraries bases? Do you look for specific text like ExecBase, IntuitionBase is their a list? Or is it done differently?
+
+A: ExecBase, IntuitionBase, GraphicsBase... basically name of the lib with first letter uppercased. Ex: lowlevel.library => LowlevelBase.
+   You can manually set them if the program uses a proxy routine to open the libraries (often happens in C programs)
