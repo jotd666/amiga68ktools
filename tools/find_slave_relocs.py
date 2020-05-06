@@ -13,3 +13,7 @@ if __name__ == '__main__':
     for line in af.lines:
         if re.search("LAB_....,",line):
             print(line)
+        if re.search("PEA\s+LAB_....[^(]",line):
+            print(line)
+        elif re.search("DC\.L.*LAB_....",line): # happens like PL_L $xxx,load instead of PL_P
+            print(line)

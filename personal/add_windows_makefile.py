@@ -23,7 +23,7 @@ wmake.py
 
 run_slave = r""".key ffff
 
-whdload {slave}.slave preload data=WHD:{relpath}
+whdload {slave} preload data=WHD:{relpath} novbrmove
 """
 
 for root,dirs,files in os.walk(r"K:\jff\AmigaHD\PROJETS\HDInstall\Aretoucher"):
@@ -46,6 +46,15 @@ for root,dirs,files in os.walk(r"K:\jff\AmigaHD\PROJETS\HDInstall\Aretoucher"):
         gamefull = r"K:\jff\AmigaHD\GAMES\{}\{}".format(gamedir[0],gamedir)
 
         gamedir_usr = [x for x in glob.glob(gamefull+"!*") + [gamefull] if os.path.isdir(x)]
+        slaves = [os.path.basename(x) for x in glob.glob(os.path.join(root,"*.slave"))]
+        ecs_slave = os.path.basename(gamefull)+".slave"
+        aga_slave = ecs_slave
+        for s in slaves:
+            if "AGA" in s:
+                aga_slave = s
+            elif "ECS" in s:
+                ecs_slave = s
+
         for g in gamedir_usr:
             suffix = os.path.basename(g.partition("!")[2])
             if suffix:
@@ -61,7 +70,12 @@ for root,dirs,files in os.walk(r"K:\jff\AmigaHD\PROJETS\HDInstall\Aretoucher"):
                 pass
             else:
                 with open(runfile,"wb") as f:
-                    f.write(run_slave.format(slave=os.path.basename(gamefull),relpath=amigadir).encode())
+                    s = ecs_slave
+                    if "aga" in runfile:
+                        s = aga_slave
+
+                    f.write(run_slave.format(slave=s,relpath=amigadir).encode())
+
 
 
         wm = os.path.join(root,"Makefile_windows.mak")

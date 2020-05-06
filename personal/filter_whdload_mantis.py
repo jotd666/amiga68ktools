@@ -2,11 +2,12 @@
 
 import csv,os,collections,openpyxl
 
+csv_in = os.path.join(os.getenv("USERPROFILE"),"Downloads","JOTD.csv")
 active_authors = {"Psygore","Wepl","StingRay","CFOU","GalahadFLT","Abaddon"}
 d = {"retour  d'informations":2,"affecté":3, "nouveau":1, "confirmé":5, "suspendu":0}
 keys = ['Identifiant','Projet','nb bugs','Résumé','Date de soumission','Mis à jour','Statut','Résolution','Assigné à']
 width_dict = {'Identifiant':15, 'Projet':30, 'Résumé' : 90}
-with open(os.path.join(os.getenv("USERPROFILE"),"Downloads","JOTD.csv"),encoding="utf-8") as f:
+with open(csv_in,encoding="utf-8") as f:
     b=f.read(1) # skip BOM
     cr = csv.DictReader(f)
     cr = list(cr)
@@ -38,3 +39,10 @@ ws.auto_filter.ref = 'A1:'+maxcolumnletter+str(len(ws['A']))
 outname = "K:/whdload_bugs.xlsx"
 ox.save(outname)
 os.startfile(outname)
+
+# file is downloaded, no need to keep it
+try:
+    os.remove(csv_in+".old")
+except OSError:
+    pass
+os.rename(csv_in,csv_in+".old")

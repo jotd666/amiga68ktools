@@ -69,7 +69,7 @@ class AsmBuffer:
             return rval
 
         def has_prepost(self):
-            return self.prepost_operation != ""
+            return bool(self.prepost_operation)
 
         def get_infos(self):
             rval = "am="+AddressingMode.STRINGS[self.addressing_mode]+",toks="+str(self.token)+",prepost="+self.prepost_operation+",write="+str(self.write)+",off=%d" % self.offset
@@ -87,7 +87,7 @@ class AsmBuffer:
 
         def __str__(self):
             rval = "\t%s" % self.mnemonic
-            if self.size != "":
+            if self.size:
                 rval += "."+self.size
 
             separator = "\t"
@@ -149,17 +149,12 @@ class AsmBuffer:
             self.operand = operands
             if len(self.operand) == 1:
                 # only one operand: normally write mode, unless it is a TST instruction
-                if self.mnemonic == "tst":
-                    self.operand[0].write = False
-                else:
-                    self.operand[0].write = True
+                self.operand[0].write = not self.mnemonic == "tst"
             elif len(self.operand) == 2:
                 # two operands: normally first is read and second is write, unless it is a BTST instruction
                 self.operand[0].write = False
-                if self.instruction_like(["db.*","btst","cmp"]):
-                    self.operand[1].write = False
-                else:
-                    self.operand[1].write = True
+                self.operand[1].write = not self.instruction_like(["db.*","btst","cmp"])
+
 
     # (?P<offset>re)
 
@@ -169,7 +164,8 @@ class AsmBuffer:
     __INSTRUCTION_NOPARAMS_RE = r"^\s+([A-Z]+[A-Z0-9]*)"   # ex: RTS
     __INSTRUCTION_RE = __INSTRUCTION_NOPARAMS_RE+"(\.[BLWS])?\s+(?:"   # ex: MOVE.W
     __INDIRECT_OPERAND_RE = r"(\-)?\((A[0-7]|SP)\)(\+)?|"+__OFFSET_RE+r"?\(([^)]+)\)"  # priority to (A0)+, etc... then offsets notation, else conflict
-    __REGISTER_OPERAND_RE = r"([AD][0-7]|SR|SP|VBR|CACR)"
+    #__REGISTER_OPERAND_RE = r"([AD][0-7]|SR|SP|VBR|CACR)"
+    __REGISTER_OPERAND_RE = r"((?:[AD][0-7]|SR|SP|VBR|CACR)(?:[-/][AD][0-7]){0,15})"  # more complete, specially for multi-register parameter
     __DIRECT_OPERAND_RE = __VALUE_RE
     __IMMEDIATE_OPERAND_RE = "#"+__OFFSET_RE
 
@@ -314,9 +310,9 @@ convert to decimal if possible
             # pre-post op
             tokens = [groups[1]]
 
-            if groups[0] != None:
+            if groups[0]:
                 prepost_operation = groups[0]
-            elif groups[2] != None:
+            elif groups[2]:
                 prepost_operation = groups[2]
 
         o = self.Operand(AddressingMode.INDIRECT,tokens,offset,prepost_operation)
@@ -562,7 +558,7 @@ PIPO EQU 12
 """
 
 
-    a = AsmBuffer(buf.split("\n"))
+    a = AsmBuffer(buf.splitlines())
 
     addresses = a.linedict.addresses()
 

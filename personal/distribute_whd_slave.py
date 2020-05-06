@@ -29,6 +29,8 @@ try:
                 if b"DEBUG MODE" in contents or b"CHIP MODE" in contents:
                     raise Exception("Cannot distribute a 'DEBUG/CHIP MODE' slave")
             shutil.copy(slave,usrdir)
+        for slave in glob.glob(os.path.join(devdir,"*.islave")):
+            shutil.copy(slave,usrdir)
         for s in ["src","source"]:
             sd = os.path.join(usrdir,s)
             if os.path.isdir(sd):

@@ -7,8 +7,8 @@ import glob
 import asm_parsing
 
 class M68kChecker:
-    __VERSION_NUMBER = "1.0"
-    __MODULE_FILE = sys.modules[__name__].__file__
+    __VERSION_NUMBER = "1.1"
+    __MODULE_FILE = __file__
     __PROGRAM_NAME = os.path.basename(__MODULE_FILE)
     __PROGRAM_DIR = os.path.abspath(os.path.dirname(__MODULE_FILE))
 
@@ -345,9 +345,16 @@ class M68kChecker:
             i = asm_file.get_instruction(ia)
             if i.mnemonic == "reset":
                 self.__report_violation(asm_file,start_line=ia,message="instruction '%s' not allowed" % i.mnemonic)
+            elif i.mnemonic == "movem":
+                # check weird A7 parameter
+                for o in i.operand:
+                    if o.addressing_mode == asm_parsing.AddressingMode.REGISTER:
+                        for t in o.token:
+                            if "A7" in t:
+                                self.__report_violation(asm_file,"movem instruction with A7 in source or destination",ia)
             else:
                 # check operands
-                if len(i.operand) > 0:
+                if i.operand:
                     fop = i.operand[0]
                     if len(fop.token) > 0:
                         ft = fop.token[0]
@@ -357,7 +364,7 @@ class M68kChecker:
                     for o in i.operand:
                         for t in o.token:
                             tl = str(t).lower()
-                            if ["vbr","cacr"].count(tl) != 0:
+                            if tl in ["vbr","cacr"]:
                                 self.__report_violation(asm_file,start_line=ia,message="operand '%s' not allowed" % tl)
 
     def __process_file(self,filepath):
