@@ -11,7 +11,7 @@ if __name__ == '__main__':
     # completely broken now...
     af = ira_asm_tools.AsmFile(output_file,input_filename)
     for line in af.lines:
-        if re.search("LAB_....,",line):
+        if re.search("LAB_....\+?\d?,",line):
             print(line)
         if re.search("PEA\s+LAB_....[^(]",line):
             print(line)

@@ -1,4 +1,4 @@
-import os,sys,subprocess,shutil,glob,colorama
+import os,sys,subprocess,shutil,glob,colorama,re
 colorama.init()
 
 tmparc = []
@@ -23,11 +23,11 @@ try:
         print(output.decode("ascii",errors="ignore"))
         print("Copying to user archive...")
         for slave in glob.glob(os.path.join(devdir,"*.slave")):
-            print(slave)
             with open(slave,"rb") as f:
                 contents = f.read()
                 if b"DEBUG MODE" in contents or b"CHIP MODE" in contents:
                     raise Exception("Cannot distribute a 'DEBUG/CHIP MODE' slave")
+
             shutil.copy(slave,usrdir)
         for slave in glob.glob(os.path.join(devdir,"*.islave")):
             shutil.copy(slave,usrdir)
@@ -38,8 +38,21 @@ try:
         else:
             os.mkdir(sd)
 
+        with open(os.path.join(usrdir,"readme")) as f:
+            contents = f.read()
+            version_info = sorted(re.findall("^\s*[Vv]ersion\s+(\d+\.\d+)",contents,flags=re.M),key=lambda x:[int(z) for z in re.findall("\d+",x)])[-1]
+
+
         for src in glob.glob(os.path.join(devdir,"*.s")):
-            print(src)
+            with open(src) as f:
+                for line in f:
+                    if "DECL_VERSION" in line:
+                        version = re.findall(r'\s+dc\.b\s+"(\d+\.\d+)"',next(f))[0]
+                        print("{} version {}, readme version {}".format(src,version,version_info))
+                        break
+                else:
+                    print("{} unknown version".format(src))
+
             shutil.copy(src,sd)
         print("Creating archive...")
         if os.path.exists(tmpdir):
