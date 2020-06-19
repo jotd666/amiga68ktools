@@ -1,0 +1,5 @@
+Assign AGS: /AGS2
+
+Copy AGS:AGAWide.conf AGS:AGS2.conf QUIET
+AGS:AGS2
+echo foo

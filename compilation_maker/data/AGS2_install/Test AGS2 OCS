@@ -1,0 +1,4 @@
+Assign AGS: /AGS2
+
+Copy AGS:WB13.conf AGS:AGS2.conf QUIET
+AGS:AGS2
