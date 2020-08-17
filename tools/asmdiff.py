@@ -23,7 +23,8 @@ def readlines(filepath):
         lines = [x.rstrip() for x in f]
         rval = [lines,[r.sub(r"\1XXXX",l).partition(";")[0] for l in lines]]
         if args.ignore_a4:
-            rval[1] = [re.sub("\(-?\d+,A4\)","(-XX,A4)",re.sub("\d+\(A4\)","XX(A4)",x)) for x in rval[1]]
+            rval[1] = [re.sub("\(-?\$[\d+A-F],A4\)","(-XX,A4)",re.sub("\$[\dA-F]+\(A4\)","XX(A4)",x,flags=re.I)) for x in rval[1]]   # hex
+            rval[1] = [re.sub("\(-?\d+,A4\)","(-XX,A4)",re.sub("\d+\(A4\)","XX(A4)",x)) for x in rval[1]]   # dec
         rval[1] = [x for x in rval[1] if not x.startswith("LAB_XXXX:")]
         return rval
 

@@ -48,8 +48,8 @@ class Template:
 
     @staticmethod
     def __parse_int(v):
-        if v.startswith("$"):
-            return int(v[1:],16)
+        if "$" in v:
+            return int(v.replace("$",""),16)
         else:
             return int(v)
 
@@ -184,6 +184,7 @@ class Template:
     __SET_AX_RE = re.compile("MOVEA?\.L\s+([\S]+),A([0-6])\s",flags=re.I)
     __SYSCALL_RE = re.compile("(JMP|JSR)\s+(-\d+)\(A6\)",flags=re.I)
     __SYSCALL_RE2 = re.compile("(JMP|JSR)\s+\((-\d+),A6\)",flags=re.I)
+    __SYSCALL_RE3 = re.compile("(JMP|JSR)\s+(-\$[\dA-F]+)\(A6\)",flags=re.I)
     __VALID_BASE = re.compile("([\-\w]{3,}(\(A\d\))?)",flags=re.I)
     __ADDRESS_REG_RE = re.compile("A([0-6])",flags=re.I)
     __RETURN_RE = re.compile(r"\b(RT[SED])\b",flags=re.I)
@@ -237,7 +238,7 @@ class Template:
                         current_libbase[target_reg] = None
 
             # handle 68000 or 68020 notation
-            m = self.__SYSCALL_RE.search(line) or self.__SYSCALL_RE2.search(line)
+            m = self.__SYSCALL_RE.search(line) or self.__SYSCALL_RE2.search(line) or self.__SYSCALL_RE3.search(line)
             if m:
                 libname = self.__handle2libname.get(current_libbase[6])
                 if libname:
