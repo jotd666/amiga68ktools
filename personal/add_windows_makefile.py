@@ -23,10 +23,10 @@ wmake.py
 
 run_slave = r""".key ffff
 
-whdload {slave} preload data=WHD:{relpath} novbrmove
+whdload {slave} preload data=WHD:{relpath}
 """
 
-for root,dirs,files in os.walk(r"K:\jff\AmigaHD\PROJETS\HDInstall\Aretoucher"):
+for root,dirs,files in os.walk(os.getcwd()): # r"K:\jff\AmigaHD\PROJETS\HDInstall\Aretoucher"):
     if "usr" in root.split(os.sep):
         continue
 
@@ -42,8 +42,11 @@ for root,dirs,files in os.walk(r"K:\jff\AmigaHD\PROJETS\HDInstall\Aretoucher"):
         # look for user package
         gamedir_dev = os.path.basename(root)
         gamedir = re.sub("hddev","",gamedir_dev,flags=re.IGNORECASE)
+        gameupperdir = gamedir[0]
+        if gameupperdir.isdigit():
+            gameupperdir = "0-9"
 
-        gamefull = r"K:\jff\AmigaHD\GAMES\{}\{}".format(gamedir[0],gamedir)
+        gamefull = r"K:\jff\AmigaHD\GAMES\{}\{}".format(gameupperdir,gamedir)
 
         gamedir_usr = [x for x in glob.glob(gamefull+"!*") + [gamefull] if os.path.isdir(x)]
         slaves = [os.path.basename(x) for x in glob.glob(os.path.join(root,"*.slave"))]

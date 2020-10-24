@@ -1,9 +1,7 @@
-#!/usr/bin/env python
 import sys,os,glob,subprocess
 import wx_generic_gui_frame,wx_utils
 from collections import OrderedDict
 import compilation_maker
-
 
 class MyApp(wx_generic_gui_frame.GenericApp):
     __VERSION_NUMBER = "1.2"
@@ -27,7 +25,6 @@ class MyApp(wx_generic_gui_frame.GenericApp):
 
 
     def _init(self):
-
         params = OrderedDict()
         keycode_dict = OrderedDict()
         keycode_dict["NONE"] = 0x00
@@ -41,7 +38,7 @@ class MyApp(wx_generic_gui_frame.GenericApp):
         params[self.__FIELD_GAME_DEMO_DATA_SUBDIR] = "GAMES"
         params[self.__FIELD_DATABASE_FILE] = os.path.join(self.__PROGRAM_DIR,"gameinfo.csv")
         params[self.__FIELD_PROGRAM_TO_RUN] = sorted(self.__PROGRAM_TO_RUN.keys())
-        params[self.__FIELD_MASTER_QUIT_KEY] = list(keycode_dict.keys())
+        params[self.__FIELD_MASTER_QUIT_KEY] = list(keycode_dict)
         params[self.__FIELD_SAVE_MISSING_DATABASE_FILE] = False
         params[self.__FIELD_KICKSTARTS_DIRECTORY] = ""
         params[self.__FIELD_MISSING_DATABASE_FILE] = ""
@@ -88,7 +85,7 @@ class MyApp(wx_generic_gui_frame.GenericApp):
         qk = params[self.__FIELD_MASTER_QUIT_KEY]
         qk = self.__keycode_dict.get(qk)
         if qk:
-            args += ["-M",hex(qk)]
+            args += ["-M",str(qk)]
 
         compilation_maker.doit(args)
         wx_utils.info_message("Done")
