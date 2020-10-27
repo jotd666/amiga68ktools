@@ -1,5 +1,13 @@
 import os,sys,subprocess,shutil,glob,colorama,re
 colorama.init()
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument("slave_dev_dir", nargs='+',help="slave development dir")
+parser.add_argument("-s","--say-sorry", help="sent wrong old slave with same version",
+                    action="store_true")
+parser.add_argument("-t","--test-mode", help="send to me",
+                    action="store_true")
+args = parser.parse_args()
 
 tmparc = []
 progdir = os.path.dirname(__file__)
@@ -10,11 +18,15 @@ temp = r"K:\jff\AmigaHD\Download\whdload"
 
 c = colorama.Fore.LIGHTGREEN_EX
 
-if len(sys.argv)<2:
-    print("missing slave dev dir arg(s)")
+# create addresses to avoid spammers to grep addresses from github
+def makeaddress(f,d):
+    return "{}@{}".format(f,d)
+
+
+
 try:
 
-    for devdir in sys.argv[1:]: # r"C:\DATA\jff\AmigaHD\PROJETS\HDInstall\DONE\D\DataStormHDDev"
+    for devdir in args.slave_dev_dir: # r"C:\DATA\jff\AmigaHD\PROJETS\HDInstall\DONE\D\DataStormHDDev"
         tmpdir = os.path.join(temp,os.path.basename(devdir)[:-5]+"Install")
         usrdir = os.path.join(devdir,"usr")
 
@@ -93,17 +105,20 @@ try:
         from email import encoders
 
         import smtplib
-        fromaddr = 'jotd666@gmail.com'
-        toaddrs  = ["release@whdload.de"]
-        #toaddrs = [fromaddr] # temp
+        fromaddr = makeaddress('jotd666','gmail.com')
+        toaddrs  = [makeaddress('release','whdload.de')]
+        if args.test_mode:
+            toaddrs = [fromaddr]
         msg = MIMEMultipart()
         msg['From'] = fromaddr
         msg['To'] = COMMASPACE.join(toaddrs)
         msg['Date'] = formatdate(localtime=True)
-        msg['Subject'] = "slave update for {}".format(gamename)
-
+        subject = "slave update for {}".format(gamename)
+        if args.say_sorry:
+            subject += " (sorry, re-sending, ignore previous)"
+        msg['Subject'] = subject
         msg.attach( MIMEText("Enjoy!\n\nJFF\n") )
-
+        print(subject)
         for file in [arcfile]:
             part = MIMEBase('application', "octet-stream")
             part.set_payload( open(file,"rb").read() )
