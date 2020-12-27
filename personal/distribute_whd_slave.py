@@ -10,7 +10,7 @@ parser.add_argument("-t","--test-mode", help="send to me",
 args = parser.parse_args()
 
 tmparc = []
-progdir = os.path.dirname(__file__)
+progdir = os.path.abspath(os.path.dirname(__file__))
 
 full_chain_mode = False
 temp = r"K:\jff\AmigaHD\Download\whdload"
@@ -26,7 +26,7 @@ def makeaddress(f,d):
 
 try:
 
-    for devdir in args.slave_dev_dir: # r"C:\DATA\jff\AmigaHD\PROJETS\HDInstall\DONE\D\DataStormHDDev"
+    for devdir in (os.path.abspath(x) for x in args.slave_dev_dir): # r"C:\DATA\jff\AmigaHD\PROJETS\HDInstall\DONE\D\DataStormHDDev"
         tmpdir = os.path.join(temp,os.path.basename(devdir)[:-5]+"Install")
         usrdir = os.path.join(devdir,"usr")
 
@@ -57,6 +57,7 @@ try:
             version_info = sorted(re.findall("^\s*[Vv]ersion\s+(\d+\.\d+)",contents,flags=re.M),key=lambda x:[int(z) for z in re.findall("\d+",x)])[-1]
 
 
+        one_version_match = False
         for src in glob.glob(os.path.join(devdir,"*.s")):
             with open(src) as f:
                 f = list(f)
@@ -65,13 +66,18 @@ try:
                     if "DECL_VERSION" in line:
                         version = re.findall(r'\s+dc\.b\s+"(\d+\.\d+)"',next(fi))[0]
                         print("{} version {}, readme version {}".format(src,version,version_info))
+                        if version == version_info:
+                            one_version_match = True
                         break
                 else:
                     print("{} unknown version".format(src))
+
                 for line in f:
                     if "blitz" in line:
                         raise Exception("blitz macro found in {}".format(src))
             shutil.copy(src,sd)
+        if not one_version_match:
+            raise Exception("No version match between any source and the readme")
         print("Creating archive, make sure that WinUAE is running and unpaused...")
         if os.path.exists(tmpdir):
             shutil.rmtree(tmpdir)

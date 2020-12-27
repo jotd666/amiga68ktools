@@ -31,13 +31,15 @@ class WHDLoadSlave:
             header = f.read(0x20)
             contents = f.read()
 
+        self.game_full_name = None
         self.raw_bytes = contents
+        self.error = None
 
         h = contents[4:12]
 
         self.valid = False
         if h!=b"WHDLOADS":
-            warn("{}: not a slave, found {!r} header".format(slave,h))
+            self.error = "{}: not a slave, found {!r} header".format(slave,h)
             return
 
         self.version_string = ""
