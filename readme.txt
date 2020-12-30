@@ -19,6 +19,7 @@ tools/wdate.py: same as amiga wdate (whdload), but in python for cross compilati
 tools/whdslave_resourcer.py: disassembles whdload slave (ira) and tries to find patchlists & resload calls
 tools/scan_slaves.py: scans a directory tree for whdload slaves/games and creates a sheet with characteristics (memory, ecs/aga...)
 tools/find_memory_gaps.py: scans a winuae memory dump for "empty" areas (useful to insert savebuffers/cdbuffers)
+tools/whd_to_patchlist.py: converts patch instructions to patchlists. Support for JST macros too
 
 * 68kchecker: program to find possible self-modifying code or cpu dependent code or other from IRA source
 

@@ -1,3 +1,13 @@
+#
+# mit2mot conversion tool by JOTD
+#
+# some cases may not be taken into account, but it successfully
+# converted Motorola FPSP code (68040 FPU emulation)
+#
+# for instance:
+#
+# https://devel.rtems.org/browser/rtems/c/src/lib/libcpu/m68k/m68040/fpsp?rev=f9b93da8b47ff7ea4d6573b75b6077f6efb8dbc6&order=name
+#
 import re,itertools,os,collections
 import argparse
 
