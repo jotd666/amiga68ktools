@@ -63,12 +63,12 @@ r"move\.l\s+#(\$?\w+),(\$\w+)",
 ),"PL_L\t\\2,\\1"
 ),
 ((
-r"PATCHUSRJMP\s+(\$?\w+)\.?W?,(\w+)",
-),"PL_P\t\\1,\\2"
+r"(PATCHUSRJMP|patch)\s+(\$?\w+)\.?W?,(\w+)",
+),"PL_P\t\\2,\\3"
 ),
 ((
-r"PATCHUSRJSR\s+(\$?\w+)\.?W?,(\w+)",
-),"PL_PS\t\\1,\\2"
+r"(PATCHUSRJSR|patchs)\s+(\$?\w+)\.?W?,(\w+)",
+),"PL_PS\t\\2,\\3"
 ),
 ]
 
