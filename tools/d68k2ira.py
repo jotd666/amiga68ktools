@@ -13,7 +13,7 @@ infile = args.d68k_file
 outfile = args.ira_file
 
 sizedict = {"b":1,"w":2,"l":4}
-instruction_re = re.compile("([0-9A-F]{6})\s+([0-9A-F ]+)\t+(\S.*)")
+instruction_re = re.compile("([0-9A-F]{6})\s+([0-9A-F _]+)\t+(\S.*)")
 label_re = re.compile(r"\bL00([0-9A-F]{4})\b")
 label_re_2 = re.compile(r"\bLAB_([0-9A-F]{4})\b")
 size = 0
@@ -35,6 +35,7 @@ with open(infile) as f,open(outfile,"w") as fw:
             else:
                 instruction = "{:8s}{}".format(*instruction)
             hexstring = hexstring.replace(" ","")
+            hexstring = hexstring.replace("_","")
             o = int(offset,16) + section_offset
             if instruction.startswith("dc."):
                 inst = "\t{:28s} ;{:06x}".format(instruction,o)

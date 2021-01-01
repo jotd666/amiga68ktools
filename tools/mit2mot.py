@@ -15,6 +15,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--noincludes",action="store_true")
 parser.add_argument("--fixduplabels",action="store_true")
 parser.add_argument("--showduplabels",action="store_true")
+parser.add_argument("--optimize",action="store_true")
 parser.add_argument("input_file")
 parser.add_argument("output_file")
 
@@ -31,6 +32,24 @@ def convert_size(m):
         if last in "blswxd":
             inst = "{}.{}".format(instprefix,last)
     return m.group(1)+inst
+
+def is_register(arg):
+    # not complete
+    return bool(re.match("[ad][0-7]|fp[0-7]|fpcr|fpiar|fpsr|ccr|sr|vbr",arg.lower()))
+
+def optimize_pc(m):
+    blank,opcode,blank2,arg1 = m.groups()
+    if not is_register(arg1):
+        arg1 += "(pc)"
+    return "{}{}{}{},".format(blank,opcode,blank2,arg1)
+def optimize_jump(m):
+    blank,opcode,rest = m.groups()
+    if opcode == "jmp":
+        opcode = "bra"
+    elif opcode == "jsr":
+        opcode = "bsr"
+
+    return "{}{}{}".format(blank,opcode,rest)
 
 regexes = [
 # de-collate suffix : moveb => move.b
@@ -69,6 +88,10 @@ if args.noincludes:
     regexes.append(("(\.include)\s.*",""))
 else:
     regexes.append(("^(\s+)\.(include\s+)",r"\1\2"))
+
+if args.optimize:
+    regexes.append(("^(\s+)(\w+\.?\w?)(\s+)([a-z_]\w+),",optimize_pc))
+    regexes.append(("^(\s+)(jsr|jmp)(\s+\w+)",optimize_jump))
 
 regexes = [(re.compile(s,re.IGNORECASE|re.M),r) for s,r in regexes]
 
