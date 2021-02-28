@@ -2,10 +2,11 @@ import os,csv,glob,re,sys,shutil
 
 import whdload_slave
 
-def doit(root_dir,subdirs,database_file):
+def doit(root_dir,subdirs,database_file,empty_database_file=None):
     # AGS menu generator
     # written by JOTD 2016-2017
 
+    missing_dict = {}
     renaming_dict = {}
     # database file is only needed to rename games from name extracted from slave data
     # other options are CD32 specific (well, some options could be useful but whdload has a nice
@@ -94,6 +95,8 @@ def doit(root_dir,subdirs,database_file):
                             line_start = 'C:whdload "'+slave_on_cd+'" PRELOAD '
                             if ws.game_full_name in custom_opts:
                                 line_start += custom_opts[ws.game_full_name] + " "
+                            else:
+                                missing_dict[ws.game_full_name] = ""
                             line = ""
                             slave_keyinfo = ""
                             slave_info_2=[]
@@ -121,6 +124,12 @@ def doit(root_dir,subdirs,database_file):
                             s =ws.slave_copyright+"\n"+ws.slave_info+"\n"
                             f.write(s.encode("latin-1"))
                             f.close()
+    if empty_database_file:
+        with open(empty_database_file,"w") as f:
+            # dummy, this is a database designed for CD32load
+            f.write("Name,Alt name,joypad,extra opts,J1 red,J1 blue,J1 yellow,J1 play,J1 green,J1 fwd,J1 bwd,J1 fwdbwd,J0 red,J0 blue,J0 yellow,J0 play,J0 green,J0 fwd,J0 bwd,J0 fwdbwd\n")
+            for k in sorted(missing_dict):
+                f.write("{},,no,PRELOAD,,,,,,,,,,,,,,,,\n".format(k))
 
 if __name__=="__main__":
     if len(sys.argv)<4:

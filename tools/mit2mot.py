@@ -85,9 +85,9 @@ regexes = [
 ]
 
 if args.noincludes:
-    regexes.append(("(\.include)\s.*",""))
+    regexes.append(("([\.#]include)\s.*",""))
 else:
-    regexes.append(("^(\s+)\.(include\s+)",r"\1\2"))
+    regexes.append(("^(\s+)[\.#](include\s+)",r"   \2"))
 
 if args.optimize:
     regexes.append(("^(\s+)(\w+\.?\w?)(\s+)([a-z_]\w+),",optimize_pc))

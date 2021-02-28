@@ -25,7 +25,7 @@ def doit(argv=sys.argv[1:]):
 
     install_ags_boot.doit(args.root_directory,kickstarts_dir = args.kickstarts_directory,master_quitkey = args.master_quitkey)
     if args.program=="whdload":
-        create_launcher_data_whd.doit(args.root_directory,subdirs=subdirs,database_file=args.database)
+        create_launcher_data_whd.doit(args.root_directory,subdirs=subdirs,database_file=args.database,empty_database_file=args.missing_database)
     else:
         create_launcher_data_cd32load.doit(args.root_directory,subdirs=subdirs,database_file=args.database,
         empty_database_file=args.missing_database,hard_drive=args.program in ["cd32load_hd","jst"],use_jst=args.program == "jst")

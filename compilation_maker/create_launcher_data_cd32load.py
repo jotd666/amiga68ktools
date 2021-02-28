@@ -284,7 +284,6 @@ def doit(root_dir,subdirs,database_file = "gameinfo.csv",empty_database_file = "
                         slave_keyinfo = ""
                         slave_info_2=[]
 
-
                         if ws.game_full_name in gamebase_dict:
                             g = gamebase_dict[ws.game_full_name]
                             g.joypad = g.joypad or "no"
@@ -317,6 +316,7 @@ def doit(root_dir,subdirs,database_file = "gameinfo.csv",empty_database_file = "
                                     if ki and not ki.endswith("NONE"):
                                         slave_info_2.append(ki+"\n")
                         else:
+
                             empty_gamebase_dict[ws.game_full_name] = GameInfo()
                         line += data_option
 
@@ -413,22 +413,19 @@ def doit(root_dir,subdirs,database_file = "gameinfo.csv",empty_database_file = "
             os.remove(unpack_files_script)
         except OSError:
             pass
-    if empty_gamebase_dict and empty_database_file:
-        with open(empty_database_file,"w",newline="") as f:
-            cw = csv.writer(f,dialect=dialect)
-            cw.writerow(csv_title)
-            for n,g in sorted(empty_gamebase_dict.items()):
-                cw.writerow([n,"","full","",g.j1_red,g.j1_blue,g.j1_yellow,g.j1_play,g.j1_green,g.j1_fwd,g.j1_bwd,g.j1_fwdbwd,
-                g.j0_red,g.j0_blue,g.j0_yellow,g.j0_play,g.j0_green,g.j0_fwd,g.j0_bwd,g.j0_fwdbwd])
 
-        print("There are %d unconfigured games" % len(empty_gamebase_dict.keys()))
+    if empty_gamebase_dict:
+        if empty_database_file:
+            with open(empty_database_file,"w",newline="") as f:
+                cw = csv.writer(f,dialect=dialect)
+                cw.writerow(csv_title)
+                for n,g in sorted(empty_gamebase_dict.items()):
+                    cw.writerow([n,"","full","",g.j1_red,g.j1_blue,g.j1_yellow,g.j1_play,g.j1_green,g.j1_fwd,g.j1_bwd,g.j1_fwdbwd,
+                    g.j0_red,g.j0_blue,g.j0_yellow,g.j0_play,g.j0_green,g.j0_fwd,g.j0_bwd,g.j0_fwdbwd])
+
+        print("There are %d unconfigured games" % len(empty_gamebase_dict))
         nb_warns += 1
 
-    else:
-        try:
-            os.remove(empty_database_file)
-        except OSError:
-            pass
     if nb_warns:
         print("%d warning(s) found" % nb_warns)
     if packed_files:

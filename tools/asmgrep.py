@@ -5,6 +5,7 @@ import collections
 parser = argparse.ArgumentParser()
 parser.add_argument("asmfile", help="assembly file")
 parser.add_argument('--pattern', "-p", action='append')
+parser.add_argument('--firstline', "-f", action='store_true')
 
 args = parser.parse_args()
 
@@ -22,6 +23,9 @@ with open(asmfile) as f:
         if len(fifo) == len(patterns):
             m = all(re.search(pat,line,flags=re.I) for line,pat in zip(fifo,patterns))
             if m:
-                print("{}:{}:\n  {}".format(asmfile,i-len(patterns)-1,"  ".join(fifo)))
+                if args.firstline:
+                    print("{}:{}:{}".format(asmfile,i-len(patterns)-1,fifo[0].rstrip()))
+                else:
+                    print("{}:{}:\n  {}".format(asmfile,i-len(patterns)-1,"  ".join(fifo)))
 
 
