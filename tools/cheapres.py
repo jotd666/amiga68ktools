@@ -181,6 +181,7 @@ class Template:
     __LAB_RE = re.compile("(LAB_....|ABSEXECBASE(\.W)?)",flags=re.I)
     __LABELDECL_RE = re.compile("(LAB_....):",flags=re.I)
     __LEAHARDBASE_RE = re.compile("LEA\s+HARDBASE,A([0-6])",flags=re.I)
+    __MOVEHARDBASE_RE = re.compile("MOVEA?.L\s+#\$00DFF000,A([0-6])",flags=re.I)
     __SET_AX_RE = re.compile("MOVEA?\.L\s+([\S]+),A([0-6])\s",flags=re.I)
     __SYSCALL_RE = re.compile("(JMP|JSR)\s+(-\d+)\(A6\)",flags=re.I)
     __SYSCALL_RE2 = re.compile("(JMP|JSR)\s+\((-\d+),A6\)",flags=re.I)
@@ -396,7 +397,7 @@ class Template:
         for i,line in enumerate(self.__input_lines):
             if self.__hardbase:
                 pass
-            m = self.__LEAHARDBASE_RE.search(line)
+            m = self.__LEAHARDBASE_RE.search(line) or self.__MOVEHARDBASE_RE.search(line)
             if m:
                 self.__hardbase = int(m.group(1))
             else:
