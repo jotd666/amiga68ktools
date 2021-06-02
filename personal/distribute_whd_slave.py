@@ -37,7 +37,7 @@ try:
         print("Copying to user archive...")
         for slave in glob.glob(os.path.join(devdir,"*.slave")):
             with open(slave,"rb") as f:
-                contents = f.read()
+                contents = f.read().upper()
                 if b"DEBUG MODE" in contents or b"CHIP MODE" in contents:
                     raise Exception("Cannot distribute a 'DEBUG/CHIP MODE' slave")
 
@@ -54,7 +54,7 @@ try:
 
         with open(os.path.join(usrdir,"readme")) as f:
             contents = f.read()
-            version_info = sorted(re.findall("^\s*[Vv]ersion\s+(\d+\.\d+)",contents,flags=re.M),key=lambda x:[int(z) for z in re.findall("\d+",x)])[-1]
+            version_info = sorted(re.findall("^\s*[Vv]ersion\s+(\d+\.\d+[\-ABC]*)",contents,flags=re.M),key=lambda x:[[int(z.split("-")[0]),z] for z in re.findall("\d+[\-ABC]*",x)])[-1]
 
 
         one_version_match = False
@@ -64,7 +64,7 @@ try:
                 fi = iter(f)
                 for line in fi:
                     if "DECL_VERSION" in line:
-                        version = re.findall(r'\s+dc\.b\s+"(\d+\.\d+)"',next(fi))[0]
+                        version = re.findall(r'\s+dc\.b\s+"(\d+\.\d+[\-ABC]*)"',next(fi))[0]
                         print("{} version {}, readme version {}".format(src,version,version_info))
                         if version == version_info:
                             one_version_match = True
@@ -145,7 +145,7 @@ try:
         server.sendmail(fromaddr, toaddrs, msg.as_string())
         server.quit()
         print("Done.")
-except Exception as e:
+except OSError as e:
     c = colorama.Fore.LIGHTRED_EX
     print("Error: {}{}{}".format(c,e,colorama.Fore.RESET))
 

@@ -1,8 +1,42 @@
-import PIL.Image,math
+import PIL.Image,math,struct
+
+def bitplanes_colors_used(contents,nb_planes,width,height):
+    """
+    analyzes a ripped planar image
+    height : -1: autocompute from contents size & width & nb planes
+    returns a set of palette indexes
+    """
+    if height < 0:
+        height = (len(contents)//(width*nb_planes))*8
+
+
+    plane_size = (width//8)*height
+    rval = set()
+
+    for y in range(height):
+        for x in range(0,width,8):
+            offset = (y*width + x)//8
+            for i in range(8):
+                value = 0
+                shift = (1<<(7-i))
+
+                for p in range(nb_planes):
+                    if (shift & contents[p*plane_size + offset]):
+                        value |= 1<<p
+
+                rval.add(value)
+    return rval
 
 def bitplanes_raw2image(contents,nb_planes,width,height,output_filename,palette):
+    """
+    converts a ripped planar image + palette to png
+    height : -1: autocompute from contents size & width & nb planes
+    """
+    if height < 0:
+        height = (len(contents)//(width*nb_planes))*8
 
     img = PIL.Image.new('RGB', (width,height))
+
 
     plane_size = (width//8)*height
 
@@ -19,9 +53,11 @@ def bitplanes_raw2image(contents,nb_planes,width,height,output_filename,palette)
 
                 img.putpixel((x+i,y),palette[value])
 
-    img.save(output_filename)
+    if output_filename:
+        img.save(output_filename)
+    return img
 
-def bitplanes_raw2planarimage(contents,nb_planes,width,height,output_filename):
+def bitplanes_raw2planarimage(contents,nb_planes,width,height,output_filename=None):
 
     img = PIL.Image.new('RGB', (width*nb_planes,height))
 
@@ -37,9 +73,15 @@ def bitplanes_raw2planarimage(contents,nb_planes,width,height,output_filename):
                     if ((1<<(7-i)) & eight_pixs):
                         img.putpixel((start_x+x+i,start_y+y),(0xFF,0xFF,0xFF))
 
-    img.save(output_filename)
+    if output_filename:
+        img.save(output_filename)
+    return img
 
-def bitplanes_planarimage2raw(input_imagename,nb_planes,output_filename):
+def bitplanes_planarimage2raw(input_image,nb_planes,output_filename=None):
+    """ converts a png/whatever to a raw planar image, 1 plane
+    (if not black then it's a pixel)
+    if output_filename is not None, then save as file. Else just return created data
+    """
     if isinstance(input_image,str):
         img = PIL.Image.open(input_image)
     else:
@@ -60,11 +102,35 @@ def bitplanes_planarimage2raw(input_imagename,nb_planes,output_filename):
                     if p[:3] != (0,0,0):
                         eight_pixs |= (1<<(7-i))
                 out.append(eight_pixs)
-    with open(output_filename,"wb") as f:
-        f.write(bytes(out))
+    out = bytes(out)
+    if output_filename:
+        with open(output_filename,"wb") as f:
+            f.write(out)
+    return out
 
+
+def palette_dcw2palette(text):
+    """ converts a dc.w line list ($xx,$yy...) to a palette
+    """
+    rgblist = []
+    for line in text.splitlines():
+        line = line.lower()
+        toks = line.split()
+        if toks and toks[0] == "dc.w":
+            rgblist.extend(int(x,16) for x in toks[1].strip("$").split(",$"))
+
+    rval = [(((v & (0xF00))>>4),((v & (0xF0))),((v & (0xF))<<4)) for v in rgblist]
+    return rval
+
+def palette_toehb(palette):
+    rval = palette.copy()
+    for r,g,b in palette:
+        rval.append((r//2,g//2,b//2))
+    return rval
 
 def palette_regdump2palette(text):
+    """ converts a winuae custom register dump to a palette
+    """
     toks = iter(text.split())
     rval = dict()
     try:
@@ -79,7 +145,52 @@ def palette_regdump2palette(text):
         pass
     return [item for k,item in sorted(rval.items())]
 
+def palette_dump(palette,output,as_copperlist=False,as_binary=False,high_precision=False):
+    """
+    dump a list of RGB triplets to an RGB4 binary output file
+    """
+    aga = len(palette)>32
+    nb = 0
+    mode = "wb" if as_binary else "w"
+    with open(output,mode) as f:
+        colreg = 0
+        for r,g,b in palette:
+            if not as_binary:
+                if nb % 8 == 0:
+                    if nb:
+                        f.write("\n")
+                    f.write("\tdc.w\t")
+                else:
+                    f.write(",")
+                nb+=1
+
+            value = ((r>>4) << 8) + ((g>>4) << 4) + (b>>4)
+            if as_copperlist:
+                bank,colmod = divmod(colreg,32)
+                if colmod == 0 and aga:
+                    # issue bank
+                    params = (0x106,(bank<<13))
+                    if as_binary:
+                        f.write(struct.pack(">HH",*params))
+                    else:
+                        f.write("${:x},${:x}\n\tdc.w\t".format(*params))
+                colout = colmod*2 + 0x180
+                if as_binary:
+                    f.write(struct.pack(">HH",colout,value))
+                else:
+                    f.write("${:04x},${:04x}".format(colout,value))
+                colreg+=1
+            else:
+                if as_binary:
+                    f.write(struct.pack(">H",value))
+                else:
+                    f.write("${:04x}".format(value))
+        if not as_binary:
+            f.write("\n")
 def palette_extract(input_image,amigaized = True):
+    """
+    extract the palette of an image
+    """
     if isinstance(input_image,str):
         imgorg = PIL.Image.open(input_image)
     else:
@@ -118,13 +229,20 @@ def palette_tojascpalette(rgblist,outfile):
         for v in rgblist:
             f.write("{} {} {}\n".format(*v))
 
-def palette_image2raw(input_imagename,output_filename,palette,add_dimensions=True):
+
+
+def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,forced_nb_planes=None):
     """ rebuild raw bitplanes with palette (ordered) and any image which has
     the proper number of colors and color match
+    pass None as output_filename to avoid writing to file
+    returns image raw data
     """
     # quick palette index lookup
     palette_dict = {p:i for i,p in enumerate(palette)}
-    imgorg = PIL.Image.open(input_imagename)
+    if isinstance(input_image,str):
+        imgorg = PIL.Image.open(input_imagename)
+    else:
+        imgorg = input_image
     # image could be paletted already. But we cannot trust palette order anyway
     width,height = imgorg.size
     if width % 8:
@@ -132,7 +250,14 @@ def palette_image2raw(input_imagename,output_filename,palette,add_dimensions=Tru
     img = PIL.Image.new('RGB', (width,height))
     img.paste(imgorg, (0,0))
     # number of planes is automatically converted from palette size
-    nb_planes = int(math.log2(len(palette)))
+    min_nb_planes = int(math.ceil(math.log2(len(palette))))
+    if forced_nb_planes:
+        if min_nb_planes > forced_nb_planes:
+            raise Exception("Minimum number of planes is {}, forced to {}".format(min_nb_planes,forced_nb_planes))
+        nb_planes = forced_nb_planes
+    else:
+        nb_planes = min_nb_planes
+
     plane_size = height*width//8
     out = [0]*(nb_planes*plane_size)
     for y in range(height):
@@ -150,7 +275,12 @@ def palette_image2raw(input_imagename,output_filename,palette,add_dimensions=Tru
                     if color_index & (1<<pindex):
                         out[pindex*plane_size + offset] |= (1<<(7-i))
 
-    with open(output_filename,"wb") as f:
-        if add_dimensions:
-            f.write(bytes((0,width//8,height>>8,height%256)))
-        f.write(bytes(out))
+    out = bytes(out)
+
+    if output_filename:
+        with open(output_filename,"wb") as f:
+            if add_dimensions:
+                f.write(bytes((0,width//8,height>>8,height%256)))
+            f.write(out)
+
+    return out
