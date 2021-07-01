@@ -56,6 +56,8 @@ C:setpatch >NIL:
 C:Assign T: RAM:
 C:Assign AGS: SYS:{}
 {}C:Anticlick
+devs:monitor/PAL
+devs:monitor/NTSC
 AGS:AGS2
 """.format(ags_subdir,"C:Assign ENV: RAM:\nsetenv QUITKEY {}\n".format(master_quitkey) if master_quitkey else "").encode("latin-1")
     with open(os.path.join(destination_directory,"s","startup-sequence"),"wb") as f:
