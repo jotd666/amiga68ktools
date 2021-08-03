@@ -312,3 +312,63 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
             f.write(out)
 
     return out
+
+
+def palette_image2sprite(input_image,output_filename,palette,palette_precision_mask=0xFF):
+    """ rebuild raw bitplanes with palette (ordered) and any image which has
+    the proper number of colors and color match
+    pass None as output_filename to avoid writing to file
+    returns image raw data
+    palette_precision_mask: 0xFF: no mask, full precision when looking up the colors, 0xF0: ECS palette mask, or custom
+    """
+    if len(palette) != 4:
+        raise Exception("Palette size must be 4")
+    # quick palette index lookup, with a privilege of the lowest color numbers
+    # where there are duplicates (example: EHB emulated palette)
+    palette_dict = {p:i for i,p in reversed(list(enumerate(palette)))}
+    if isinstance(input_image,str):
+        imgorg = PIL.Image.open(input_image)
+    else:
+        imgorg = input_image
+    # image could be paletted already. But we cannot trust palette order anyway
+    width,height = imgorg.size
+    if width != 16:
+        raise Exception("{} width must be 16, found {}".format(input_image,width))
+    img = PIL.Image.new('RGB', (width,height))
+    img.paste(imgorg, (0,0))
+    nb_planes = 2
+
+    plane_size = height*width//8
+    out = [0]*(nb_planes*plane_size)
+    for y in range(height):
+        for x in range(0,width,8):
+            for i in range(8):
+                porg = img.getpixel((x+i,y))
+
+                p = tuple(x & palette_precision_mask for x in porg)
+                try:
+                    color_index = palette_dict[p]
+                except KeyError:
+                    # try to suggest close colors
+                    approx = tuple(x&0xFE for x in p)
+                    close_colors = [c for c in palette_dict if tuple(x&0xFE for x in c)==approx]
+
+                    msg = "{}: (x={},y={}) rounded color {} not found, orig color {}, maybe try adjusting precision mask".format(
+                input_image,x+i,y,p,porg)
+                    msg += " {} close colors: {}".format(len(close_colors),close_colors)
+                    raise Exception(msg)
+
+                for pindex in range(nb_planes):
+                    if color_index & (1<<pindex):
+                        out[(((y*nb_planes)+pindex)*width + x)//8] |= (1<<(7-i))
+
+    out = bytes(out)
+
+    if output_filename:
+        with open(output_filename,"wb") as f:
+##            if add_dimensions:
+##                f.write(bytes((0,width//8,height>>8,height%256)))
+            f.write(out)
+
+    return out
+
