@@ -249,7 +249,8 @@ def palette_tojascpalette(rgblist,outfile):
 
 
 
-def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,forced_nb_planes=None,palette_precision_mask=0xFF):
+def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,forced_nb_planes=None,
+                    palette_precision_mask=0xFF,generate_mask=False):
     """ rebuild raw bitplanes with palette (ordered) and any image which has
     the proper number of colors and color match
     pass None as output_filename to avoid writing to file
@@ -278,8 +279,15 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
     else:
         nb_planes = min_nb_planes
 
+    def html(p):
+        return ("{:02x}"*3).format(*p)
     plane_size = height*width//8
-    out = [0]*(nb_planes*plane_size)
+
+    actual_nb_planes = nb_planes
+    if generate_mask:
+        actual_nb_planes+=1
+
+    out = [0]*(actual_nb_planes*plane_size)
     for y in range(height):
         for x in range(0,width,8):
             for i in range(8):
@@ -294,15 +302,18 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
                     approx = tuple(x&0xFE for x in p)
                     close_colors = [c for c in palette_dict if tuple(x&0xFE for x in c)==approx]
 
-                    msg = "{}: (x={},y={}) rounded color {} not found, orig color {}, maybe try adjusting precision mask".format(
-                input_image,x+i,y,p,porg)
+                    msg = "{}: (x={},y={}) rounded color {} (#{}) not found, orig color {} (#{}), maybe try adjusting precision mask".format(
+                input_image,x+i,y,p,html(p),porg,html(porg))
                     msg += " {} close colors: {}".format(len(close_colors),close_colors)
                     raise Exception(msg)
 
                 for pindex in range(nb_planes):
                     if color_index & (1<<pindex):
-                        out[pindex*plane_size + offset] |= (1<<(7-i))
-
+                        bitset = (1<<(7-i))
+                        out[pindex*plane_size + offset] |= bitset
+                        if generate_mask:
+                            # any color set sets a bit in the mask
+                            out[nb_planes*plane_size + offset] |= bitset
     out = bytes(out)
 
     if output_filename:
