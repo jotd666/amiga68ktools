@@ -364,8 +364,8 @@ def palette_image2sprite(input_image,output_filename,palette,palette_precision_m
                     approx = tuple(x&0xFE for x in p)
                     close_colors = [c for c in palette_dict if tuple(x&0xFE for x in c)==approx]
 
-                    msg = "{}: (x={},y={}) rounded color {} not found, orig color {}, maybe try adjusting precision mask".format(
-                input_image,x+i,y,p,porg)
+                    msg = "{}: (x={},y={}) rounded color {} not found, orig color {}, maybe try adjusting precision mask (current: 0x{:x})".format(
+                input_image,x+i,y,p,porg,palette_precision_mask)
                     msg += " {} close colors: {}".format(len(close_colors),close_colors)
                     raise Exception(msg)
 
