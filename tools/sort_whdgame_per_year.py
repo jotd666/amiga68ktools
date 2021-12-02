@@ -35,7 +35,8 @@ for root,_,files in os.walk(input_root):
             if slave.error:
                 continue
             if slave.slave_copyright:
-                year = slave.slave_copyright.split()[0].split("/")[0]
+                # robust to all kinds of shit year-year year/year @year
+                year = slave.slave_copyright.split()[0].split("/")[0].split("-")[0].strip("@")
                 try:
                     year = int(year)
                     # fix small issues
@@ -54,10 +55,11 @@ for root,_,files in os.walk(input_root):
 
             d[root] = year
 
+years = set(d.values())
+if 0 in years:
+    years.remove(0)
+
 if test_mode:
-    years = set(d.values())
-    if 0 in years:
-        years.remove(0)
     max_year = max(years)
     min_year = min(years)
 
