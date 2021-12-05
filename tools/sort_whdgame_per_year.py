@@ -76,7 +76,7 @@ for year in years:
         os.mkdir(yd)
 
 for game,year in d.items():
-    dest = os.path.join(output_root,os.path.join(year,os.path.basename(game)))
+    dest = os.path.join(output_root,os.path.join(str(year),os.path.basename(game)))
     if not os.path.isdir(dest):
         #print("processing {} ({})".format(game,year))
         func(game,dest)
