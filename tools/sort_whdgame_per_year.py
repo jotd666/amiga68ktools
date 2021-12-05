@@ -71,7 +71,7 @@ func = shutil.copytree if copy_opt else shutil.move
 
 # create year dirs once only
 for year in years:
-    yd = os.path.join(output_root,year)
+    yd = os.path.join(output_root,str(year))
     if not os.path.exists(yd):
         os.mkdir(yd)
 
