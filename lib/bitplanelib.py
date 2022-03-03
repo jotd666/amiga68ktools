@@ -248,9 +248,19 @@ def palette_tojascpalette(rgblist,outfile):
             f.write("{} {} {}\n".format(*v))
 
 
+def palette_fromjascpalette(infile,rgb_mask=0xFF):
+    with open(infile,"r") as f:
+        header = next(f)
+        if header != "JASC-PAL\n":
+            raise Exception("No header")
+        next(f)
+        nb_colors = int(next(f))
+        return [[int(x) & rgb_mask for x in next(f).split()] for _ in range(nb_colors)]
+
+
 
 def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,forced_nb_planes=None,
-                    palette_precision_mask=0xFF,generate_mask=False):
+                    palette_precision_mask=0xFF,generate_mask=False,blit_pad=False,mask_color_index=0):
     """ rebuild raw bitplanes with palette (ordered) and any image which has
     the proper number of colors and color match
     pass None as output_filename to avoid writing to file
@@ -268,6 +278,9 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
     width,height = imgorg.size
     if width % 8:
         raise Exception("{} width must be a multiple of 8, found {}".format(input_image,width))
+
+    if blit_pad:
+        width += 16
     img = PIL.Image.new('RGB', (width,height))
     img.paste(imgorg, (0,0))
     # number of planes is automatically converted from palette size
@@ -289,10 +302,11 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
 
     out = [0]*(actual_nb_planes*plane_size)
     for y in range(height):
-        for x in range(0,width,8):
+        for xb in range(0,width,8):
             for i in range(8):
+                x = xb+i
                 offset = (y*width + x)//8
-                porg = img.getpixel((x+i,y))
+                porg = img.getpixel((x,y))
 
                 p = tuple(x & palette_precision_mask for x in porg)
                 try:
@@ -303,7 +317,7 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
                     close_colors = [c for c in palette_dict if tuple(x&0xFE for x in c)==approx]
 
                     msg = "{}: (x={},y={}) rounded color {} (#{}) not found, orig color {} (#{}), maybe try adjusting precision mask".format(
-                input_image,x+i,y,p,html(p),porg,html(porg))
+                input_image,x,y,p,html(p),porg,html(porg))
                     msg += " {} close colors: {}".format(len(close_colors),close_colors)
                     raise Exception(msg)
 
@@ -311,8 +325,8 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
                     if color_index & (1<<pindex):
                         bitset = (1<<(7-i))
                         out[pindex*plane_size + offset] |= bitset
-                        if generate_mask:
-                            # any color set sets a bit in the mask
+                        if generate_mask and color_index != mask_color_index:
+                            # any color (except mask) set sets a bit in the mask
                             out[nb_planes*plane_size + offset] |= bitset
     out = bytes(out)
 
@@ -377,9 +391,10 @@ def palette_image2sprite(input_image,output_filename,palette,palette_precision_m
 
     if output_filename:
         with open(output_filename,"wb") as f:
-##            if add_dimensions:
-##                f.write(bytes((0,width//8,height>>8,height%256)))
             f.write(out)
 
     return out
+
+def print_long_hex_array(array):
+    print( " ".join(["".join("{:02x}".format(array[i]) for i in range(j,j+4)) for j in range(0,len(array),4)]))
 

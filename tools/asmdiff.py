@@ -5,6 +5,8 @@ parser.add_argument("file1", help="file 1")
 parser.add_argument("file2", help="file 2")
 parser.add_argument("-i","--ignore-a4", help="ignore A4-relative offsets",
                     action="store_true")
+parser.add_argument("-k","--keep-offsets", help="keep commented offsets",
+                    action="store_true")
 parser.add_argument("-w","--work-dir",help="store temp asm files into work dir")
 args = parser.parse_args()
 
@@ -21,7 +23,10 @@ def readlines(filepath):
         filepath = os.path.splitext(filepath)[0]+".asm"
     with open(filepath) as f:
         lines = [x.rstrip() for x in f]
-        rval = [lines,[r.sub(r"\1XXXX",l).partition(";")[0] for l in lines]]
+        if args.keep_offsets:
+            rval = [lines,[r.sub(r"\1XXXX",l) for l in lines]]
+        else:
+            rval = [lines,[r.sub(r"\1XXXX",l).partition(";")[0] for l in lines]]
         if args.ignore_a4:
             rval[1] = [re.sub("\(-?\$[\d+A-F],A4\)","(-XX,A4)",re.sub("\$[\dA-F]+\(A4\)","XX(A4)",x,flags=re.I)) for x in rval[1]]   # hex
             rval[1] = [re.sub("\(-?\d+,A4\)","(-XX,A4)",re.sub("\d+\(A4\)","XX(A4)",x)) for x in rval[1]]   # dec
