@@ -1,4 +1,7 @@
 import os,re,glob
+import os, winshell
+from win32com.client import Dispatch
+desktop = winshell.desktop()
 
 template = r"""#added by python script
 
@@ -59,7 +62,23 @@ for root,dirs,files in os.walk(os.getcwd()): # r"K:\jff\AmigaHD\PROJETS\HDInstal
             elif "ECS" in s:
                 ecs_slave = s
 
+##path = os.path.join(desktop, "Media Player Classic.lnk")
+##target = r"P:\Media\Media Player Classic\mplayerc.exe"
+##wDir = r"P:\Media\Media Player Classic"
+##icon = r"P:\Media\Media Player Classic\mplayerc.exe"
+
+
         for g in gamedir_usr:
+            print(g)
+
+            target = g
+            shell = Dispatch('WScript.Shell')
+            shortcut = shell.CreateShortCut(os.path.join(root,os.path.basename(g)+"_data.lnk"))
+            shortcut.Targetpath = target
+            shortcut.WorkingDirectory = root
+            #shortcut.IconLocation = icon
+            shortcut.save()
+
             suffix = os.path.basename(g.partition("!")[2])
             if suffix:
                 runfile = "run_"+suffix

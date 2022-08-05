@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# coded by JOTD (C) 2016-2019
+# coded by JOTD (C) 2016-2022
 
 import os,sys,re,subprocess
 import getopt,traceback
@@ -41,6 +41,7 @@ class WHDSlaveResourcer:
         # init members with default values
         self.__output_file = ""
         self.__input_files = []
+        self.__resload_label = None
         #self.__deep_patchlist = False
 
 
@@ -96,7 +97,7 @@ class WHDSlaveResourcer:
 
         self.__opt_string = ""
 
-        longopts_eq = ["version","help","input-file="] #,"deep-patchlist"]
+        longopts_eq = ["version","help","input-file=","resload-label="] #,"deep-patchlist"]
 
         self.__shortopts = []
         self.__longopts = []
@@ -136,6 +137,9 @@ class WHDSlaveResourcer:
             oi += 1
             if option in ('-i','--'+self.__longopts[oi]):
                 self.__input_files.extend(glob.glob(value))
+            oi += 1
+            if option in ('-r','--'+self.__longopts[oi]):
+                self.__resload_label = value
             oi += 1
 ##            if option in ('-d','--'+self.__longopts[oi]):
 ##                self.__deep_patchlist = True
@@ -576,7 +580,7 @@ _kickname   dc.b    '%s',0
     __PEA_VALUE_RE = re.compile(r"(pea\s+)(-?\d+\.?W?)",re.IGNORECASE)
     __PUSH_VALUE_RE = re.compile(r"(move.*\s+#)(\d+)",re.IGNORECASE)
     __MODIFY_AX_RE = re.compile(r"\s+\w+.*\s+([^\s]*),a(\d)\s*;",re.IGNORECASE) # fuzzy, but should work
-    __DATE_REPL = "'\n\tINCBIN\tT:date\n\tdc.b\t'"
+    __DATE_REPL = "'\nDECL_VERSION\tdc.b\t'"
     __HEADER_OFFSET_DICT = { 12 : "slave_version", 14 : "flags",
         16 : "basemem_size", 30 : "_keydebug", 31 : "_keyexit", 32: "_expmem"}  # expmem = expmem_size at startup
     __ASM_LINE_RE = re.compile("\t([\w\.]+)\s+(.*[^\s])\s+;.*")
@@ -1027,6 +1031,9 @@ _kickname   dc.b    '%s',0
             # to find the jsr resload_xxx(ay) calls and resource them
 
             label_replacement_dict = dict()
+            if self.__resload_label:
+                label_replacement_dict[self.__resload_label] = "_resload"
+
             for ok in self.__offset_keys:
                 instruction = self.__code_table[ok]
                 line = instruction.line

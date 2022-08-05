@@ -1,68 +1,80 @@
-#!/usr/bin/env python
 
 import os,sys,json,shutil,struct
 import re,collections
 
 import argparse
+import zlib
 
 def doit(rtb_file,output_file):
     with open(rtb_file,"rb") as f:
-        f.read(4)   # CRC
+        crc = struct.unpack(">I",f.read(4))[0]   # CRC
         contents = f.read()
-
+        computed_crc = zlib.crc32(contents)
+        # no match
+        print("{:x} {:x} {:x}".format(crc,computed_crc,crc ^ 0xDEADFEED))
     relocs = []
     a3 = iter(contents)
+    offset = 0
 
-    def nextlong(it):
-        return (next(it)<<24)+(next(it)<<16)+(next(it)<<8)+(next(it))
+    def nextb(it):
+        nonlocal offset
+        offset += 1
+        return next(a3)
+
+    def nextword(it):
+        return (nextb(it)<<24)+(nextb(it)<<16)+(nextb(it)<<8)+(nextb(it))
 
     def reloc1byte():
         nonlocal a2
         a2 += d0
-        relocs.append(a2)
+        relocs.append([a2,False])
 
     def reloc2bytes():
         nonlocal d0
         # reloc2bytes
         d0 <<= 8
-        d0 += next(a3)
+        d0 += nextb(a3)
         reloc1byte()
 
     try:
         a2 = 0
         while(True):
-            d0 = next(a3)
+            d0 = nextb(a3)
             if d0:
+                # small distance
                 reloc1byte()
             else:
-                d0 = next(a3)
+                if offset % 2:
+                    z=nextb(a3)
+                    if z:
+                        print("FUCKKK",hex(offset))
+                # distance > 256
+                d0 = nextb(a3)
+
                 if d0:
+                    # distance < 65536
                     reloc2bytes()
                 else:
-                    d0 = next(a3)
-                    if d0:
-                        reloc2bytes()
+                    d0 = nextlong(a3)
+                    if not d0:
+                        break
                     else:
-                        d0 = next(a3)
-                        if d0:
-                            reloc1byte()
-                        else:
-                            break
+                        print("LONG RELOC!!!",hex(offset),hex(d0))
         # second pass: BCPL shit
         ffff = nextlong(a3)
         while(True):
             offset = nextlong(a3)
             if not offset:
                 break
-            #relocs.append(offset)
+            relocs.append([offset,True])
 
-    except StopIterator:
+    except StopIteration:
         pass
 
     with open(output_file,"w") as out:
         out.write("reloc:\n")
-        for k in sorted(relocs):
-            out.write("\tdc.l\t${:08x}\t\n".format(k))
+        for k,is_bcpl in sorted(relocs):
+            out.write("\tdc.l\t${:08x}\t;{}\n".format(k," BCPL @{:x}".format(k+0xFC0000) if is_bcpl else ""))
         out.write("\tdc.l\t$0\n")
 if __name__ == '__main__':
     """

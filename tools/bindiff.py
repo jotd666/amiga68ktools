@@ -7,6 +7,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-f","--first",required=True)
 parser.add_argument("-s","--second",required=True)
 parser.add_argument("-t","--third")
+parser.add_argument("-i","--ignore-size",action='store_true')
 parser.add_argument("-m","--mode",default="all",help="difference mode: all, third")
 parser.add_argument("-g","--group")
 
@@ -18,7 +19,7 @@ def error(msg):
     print(msg)
     sys.exit(1)
 
-if os.path.getsize(args.first) != os.path.getsize(args.second):
+if not args.ignore_size and os.path.getsize(args.first) != os.path.getsize(args.second):
     error("first & second files don't have the same size")
 
 if args.third and os.path.getsize(args.first) != os.path.getsize(args.third):

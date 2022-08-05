@@ -2,14 +2,29 @@ import sys,re,os
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument("offset",type=int)
+parser.add_argument("offset")
 parser.add_argument("ira_in_file")
 parser.add_argument("ira_out_file")
 
+# to run with a negative offset use "--" to break from options:
+# shift_ira_offsets.py -- -$20000 src.s out.s
 
 args = parser.parse_args()
 
 offset = args.offset
+
+# try to figure out offset, hex, decimal
+abs_offset=offset.lstrip("-")
+if abs_offset.isdigit():
+    offset = int(offset)
+elif abs_offset.startswith("0x"):
+    offset = int(offset,16)
+elif abs_offset.startswith("$"):
+    offset = int(offset.replace("$",""),16)
+
+print(offset)
+print("Applying hex {:x} offset shift".format(offset))
+
 infile = args.ira_in_file
 outfile = args.ira_out_file
 

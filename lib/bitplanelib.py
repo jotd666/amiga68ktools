@@ -1,5 +1,6 @@
 import PIL.Image,math,struct
 
+
 def bitplanes_colors_used(contents,nb_planes,width,height):
     """
     analyzes a ripped planar image
@@ -129,7 +130,7 @@ def palette_toehb(palette):
     return rval
 
 def palette_regdump2palette(text):
-    """ converts a winuae custom register dump to a palette
+    """ converts a winuae custom register dump (e command) to a palette
     """
     toks = iter(text.split())
     rval = dict()
@@ -188,6 +189,20 @@ def __palette_dump(palette,f,as_copperlist,as_binary,low_nibble):
                 f.write("${:04x}".format(value))
     if not as_binary:
         f.write("\n")
+
+def palette_to_image(palette,output):
+    sqs = 16
+    width = sqs*len(palette)
+    height = sqs
+    img = PIL.Image.new('RGB', (width,height))
+    x = 0
+    for rgb in palette:
+        for i in range(16):
+            for j in range(16):
+                img.putpixel((i+x,j),rgb)
+        x += sqs
+
+    img.save(output)
 
 def palette_dump(palette,output,as_copperlist=False,as_binary=False,high_precision=False):
     mode = "wb" if as_binary else "w"

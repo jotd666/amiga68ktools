@@ -80,6 +80,26 @@ r"(PATCHUSRJMP|patch)\s+(\$?\w+)\.?W?,(\w+)",
 r"(PATCHUSRJSR|patchs)\s+(\$?\w+)\.?W?,(\w+)",
 ),"PL_PS\t\\2,\\3"
 ),
+((
+r"\bSTORE_REGS\n",
+),"MOVEM.L\tD0-A6,-(a7)\n"
+),
+((
+"RESTORE_REGS\n",
+),"MOVEM.L\t(a7)+,d0-a6\n"
+),
+((
+r"\bSTORE_REGS\s+(\S+)",
+),"MOVEM.L\t\\1,-(a7)"
+),
+((
+r"\bRESTORE_REGS\s+(\S+)",
+),"MOVEM.L\t(a7)+,\\1"
+),
+((
+r"BEAM_DELAY\s+#(\d+)",
+),"move.w\t#\\1,d0\n\tbsr\tbeamdelay"
+),
 ]
 
 regexes = [(re.compile(".*\n\s+".join(s),re.IGNORECASE),r) for s,r in regexes]

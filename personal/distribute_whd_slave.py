@@ -1,6 +1,13 @@
 import os,sys,subprocess,shutil,glob,colorama,re
-colorama.init()
 import argparse
+colorama.init()
+
+import smtplib, ssl
+
+
+
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument("slave_dev_dir", nargs='+',help="slave development dir")
 parser.add_argument("-s","--say-sorry", help="sent wrong old slave with same version",
@@ -68,6 +75,11 @@ try:
                         print("{} version {}, readme version {}".format(src,version,version_info))
                         if version == version_info:
                             one_version_match = True
+                        else:
+                            version_info = version_info.split("-")[0]
+                            if version == version_info:
+                                one_version_match = True
+
                         break
                 else:
                     print("{} unknown version".format(src))
@@ -135,12 +147,14 @@ try:
 
         print("Sending e-mail to {}...".format(toaddrs))
         username = fromaddr
+        # needs the application password that google generates for the mail, not
+        # the main password of the google account
+        # generate it at https://myaccount.google.com/security
         with open(os.path.join(os.getenv("USERPROFILE"),"password.txt")) as f:
             password = f.read().strip()
 
-        server = smtplib.SMTP('smtp.gmail.com:587')
-        server.ehlo()
-        server.starttls()
+        ssl_context = ssl.create_default_context()
+        server = smtplib.SMTP_SSL('smtp.gmail.com',465,context=ssl_context)
         server.login(username,password)
         server.sendmail(fromaddr, toaddrs, msg.as_string())
         server.quit()

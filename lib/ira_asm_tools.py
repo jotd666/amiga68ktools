@@ -2,8 +2,35 @@ import re,os,subprocess,shutil
 
 
 general_instruction_re = re.compile(r"^\s+\b([^\s]*)\b\s*([^\s]*)\s*;([a-f0-9]{2,}): (.*)")
-dc_instruction_re = re.compile(r"^\s+\b(DC\..)\b\s*([^\s]*)\s*;([a-f0-9]{2,})")
+dc_instruction_re = re.compile(r"^\s+\b(DC\..)\b\s*([^\s]*)\s*;([a-f0-9]{2,})",flags=re.I)
 decl_label_re = re.compile("^(\w+):")
+
+def convert_instruction_to_data(line):
+    m = general_instruction_re.match(line)
+    if m:
+        offset,comment = m.group(3),m.group(4)
+        offset = int(offset,16)
+        result = ["\tdc.w\t${}\t;{:05x}\n".format(comment[i:i+4],offset+i//2) for i in range(0,len(comment),4)]
+        line = "".join(result)
+    return line
+
+def is_branch_instruction(inst):
+    """ checks if the instruction is a branch instruction"""
+    instws = inst.split(".")[0].lower()
+    return instws.startswith("b") and len(instws)<4
+
+def get_dc_line(hexstring,comment=None):
+    """
+    returns dc.x line
+    """
+    table = ["B","W","L","L"]
+    idx = len(hexstring)//2 - 1
+    line = "\tDC.{}\t${}".format(table[idx],hexstring)
+    if comment:
+        return "{}\t\t;{}\n".format(line,comment)
+    else:
+        return line+"\n"
+
 
 def repl_function(m):
     s = m.group(1)
@@ -61,16 +88,16 @@ class AsmFile:
                 m = decl_label_re.match(l)
                 if m:
                     label = m.group(1)
-                    if ";" in l:
-                        address = get_line_address(l)
-                    else:
-                        nextl = self.lines[i+1]
-                        try:
+                    try:
+                        if ";" in l:
+                            address = get_line_address(l)
+                        else:
+                            nextl = self.lines[i+1]
                             address = get_line_address(nextl)
                             self.label_addresses[label] = address
                             self.line_addresses[i] = address
-                        except ValueError:
-                            print("warning: address of label {} can't be computed".format(label))
+                    except ValueError:
+                        print("warning: address of label {} can't be computed".format(label))
 
             except Exception as e:
                 print("exception line {}: {}".format(i,l))

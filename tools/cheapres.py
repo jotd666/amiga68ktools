@@ -27,17 +27,7 @@ class Template:
     def init_from_sys_args(self,debug_mode = True):
         """ standalone mode """
 
-        try:
-            self.__do_init()
-        except:
-          if sys.exc_info()[0] != SystemExit:
-            if debug_mode:
-                # get full exception traceback
-                traceback.print_exc()
-            else:
-                self.__message(str(sys.exc_info()[1]))
-
-            sys.exit(1)
+        self.__do_init()
 
 # uncomment if module mode is required
 ##    def init(self,my_arg_1):
@@ -178,7 +168,7 @@ class Template:
         sys.stderr.write("Usage: "+self.__PROGRAM_NAME+self.__opt_string+os.linesep)
 
     __EXECCOPY_RE = re.compile("MOVE.*ABSEXECBASE.*,(LAB_....)\s",flags=re.I)
-    __LAB_RE = re.compile("(LAB_....|ABSEXECBASE(\.W)?)",flags=re.I)
+    __LAB_RE = re.compile("(LAB_....|ABSEXECBASE)",flags=re.I)
     __LABELDECL_RE = re.compile("(LAB_....):",flags=re.I)
     __LEAHARDBASE_RE = re.compile("LEA\s+HARDBASE,A([0-6])",flags=re.I)
     __MOVEHARDBASE_RE = re.compile("MOVEA?.L\s+#\$00DFF000,A([0-6])",flags=re.I)
