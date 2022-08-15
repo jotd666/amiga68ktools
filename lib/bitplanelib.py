@@ -1,5 +1,9 @@
-import PIL.Image,math,struct
+import PIL.Image,math,struct,json
 
+def palette_load_from_json(filename):
+    with open(filename) as f:
+        p = [tuple(x) for x in json.load(f)]
+    return p
 
 def bitplanes_colors_used(contents,nb_planes,width,height):
     """
@@ -129,6 +133,12 @@ def palette_toehb(palette):
         rval.append(((r//2)&0xF0,(g//2)&0xF0,(b//2)&0xF0))
     return rval
 
+def round_color(rgb,mask):
+    return tuple(p & mask for p in rgb)
+
+def to_rgb4_color(rgb):
+    return ((rgb[0] >>4)<<8) + ((rgb[1] >>4)<<4) +(rgb[2]>>4)
+
 def palette_regdump2palette(text):
     """ converts a winuae custom register dump (e command) to a palette
     """
@@ -255,6 +265,10 @@ def palette_16bitbe2palette(data):
     for v in (data[i]*256+data[i+1] for i in range(0,len(data),2)):
         rval.append((((v & (0xF00))>>4),((v & (0xF0))),(v & (0xF))<<4))
     return rval
+
+def palette_rgb42palette(data):
+    return [((((v & (0xF00))>>4),((v & (0xF0))),(v & (0xF))<<4)) for v in data]
+
 
 def palette_tojascpalette(rgblist,outfile):
     with open(outfile,"w") as f:
