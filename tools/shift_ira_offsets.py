@@ -22,8 +22,7 @@ elif abs_offset.startswith("0x"):
 elif abs_offset.startswith("$"):
     offset = int(offset.replace("$",""),16)
 
-print(offset)
-print("Applying hex {:x} offset shift".format(offset))
+print("Applying ${:x} offset shift".format(offset))
 
 infile = args.ira_in_file
 outfile = args.ira_out_file
@@ -31,9 +30,9 @@ outfile = args.ira_out_file
 def shift_offset(m):
     v = m.group(1)
     l = len(v)
-    return ";{v:0{l}x}:".format(l=l,v=int(v,16)+offset)
+    return ";{v:0{l}x}".format(l=l,v=int(v,16)+offset)
 
 with open(infile) as fr, open(outfile,"w") as fw:
     for line in fr:
-        line = re.sub(";(\w+):",shift_offset,line)
+        line = re.sub(";(\w+)",shift_offset,line)
         fw.write(line)

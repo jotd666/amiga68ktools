@@ -1,9 +1,30 @@
 import re,os,subprocess,shutil
 
 
-general_instruction_re = re.compile(r"^\s+\b([^\s]*)\b\s*([^\s]*)\s*;([a-f0-9]{2,}): (.*)")
+general_instruction_re = re.compile(r"^\s+\b([^\s]*)\b\s*([^\s]*)\s*;([a-f0-9]{2,}): (\w{2,})")
 dc_instruction_re = re.compile(r"^\s+\b(DC\..)\b\s*([^\s]*)\s*;([a-f0-9]{2,})",flags=re.I)
 decl_label_re = re.compile("^(\w+):")
+
+def get_offset(line):
+    """ try to extract offset from either offset comment or label
+    """
+    offset = None
+
+    m = general_instruction_re.match(line)
+    if m:
+        offset = m.group(3)
+    else:
+        m = dc_instruction_re.match(line)
+        if m:
+            offset = m.group(3)
+        else:
+            m = re.match("lb_(\w+)",line)
+            if m:
+                offset = m.group(1)
+
+    if offset is None:
+        raise Exception("Cannot compute offset for line: {}".format(line))
+    return int(offset,16)
 
 def convert_instruction_to_data(line):
     m = general_instruction_re.match(line)
@@ -17,7 +38,8 @@ def convert_instruction_to_data(line):
 def is_branch_instruction(inst):
     """ checks if the instruction is a branch instruction"""
     instws = inst.split(".")[0].lower()
-    return instws.startswith("b") and len(instws)<4
+    return instws in ["dbf","jmp","jsr"] or (instws.startswith("b") and len(instws)<4) or \
+             (instws.startswith("d") and is_branch_instruction(instws[1:]))
 
 def get_dc_line(hexstring,comment=None):
     """

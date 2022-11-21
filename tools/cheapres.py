@@ -108,7 +108,8 @@ class Template:
         self.__libname2handle = {k:k.title()+"Base" for k,_ in self.__lvo_dict}
         self.__libname2libstr = {k:k.title()+"Name" for k,_ in self.__lvo_dict}
         self.__handle2libname = {v:k for k,v in self.__libname2handle.items()}
-
+        # special case for exec short accessing mode
+        self.__handle2libname["ExecBase.W"] = "exec"
 
     def __parse_args(self):
          # Command definition

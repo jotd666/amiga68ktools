@@ -10,6 +10,7 @@ parser.add_argument("asmfile", help="assembly file")
 parser.add_argument("--binfile", help="binary file")
 parser.add_argument("--outfile", help="assembly fixed file")
 parser.add_argument("--fix-data", help="split dc.l in dc.w",action="store_true")
+parser.add_argument('-i',"--ignore-bcc", help="ignore fake branch instructions",action="store_true")
 parser.add_argument("--split-dcl", help="split dc.l in dc.w",action="store_true")
 parser.add_argument("--start-offset", help="start offset of binary file in hex ex: 0x8000")
 args = parser.parse_args()
@@ -53,15 +54,28 @@ for start,end in segs:
         new_has_inst = False
         sl = line.split(";")[0]
         lab_in_line =  "LAB_" in sl or "lb_" in sl
-        if not has_dc and ira_asm_tools.dc_instruction_re.match(line) and not lab_in_line:
+        dcre = ira_asm_tools.dc_instruction_re.match(line)
+        ire = ira_asm_tools.general_instruction_re.match(line)
+        branch_instruction = False
+        if ire:
+            instruction = ire.group(1)
+            branch_instruction = ira_asm_tools.is_branch_instruction(instruction)
+
+        if not has_dc and dcre and not lab_in_line:
             has_dc = True
-        if not has_inst and ira_asm_tools.general_instruction_re.match(line) and lab_in_line:
+        if not has_inst and ire and lab_in_line:
             new_has_inst = True
         if new_has_inst:
             has_inst = True
         if has_dc and has_inst and not reported:
-            print("{}: (range {}-{}): mixed DC/instruction with label".format(i+1,start+1,end+1))
-            reported = True
+            #pc_relative = "(PC)" in line
+            if branch_instruction:
+                if not args.ignore_bcc:
+                    print("{}: (range {}-{}): mixed DC/branch with label".format(i+1,start+1,end+1))
+                    reported = True
+            else:
+                print("{}: (range {}-{}): mixed DC/instruction with label".format(i+1,start+1,end+1))
+                reported = True
             data_segs.append((start,end))
         if reported and new_has_inst:
             print("    {}".format(line.strip()))
@@ -140,7 +154,7 @@ if args.outfile:
         else:
             new_lines.append(line)
 
-
-    with open(args.outfile,"w") as f:
-        f.writelines(new_lines)
+    if args.outfile:
+        with open(args.outfile,"w") as f:
+            f.writelines(new_lines)
 
