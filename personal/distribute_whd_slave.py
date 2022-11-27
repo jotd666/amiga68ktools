@@ -34,10 +34,10 @@ def makeaddress(f,d):
 try:
 
     for devdir in (os.path.abspath(x) for x in args.slave_dev_dir): # r"C:\DATA\jff\AmigaHD\PROJETS\HDInstall\DONE\D\DataStormHDDev"
-        tmpdir = os.path.join(temp,os.path.basename(devdir)[:-5]+"Install")
+        tmpdir = os.path.join(temp,os.path.basename(devdir)+"Install")
         usrdir = os.path.join(devdir,"usr")
 
-        gamename = os.path.basename(devdir)[:-5]
+        gamename = os.path.basename(devdir)
         print("Building {}...".format(gamename))
         output = subprocess.check_output("build.bat",shell=True,stdin=subprocess.DEVNULL,cwd=devdir)
         print(output.decode("ascii",errors="ignore"))

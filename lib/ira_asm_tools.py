@@ -2,21 +2,24 @@ import re,os,subprocess,shutil
 
 
 general_instruction_re = re.compile(r"^\s+\b([^\s]*)\b\s*([^\s]*)\s*;([a-f0-9]{2,}): (\w{2,})")
-dc_instruction_re = re.compile(r"^\s+\b(DC\..)\b\s*([^\s]*)\s*;([a-f0-9]{2,})",flags=re.I)
+dc_instruction_re = re.compile(r"^\s+\b(DC\..)\b\s*([^\s]*|[\"'].*[\"'])\s*;([a-f0-9]{2,})",flags=re.I)
 decl_label_re = re.compile("^(\w+):")
 
 def get_offset(line):
     """ try to extract offset from either offset comment or label
     """
     offset = None
-
+    size = 0
     m = general_instruction_re.match(line)
     if m:
         offset = m.group(3)
+        size = len(m.group(4))//2
     else:
         m = dc_instruction_re.match(line)
         if m:
+            dc = m.group(1)[-1].lower()
             offset = m.group(3)
+            size = {"l":4,"w":2,"b":1}[dc]
         else:
             m = re.match("lb_(\w+)",line)
             if m:
@@ -24,7 +27,7 @@ def get_offset(line):
 
     if offset is None:
         raise Exception("Cannot compute offset for line: {}".format(line))
-    return int(offset,16)
+    return (int(offset.split("_")[0],16),size)
 
 def convert_instruction_to_data(line):
     m = general_instruction_re.match(line)
@@ -63,7 +66,15 @@ def repl_function(m):
     return s
 
 def get_line_address(l):
-    return int(l.split(";")[-1].split(":")[0],16)
+    # get the ;xxxxx part with or without following colon
+    # also accepts manual following comments even without ":"
+    toks = l.split(";")[-1].split(":")
+    if len(toks)==1:
+        toks = toks[0].split()
+    if not toks:
+        return 0
+    return int(toks[0],16)
+
 def get_line_size(l):
     return len(l.split(";")[-1].split(":")[1].strip())//2
 

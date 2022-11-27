@@ -5,7 +5,7 @@ init_fixed_address
 	movem.l	d0/a0-a2,-(a7)
 	lea	profiler_control(pc),a2
 	move.l	a1,(a2)
-	clr.l	(a1)+
+	clr.l	(a1)+			; default: profiler starts disabled
 	move.l	a0,(a1)+
 	move.l	d0,(a1)
 	lea	buffer_start(pc),a2
@@ -59,6 +59,8 @@ profiler_vbl_interrupt
 ; < A0: program stack
 ; call each vbl/copper interrupt
 ; for instance (can be a CIA fine timer interrupt too)
+; profiler control longword must be set to non-zero
+; for profiler to be active
 
 profiler_vbl_hook:
 	movem.l	a0/a1/d1,-(a7)
