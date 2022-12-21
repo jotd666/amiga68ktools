@@ -2,7 +2,8 @@ import sys,re,os
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument("offset")
+parser.add_argument("offset",help="value of offset to add/sub (decimal/hex with $ or 0x)")
+parser.add_argument("-n","--negate",action="store_true")
 parser.add_argument("ira_in_file")
 parser.add_argument("ira_out_file")
 
@@ -14,13 +15,15 @@ args = parser.parse_args()
 offset = args.offset
 
 # try to figure out offset, hex, decimal
-abs_offset=offset.lstrip("-")
-if abs_offset.isdigit():
+if offset.isdigit():
     offset = int(offset)
-elif abs_offset.startswith("0x"):
+elif offset.startswith("0x"):
     offset = int(offset,16)
-elif abs_offset.startswith("$"):
+elif offset.startswith("$"):
     offset = int(offset.replace("$",""),16)
+
+if args.negate:
+    offset = -offset
 
 print("Applying ${:x} offset shift".format(offset))
 
