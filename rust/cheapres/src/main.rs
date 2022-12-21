@@ -1,5 +1,9 @@
 use clap::Parser;
 
+mod lvos;
+
+use lvos::lvos::Lvo;
+   	
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -16,7 +20,8 @@ struct Args {
 fn main() {
    let args = Args::parse();
 
-       println!("Hello {}!", args.input_file);
-       println!("Hello {}!", args.output_file);
+   /*    println!("Hello {}!", args.input_file);
+       println!("Hello {}!", args.output_file);*/
    
+   let lvo = Lvo::new();
 }
