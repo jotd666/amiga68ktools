@@ -1,8 +1,8 @@
 use clap::Parser;
 
-mod lvos;
+mod input_files;
 
-use lvos::lvos::Lvo;
+use input_files::input_files::Lvo;
    	
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
