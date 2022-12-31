@@ -1,5 +1,5 @@
 import os,sys,re,glob
-import getopt,traceback,codecs
+import getopt,traceback,codecs,itertools
 #import count_usage
 
 import fnmatch,shutil
@@ -9,10 +9,12 @@ class Template:
     __MODULE_FILE = __file__
     __PROGRAM_NAME = os.path.basename(__MODULE_FILE)
     __PROGRAM_DIR = os.path.abspath(os.path.dirname(__MODULE_FILE))
+    __BASEREG_RE = re.compile("A([0-6]):([0-9A-F]*)",re.I)
 
     def __init__(self):
         self.__logfile = ""
         # init members with default values
+        self.__base_register = None
         self.__input_file = None
         self.__output_file = None
         self.__lvo_dict = {}
@@ -22,6 +24,9 @@ class Template:
         self.__handle2libname ={}
         self.__entitytype = {}
         self.__lab2line = {}
+        self.__line2lab = {}
+        self.__offset2line = {}
+        self.__line2offset = {}
         self.__audio_offsets = {4:"ac_len",6:"ac_per",8:"ac_vol",10:"ac_dat"}
 
     def init_from_sys_args(self,debug_mode = True):
@@ -29,12 +34,6 @@ class Template:
 
         self.__do_init()
 
-# uncomment if module mode is required
-##    def init(self,my_arg_1):
-##        """ module mode """
-##        # set the object parameters using passed arguments
-##        self.__output_file = my_arg_1
-##        self.__doit()
 
     @staticmethod
     def __parse_int(v):
@@ -117,7 +116,7 @@ class Template:
 
         self.__opt_string = ""
 
-        longopts_eq = ["version","help","input-file=","output-file="]
+        longopts_eq = ["version","help","input-file=","output-file=","base-register="]
 
         self.__shortopts = []
         self.__longopts = []
@@ -160,6 +159,9 @@ class Template:
             oi += 1
             if option in ('-o','--'+self.__longopts[oi]):
                 self.__output_file = value
+            oi += 1
+            if option in ('-b','--'+self.__longopts[oi]):
+                self.__base_register = value
 
         if self.__input_file == None:
             self.__error("output file not set")
@@ -169,8 +171,8 @@ class Template:
         sys.stderr.write("Usage: "+self.__PROGRAM_NAME+self.__opt_string+os.linesep)
 
     __EXECCOPY_RE = re.compile("MOVE.*ABSEXECBASE.*,(LAB_....)\s",flags=re.I)
-    __LAB_RE = re.compile("(LAB_....|ABSEXECBASE)",flags=re.I)
-    __LABELDECL_RE = re.compile("(LAB_....):",flags=re.I)
+    __LAB_RE = re.compile("(LAB_....|lb_[0-9A-F]+|ABSEXECBASE)",flags=re.I)
+    __LABELDECL_RE = re.compile("^(\w+):",flags=re.I)
     __LEAHARDBASE_RE = re.compile("LEA\s+HARDBASE,A([0-6])",flags=re.I)
     __MOVEHARDBASE_RE = re.compile("MOVEA?.L\s+#\$00DFF000,A([0-6])",flags=re.I)
     __SET_AX_RE = re.compile("MOVEA?\.L\s+([\S]+),A([0-6])\s",flags=re.I)
@@ -195,7 +197,9 @@ class Template:
             else:
                 m = self.__LABELDECL_RE.match(line)
                 if m:
-                    self.__lab2line[m.group(1)] = i
+                    v = m.group(1)
+                    self.__lab2line[v] = i
+                    self.__line2lab[i] = v
 
         self.__input_lines = [self.__LAB_RE.sub(lambda m : "ExecBase"
         if m.group(1) in execbase_copies else m.group(1),line) for line in self.__input_lines]
@@ -467,7 +471,130 @@ class Template:
                     if newline != line:
                         self.__input_lines[i] = newline
 
+    def __create_offset2line_dict(self):
+        # create offset => line dict
+
+        offset_re = re.compile(";([0-9A-F]+)",re.I)
+        for i,line in enumerate(self.__input_lines):
+            m = offset_re.search(line)
+            if m:
+                co = int(m.group(1),16)
+                self.__offset2line[co] = i
+                self.__line2offset[i] = co
+
+    def __pack_jump_tables(self):
+        previous_is_jmp = False
+        new_lines = []
+        # 4EF9 + label in a data section means that someone has put
+        # a jump table in the data section...
+        dc_jmp_re = re.compile("\s+dc.w\s+\$4EF9\s+;([0-9A-F]+)",re.I)
+        dc_lab_re = re.compile("\s+dc.l\s+(\S+)",re.I)
+        previous_line = ""
+        for line in self.__input_lines:
+            if previous_is_jmp:
+                previous_is_jmp = False
+                m = dc_lab_re.match(line)
+                if not m:
+                    # ooops... abort abort
+                    new_lines.append(previous_line)
+                else:
+                    line = "\tJMP\t{}\t;{}\n".format(m.group(1),jmp_offset)
+            else:
+                m = dc_jmp_re.match(line)
+                if m:
+                    jmp_offset = m.group(1)
+                    previous_is_jmp = True
+                    previous_line = line  # store previous line just in case...
+                    continue        # do not write that line
+
+            new_lines.append(line)
+
+        self.__input_lines = new_lines
+
+    def __link_offset_references_to_labels(self):
+
+        # if base register is set, try to locate its init address
+        # then comment call references with the actual offset in the file
+        if self.__base_register is not None:
+            register_index,register_set_offset = self.__register_index,self.__register_set_offset
+            self.__create_offset2line_dict()
+
+            if register_set_offset:
+                register_set_offset = int(register_set_offset,16)
+                # grab the line with the offset
+                lineno = self.__offset2line.get(register_set_offset)
+                if lineno is not None:
+                    register_set_line = self.__input_lines[lineno]
+                else:
+                    self.__error("Offset {:x} not found in file".format(register_set_offset))
+            else:
+                # automatic mode TODO
+                self.__error("Automatic mode not implemented yet")
+
+            regset_re = re.compile("\s+lea\s+(.*),a{}".format(register_index),re.I)
+            m = regset_re.match(register_set_line)
+            if not m:
+                self.__error("Line at offset {:x} doesn't match register load: {}".format(register_set_offset,register_set_line.strip()))
+            expression = m.group(1)
+            # try to match several expressions to compute data
+            for ere in ["(\w+)\(pc\)","\((\w+),pc\)","(\w+)\+(\d+)"]:
+                m = re.match(ere,expression,flags=re.I)
+                if m:
+                    label = m.group(1)
+                    line = self.__lab2line[label]
+                    label_base_offset = self.__line2offset.get(line+1)
+                    if label_base_offset is None:
+                        self.__error("Cannot find offset of base label {}".format(label))
+                    if len(m.groups())==2:
+                        # add offset
+                        label_base_offset += int(m.group(2))
+                    break
+            # we have base offset for the label
+            self.__message("Base offset for A{} is ${:x}".format(register_index,label_base_offset))
+
+            ere = re.compile("\(-(\d+),A{0}\)|-(\d+)\(A{0}\)".format(register_index),re.I)
+            jmp_re = re.compile("\tJMP\t(\w+)",re.I)
+
+            # now scan the file & comment when offset is found
+            for i,line in enumerate(self.__input_lines):
+                if " (links:" not in line:
+                    toks = ere.findall(line)
+                    if toks:
+                        toks = [int(x) for x in itertools.chain.from_iterable(toks) if x]
+                        outtoks = []
+                        for offset in toks:
+                            code_offset = label_base_offset-offset
+                            lineno = self.__offset2line.get(code_offset)
+                            if lineno is not None:
+                                # try to see if it matches a label (line above)
+                                label_above = self.__line2lab.get(lineno-1)
+                                if label_above:
+                                    outtoks.append("aka={}".format(label_above))
+                                else:
+                                    # last chance: if there's a JMP line here, link it
+                                    link_line = self.__input_lines[lineno]
+                                    m = jmp_re.match(link_line)
+                                    if m:
+                                        outtoks.append("jmp={}".format(m.group(1)))
+                                    else:
+                                        lineno = None
+                            # default case
+                            if lineno is None:
+                                outtoks.append("off=${:x}".format(code_offset))
+
+                        # append the tokens as a comment
+                        newline = "{} (links:{})\n".format(self.__input_lines[i].rstrip(),",".join(outtoks))
+                        self.__input_lines[i] = newline
+
     def __doit(self):
+        # if base register is set, try to locate its init address
+        # then comment call references with the actual offset in the file
+        if self.__base_register is not None:
+            m = self.__BASEREG_RE.match(self.__base_register)
+            if not m:
+                self.__error("base register expression must be A<regindex>:<offset_in_hex>\n"
+                "or A<regindex>:<empty> for autoscan. Ex: A6:456A2 or A4:")
+            self.__register_index,self.__register_set_offset = m.groups()
 
         if self.__input_file == self.__output_file:
             self.__output_file = None  # overwrite, don't trust exe!
@@ -483,6 +610,14 @@ class Template:
         # reading the full file lines
         with open(self.__input_file) as f:
             self.__input_lines = f.readlines()
+
+        # some jump tables are in data sections.
+#    DC.W    $4ef9            ;00314
+#    DC.L    lb_00000        ;00316: 00000000
+#
+# convert to: JMP lb_00000
+
+        self.__pack_jump_tables()
 
         # try to see if execbase is copied in a local label or something
         # also build a label => line dict for faster label lookup
@@ -504,6 +639,9 @@ class Template:
 
         # now try to replace $DFF000-based stuff
         self.__identify_custom_registers()
+
+        # now try to link base offsetted addresses to real symbols
+        self.__link_offset_references_to_labels()
 
 
         #sys.stdout.write("".join(self.__input_lines))
