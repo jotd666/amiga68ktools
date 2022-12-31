@@ -5,7 +5,7 @@ import getopt,traceback,codecs
 import fnmatch,shutil
 
 class Template:
-    __VERSION_NUMBER = "1.0"
+    __VERSION_NUMBER = "1.1"
     __MODULE_FILE = __file__
     __PROGRAM_NAME = os.path.basename(__MODULE_FILE)
     __PROGRAM_DIR = os.path.abspath(os.path.dirname(__MODULE_FILE))
@@ -174,11 +174,13 @@ class Template:
     __LEAHARDBASE_RE = re.compile("LEA\s+HARDBASE,A([0-6])",flags=re.I)
     __MOVEHARDBASE_RE = re.compile("MOVEA?.L\s+#\$00DFF000,A([0-6])",flags=re.I)
     __SET_AX_RE = re.compile("MOVEA?\.L\s+([\S]+),A([0-6])\s",flags=re.I)
+    __SUBROUTINE_RE = re.compile("\s+(JMP|JSR|BSR.*)\s+(\w+)",flags=re.I)
     __SYSCALL_RE = re.compile("(JMP|JSR)\s+(-\d+)\(A6\)",flags=re.I)
     __SYSCALL_RE2 = re.compile("(JMP|JSR)\s+\((-\d+),A6\)",flags=re.I)
     __SYSCALL_RE3 = re.compile("(JMP|JSR)\s+(-\$[\dA-F]+)\(A6\)",flags=re.I)
     __VALID_BASE = re.compile("([\-\w]{3,}(\(A\d\))?)",flags=re.I)
     __ADDRESS_REG_RE = re.compile("A([0-6])",flags=re.I)
+    __DCL_RE = re.compile("\s+DC\.L\s+(\w+)",flags=re.I)
     __RETURN_RE = re.compile(r"\b(RT[SED])\b",flags=re.I)
     __AX_DI_RE = re.compile("([\s,])(\$[0-9A-F]+|\d+)\(A([0-6])\)",flags=re.I)
     __AX_DI_RE_2 = re.compile("([\s,])\((\$[0-9A-F]+|\d+),A([0-6])\)",flags=re.I)
@@ -261,6 +263,67 @@ class Template:
 
         for i,line in enumerate(self.__input_lines):
             newline = re.sub("(LAB_....\+?\d*)",lambda m : label_libname.get(m.group(1),m.group(1)),line)
+            if newline != line:
+                self.__input_lines[i] = newline
+
+
+    def __find_os_wrapper_functions(self):
+        # some programs (C-based) use wrapper functions to call OS
+        # functions, making reverse engineering tedious: name them properly
+        repdict = dict()
+
+        entries = set()
+        for line in self.__input_lines:
+            m = self.__SUBROUTINE_RE.match(line)
+            if m:
+                entries.add(m.group(2))
+            else:
+                m = self.__DCL_RE.match(line)
+                if m:
+                    entries.add(m.group(1))
+
+        previous_line = ""
+        entry_found = False
+        entry = ""
+
+        for line in self.__input_lines:
+            label_line = line.startswith(("SECSTRT","LAB_","lb_"))
+
+            if entry_found:
+                # now scanning the current routine
+                if label_line:
+                    # too complex, bail out
+                    entry_found = False
+                else:
+                    # looking for LVOas JMP
+                    m = re.search("JMP.*LVO(\w+).*\s(\w+)\.library",line,flags=re.I)
+                    if m:
+                        # found an indirection to OS lib
+                        lvo = m.group(1)
+                        lib = m.group(2)
+                        repdict[entry] = "{}_{}".format(lib,lvo)
+                        # done
+                        entry_found = False
+
+                    elif "MOVE" not in line.upper():
+                        # complex instruction: bail out
+                        entry_found = False
+
+            else:
+                if label_line:
+                    # label found. Is this likely to be a label that is called?
+                    entry = line.strip("\n:")
+                    if entry in entries:
+                        entry_found = True
+
+
+            previous_line = line
+
+        self.__replace_words(repdict)
+
+    def __replace_words(self,repdict):
+        for i,line in enumerate(self.__input_lines):
+            newline = re.sub(r"\b(\w+)\b",lambda m : repdict.get(m.group(1),m.group(1)),line)
             if newline != line:
                 self.__input_lines[i] = newline
 
@@ -435,6 +498,9 @@ class Template:
         self.__identify_libs()
 
         self.__identify_libhandle_copies()
+
+        # now try to find relay functions and rename them
+        self.__find_os_wrapper_functions()
 
         # now try to replace $DFF000-based stuff
         self.__identify_custom_registers()

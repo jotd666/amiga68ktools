@@ -1,5 +1,11 @@
 import PIL.Image,math,struct,json
 
+PALETTE_FORMAT_ASMMOT = 1
+PALETTE_FORMAT_ASMGNU = 1<<1
+PALETTE_FORMAT_BINARY = 1<<2
+PALETTE_FORMAT_COPPERLIST = 1<<3
+
+
 def palette_load_from_json(filename):
     with open(filename) as f:
         p = [tuple(x) for x in json.load(f)]
@@ -156,19 +162,22 @@ def palette_regdump2palette(text):
         pass
     return [item for k,item in sorted(rval.items())]
 
-def __palette_dump(palette,f,as_copperlist,as_binary,low_nibble):
+def __palette_dump(palette,f,pformat,low_nibble):
     """
     dump a list of RGB triplets to an RGB4 binary output file
     """
     aga = len(palette)>32
     nb = 0
     colreg = 0
+    dcw = "dc.w" if pformat & PALETTE_FORMAT_ASMMOT else ".word"
+    hexs = "$" if pformat & PALETTE_FORMAT_ASMMOT else "0x"
+
     for r,g,b in palette:
-        if not as_binary:
+        if (pformat & PALETTE_FORMAT_BINARY) == 0:
             if nb % 8 == 0:
                 if nb:
                     f.write("\n")
-                f.write("\tdc.w\t")
+                f.write("\t{}\t".format(dcw))
             else:
                 f.write(",")
             nb+=1
@@ -177,7 +186,7 @@ def __palette_dump(palette,f,as_copperlist,as_binary,low_nibble):
             value = ((r & 0xF) << 8) + ((g & 0xF) << 4) + (b & 0xF)
         else:
             value = ((r>>4) << 8) + ((g>>4) << 4) + (b>>4)
-        if as_copperlist:
+        if pformat & PALETTE_FORMAT_COPPERLIST:
             bank,colmod = divmod(colreg,32)
             if colmod == 0 and aga:
                 # issue bank
@@ -185,19 +194,19 @@ def __palette_dump(palette,f,as_copperlist,as_binary,low_nibble):
                 if as_binary:
                     f.write(struct.pack(">HH",*params))
                 else:
-                    f.write("${:x},${:x}\n\tdc.w\t".format(*params))
+                    f.write("{3}{0:x},{3}{1:x}\n\t{2}\t".format(params[0],params[1],dcw,hexs))
             colout = colmod*2 + 0x180
-            if as_binary:
+            if pformat & PALETTE_FORMAT_BINARY:
                 f.write(struct.pack(">HH",colout,value))
             else:
-                f.write("${:04x},${:04x}".format(colout,value))
+                f.write("{2}{0:04x},{2}{1:04x}".format(colout,value,hexs))
             colreg+=1
         else:
-            if as_binary:
+            if pformat & PALETTE_FORMAT_BINARY:
                 f.write(struct.pack(">H",value))
             else:
-                f.write("${:04x}".format(value))
-    if not as_binary:
+                f.write("{}{:04x}".format(hexs,value))
+    if not pformat & PALETTE_FORMAT_BINARY:
         f.write("\n")
 
 def palette_to_image(palette,output):
@@ -214,19 +223,21 @@ def palette_to_image(palette,output):
 
     img.save(output)
 
-def palette_dump(palette,output,as_copperlist=False,as_binary=False,high_precision=False):
+
+def palette_dump(palette,output,pformat=PALETTE_FORMAT_ASMMOT,high_precision=False):
+    as_binary = pformat & PALETTE_FORMAT_BINARY
     mode = "wb" if as_binary else "w"
     if high_precision:
         with open(output,mode) as f:
             # upper nibble
-            __palette_dump(palette,f,as_copperlist=as_copperlist,as_binary=as_binary,low_nibble=False)
-            if not as_copperlist and not as_binary:
+            __palette_dump(palette,f,pformat=pformat,low_nibble=False)
+            if not pformat & PALETTE_FORMAT_COPPERLIST and not as_binary:
                 f.write("\t;lower nibble\n")
-            __palette_dump(palette,f,as_copperlist=as_copperlist,as_binary=as_binary,low_nibble=True)
+            __palette_dump(palette,f,pformat,low_nibble=True)
     else:
         with open(output,mode) as f:
             # upper nibble
-            __palette_dump(palette,f,as_copperlist=as_copperlist,as_binary=as_binary,low_nibble=False)
+            __palette_dump(palette,f,pformat,low_nibble=False)
 
 
 def palette_extract(input_image,palette_precision_mask=0xFF):

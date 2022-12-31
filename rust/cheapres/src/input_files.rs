@@ -3,16 +3,6 @@ use regex::Regex;
 
 pub mod input_files
 {
-   const EQU_RE_STRING : &str = r"(\w+)\s+equ\s+(-\d+)";
-	
-   pub struct Lvo
-   {
-	   entity_type : std::collections::HashMap<String,String>,
-	   libname2handle : std::collections::HashMap<String,String>,
-	   libname2libstr : std::collections::HashMap<String,String>,
-	   offset_name : std::collections::HashMap<(String,i32),String>,
- 
-    }
    
    fn build_regex(s : &str) -> regex::Regex
    {
@@ -22,6 +12,16 @@ pub mod input_files
    {
 	   regex::Regex::new(&format!("(?i){s}")[..]).unwrap()
    }
+	
+   pub struct Lvo
+   {
+	   entity_type : std::collections::HashMap<String,String>,
+	   libname2handle : std::collections::HashMap<String,String>,
+	   libname2libstr : std::collections::HashMap<String,String>,
+	   offset_name : std::collections::HashMap<(String,i32),String>, 
+	   custom_name : std::collections::HashMap<i32,String>, 
+    }
+   
    
   impl Lvo
    {
@@ -37,14 +37,17 @@ pub mod input_files
 	  {
 
 		  let lvo_lines = std::str::from_utf8(include_bytes!("LVOs.i")).unwrap().lines();
+		  let custom_lines = std::str::from_utf8(include_bytes!("custom.i")).unwrap().lines();
 		  let lvo_re = build_regex(r"\*+\sLVOs for (.*)\.(library|resource)");
-		  let eq_re = build_regex(EQU_RE_STRING);
+		  let eq_off_re = build_regex(r"(\w+)\s+equ\s+(-\d+)");
+		  let eq_cust_re = build_regex(r"(?i)(\w+)\s+equ\s+\$([a-f\d]+)");
 		
 		  let mut rval = Lvo{
 			  entity_type : std::collections::HashMap::new(),
 			  offset_name : std::collections::HashMap::new(),
 			  libname2handle : std::collections::HashMap::new(),
 			  libname2libstr : std::collections::HashMap::new(),
+			  custom_name : std::collections::HashMap::new(),
 		  };
 
 		  let mut libname = "";
@@ -58,12 +61,22 @@ pub mod input_files
 				  libtype = caps.get(2).map_or("", |m| m.as_str());
 				  rval.entity_type.insert(libname.to_string(),libtype.to_string());
 				  
-			  } else if let Some(caps) = eq_re.captures(line) {
+			  } else if let Some(caps) = eq_off_re.captures(line) {
 				  let funcname = caps.get(1).map_or("", |m| m.as_str()).to_string();
 				  let funcoffset = caps.get(2).map_or("", |m| m.as_str()).parse::<i32>().unwrap();
 				  rval.offset_name.insert((libname.to_string(),funcoffset),funcname);
 			  }
 		  }
+		  // populate the custom types
+		  for line in custom_lines
+		  {
+			  if let Some(caps) = eq_cust_re.captures(line) {
+				  let regname = caps.get(1).map_or("", |m| m.as_str()).to_string();
+				  let regoffset = i32::from_str_radix(caps.get(2).map_or("", |m| m.as_str()), 16).unwrap();
+				  rval.custom_name.insert(regoffset,regname);
+			  }
+		  }
+
 		  // in the end create some aux mappings
 		  for ((key,_), _) in &rval.offset_name {
 			  let prefix = Self::capitalize(&key);
@@ -76,6 +89,7 @@ pub mod input_files
 		  rval
 	  }
    }
+
    
    pub struct AsmFile
    {
