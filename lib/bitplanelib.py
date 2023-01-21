@@ -232,7 +232,8 @@ def palette_dump(palette,output,pformat=PALETTE_FORMAT_ASMMOT,high_precision=Fal
             # upper nibble
             __palette_dump(palette,f,pformat=pformat,low_nibble=False)
             if not pformat & PALETTE_FORMAT_COPPERLIST and not as_binary:
-                f.write("\t;lower nibble\n")
+
+                f.write("\t{}lower nibble\n".format(";" if pformat & PALETTE_FORMAT_ASMMOT else "*"))
             __palette_dump(palette,f,pformat,low_nibble=True)
     else:
         with open(output,mode) as f:

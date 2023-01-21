@@ -1212,4 +1212,26 @@ _LVOGetNVInfo  equ  -54
 _LVOGetNVList  equ  -60
 _LVOSetNVProtection  equ  -66
 
+********************* LVOs for medplayer.library ***********************
+
+_LVOGetPlayer      equ -30
+_LVOFreePlayer      equ -36
+_LVOPlayModule      equ -42
+_LVOContModule      equ -48
+_LVOStopPlayer      equ -54
+_LVODimOffPlayer      equ -60
+_LVOSetTempo      equ -66
+_LVOLoadModule      equ -72
+_LVOUnLoadModule      equ -78
+_LVOGetCurrentModule      equ -84
+_LVOResetMIDI      equ -90
+_LVOSetModnum      equ -96
+_LVORelocModule      equ -102
+_LVORequiredPlayRoutine      equ -108
+_LVOFastMemPlayRecommended      equ -114
+_LVOLoadModule_Fast      equ -120
+_LVOSetFastMemPlay      equ -126
+
+
+
 **************************************************************************

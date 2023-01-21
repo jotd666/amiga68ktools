@@ -1,13 +1,65 @@
-usage is: cheapres.py -i input_file.asm -o output_file.asm.
+usage is: cheapres.py -i input_file.asm -o output_file.asm <-b A4baseexpr>
 
 Omitting the output overwrites the input (which can be regenerated at will probably)
 
+It can now handle os wrapping functions.
+
 Dependencies are kept to their minimum (no other python modules than already existing builtins, maybe it would even run on amiga in python 2.4 with minimum adaptations).
 
+Future:
+
+- print the number of UNKNOWN library calls in the end
+- ability to read library base variables in a json configuration file to avoid renaming those manually and then not being able to
+  reassemble it binary-identical
 
 FAQ
 
-Q: how cheapres recognize the different libraries bases? Do you look for specific text like ExecBase, IntuitionBase is their a list? Or is it done differently?
+*Q*: how cheapres recognize the different libraries bases? Do you look for specific text like ExecBase, IntuitionBase is their a list? Or is it done differently?
 
-A: ExecBase, IntuitionBase, GraphicsBase... basically name of the lib with first letter uppercased. Ex: lowlevel.library => LowlevelBase.
+*A*: ExecBase, IntuitionBase, GraphicsBase... basically name of the lib with first letter uppercased. Ex: lowlevel.library => LowlevelBase.
    You can manually set them if the program uses a proxy routine to open the libraries (often happens in C programs)
+
+*Q*: some dumb compiler put jump tables in a DATA section. This is stupid
+
+*A*: Yes, but I have added the ability to recognize jump tables in DATA section so
+
+   dc.w  $4EF9
+   dc.w  some_func
+
+becomes
+
+  jmp some_func
+
+*Q*: how annoying are those MANX -xxx(A4) offsets, really. I'm lost in my code
+
+*A*: those A4 register-based variables that are hell... I know IRA can handle them, and so yesterday I added this feature as well here.
+
+say you have located the LEA to A4 in your code:
+
+	LEA	lb_00314+32766,A4	;2b2be: 49f900008312
+
+use cheapres like this
+
+	cheapres.py -i source.asm -b A4:2b2be
+	cheapres.py: Base offset for A4 is $8312
+
+cheapres parses the LEA expression (can't be too complex either!) and computes offset for A4. Then it's able to link the A4 addresses to offsets by annotating them in comments
+
+	MOVE.L	A7,-13628(A4)		;2b268: 294fcac4 (links:aka=lb_04dd6)
+
+Also, the A4 link checks if the offset contains a label (as shown above), if it doesn't, it tries to see if it's not _jumping_ to a label (idirection) and sets link accordingly.
+
+To conclude, cheapres also detects wrapper functions that just get args from stack and JMP to OS function. Both features above are illustrated below
+
+	lb_2b474:
+		JMP	-30780(A4)		;2b474: 4eec87c4 (links:jmp=dos_Rename)
+
+		SECTION S_67,CODE
+
+	dos_Rename:
+		MOVEM.L	4(A7),D1-D2		;2b478: 4cef00060004
+		MOVEA.L	DosBase,A6		;2b47e: 2c6ccad0
+		JMP	(_LVORename,A6)	;2b482: 4eeeffb2 dos.library (off=-78)
+		DC.W	$0000			;2b486
+
+We see that as soon as DosBase has been identified and set, the tool detects the wrapping function. And when it detects it, it also detects the other fake wrapping function that calls it (renaming of lb_2b474 isn't done, do it manually)

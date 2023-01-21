@@ -97,7 +97,7 @@ class AsmFile:
             # first transform special labels that IRA thinks it's smart to use instead of "LAB_"
             # the best way would be to have a "is_a_label" method but that would mean properly parse the asm instruction
             # with nested parentheses and all. The following seems to work properly so why bother, let's pre-process
-            self.lines = [re.sub("(\w+)",repl_function,l) for l in f]
+            self.lines = [re.sub("(\w+)",repl_function,l) if "dc.b" not in l else l for l in f]
 
         self.start_address = start_address
         self.binary_contents = None
