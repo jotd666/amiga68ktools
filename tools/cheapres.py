@@ -27,6 +27,7 @@ class Template:
         self.__line2lab = {}
         self.__offset2line = {}
         self.__line2offset = {}
+        self.__base_aliases = {}
         self.__audio_offsets = {4:"ac_len",6:"ac_per",8:"ac_vol",10:"ac_dat"}
 
     def init_from_sys_args(self,debug_mode = True):
@@ -204,6 +205,14 @@ class Template:
         self.__input_lines = [self.__LAB_RE.sub(lambda m : "ExecBase"
         if m.group(1) in execbase_copies else m.group(1),line) for line in self.__input_lines]
 
+    def __load_known_libs(self):
+        for line in self.__input_lines:
+            if line.startswith(";!"):
+                k,v = line[2:].strip().split("=")
+                self.__base_aliases[k]=v
+            else:
+                break
+
     def __identify_libs(self,debug=False):
         current_libbase = [None]*7
 
@@ -219,8 +228,11 @@ class Template:
             m = self.__SET_AX_RE.search(line)
             if m:
                 target_reg = int(m.group(2))
-                first_op = m.group(1).replace("(PC)","").strip("()").replace(",PC","")
+                first_op = m.group(1).replace("(PC)","").strip("(").replace(",PC)","")
                 if self.__VALID_BASE.match(first_op):
+                    # if finds an alias for a lib base, replaces it
+                    first_op = self.__base_aliases.get(first_op,first_op)
+
                     current_libbase[target_reg] = first_op
                     if debug:
                         print("current_libbase for register A{}: {}".format(target_reg,current_libbase[target_reg]))
@@ -610,6 +622,9 @@ class Template:
         # reading the full file lines
         with open(self.__input_file) as f:
             self.__input_lines = f.readlines()
+
+        # read special comments at start
+        self.__load_known_libs()
 
         # some jump tables are in data sections.
 #    DC.W    $4ef9            ;00314

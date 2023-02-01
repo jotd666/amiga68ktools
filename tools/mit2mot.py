@@ -121,7 +121,6 @@ if args.fixduplabels or args.showduplabels:
                 lines = re.sub(r"\b{}\b".format(rep),"."+rep,lines)
 
 
-
 with open(args.output_file,"w") as f:
     f.write(lines)
 
