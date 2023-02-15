@@ -8,6 +8,8 @@
 #
 # https://devel.rtems.org/browser/rtems/c/src/lib/libcpu/m68k/m68040/fpsp?rev=f9b93da8b47ff7ea4d6573b75b6077f6efb8dbc6&order=name
 #
+# missing dbf  dx,.locallabel
+#
 import re,itertools,os,collections
 import argparse
 import simpleeval # get it on pypi (pip install simpleeval)
@@ -100,6 +102,7 @@ regexes_1 = [
 (r"\bxdef\b",r".global"),
 # conditionals
 (r"\bendc\b",r".endif"),
+(r"\belse\b",r".else"),
 (r"\bif(n*)d\b",r".if\1def"),
 # mnemonic synomyms
 (r"\bshs\b",r"scc"),

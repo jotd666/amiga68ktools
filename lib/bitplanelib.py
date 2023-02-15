@@ -4,7 +4,10 @@ PALETTE_FORMAT_ASMMOT = 1
 PALETTE_FORMAT_ASMGNU = 1<<1
 PALETTE_FORMAT_BINARY = 1<<2
 PALETTE_FORMAT_COPPERLIST = 1<<3
+PALETTE_FORMAT_PNG = 1<<4
 
+class BitplaneException(Exception):
+    pass
 
 def palette_load_from_json(filename):
     with open(filename) as f:
@@ -209,6 +212,7 @@ def __palette_dump(palette,f,pformat,low_nibble):
     if not pformat & PALETTE_FORMAT_BINARY:
         f.write("\n")
 
+
 def palette_to_image(palette,output):
     sqs = 16
     width = sqs*len(palette)
@@ -223,22 +227,25 @@ def palette_to_image(palette,output):
 
     img.save(output)
 
-
 def palette_dump(palette,output,pformat=PALETTE_FORMAT_ASMMOT,high_precision=False):
-    as_binary = pformat & PALETTE_FORMAT_BINARY
-    mode = "wb" if as_binary else "w"
-    if high_precision:
-        with open(output,mode) as f:
-            # upper nibble
-            __palette_dump(palette,f,pformat=pformat,low_nibble=False)
-            if not pformat & PALETTE_FORMAT_COPPERLIST and not as_binary:
-
-                f.write("\t{}lower nibble\n".format(";" if pformat & PALETTE_FORMAT_ASMMOT else "*"))
-            __palette_dump(palette,f,pformat,low_nibble=True)
+    if pformat & PALETTE_FORMAT_PNG:
+        # special case: png dump
+        palette_to_image(palette,output)
     else:
-        with open(output,mode) as f:
-            # upper nibble
-            __palette_dump(palette,f,pformat,low_nibble=False)
+        as_binary = pformat & PALETTE_FORMAT_BINARY
+        mode = "wb" if as_binary else "w"
+        if high_precision:
+            with open(output,mode) as f:
+                # upper nibble
+                __palette_dump(palette,f,pformat=pformat,low_nibble=False)
+                if not pformat & PALETTE_FORMAT_COPPERLIST and not as_binary:
+
+                    f.write("\t{}lower nibble\n".format(";" if pformat & PALETTE_FORMAT_ASMMOT else "*"))
+                __palette_dump(palette,f,pformat,low_nibble=True)
+        else:
+            with open(output,mode) as f:
+                # upper nibble
+                __palette_dump(palette,f,pformat,low_nibble=False)
 
 
 def palette_extract(input_image,palette_precision_mask=0xFF):
@@ -293,7 +300,7 @@ def palette_fromjascpalette(infile,rgb_mask=0xFF):
     with open(infile,"r") as f:
         header = next(f)
         if header != "JASC-PAL\n":
-            raise Exception("No header")
+            raise BitplaneException("No header")
         next(f)
         nb_colors = int(next(f))
         return [[int(x) & rgb_mask for x in next(f).split()] for _ in range(nb_colors)]
@@ -318,7 +325,7 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
     # image could be paletted already. But we cannot trust palette order anyway
     width,height = imgorg.size
     if width % 8:
-        raise Exception("{} width must be a multiple of 8, found {}".format(input_image,width))
+        raise BitplaneException("{} width must be a multiple of 8, found {}".format(input_image,width))
 
     if blit_pad:
         width += 16
@@ -328,7 +335,7 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
     min_nb_planes = int(math.ceil(math.log2(len(palette))))
     if forced_nb_planes:
         if min_nb_planes > forced_nb_planes:
-            raise Exception("Minimum number of planes is {}, forced to {} (nb colors = {})".format(min_nb_planes,forced_nb_planes,len(palette)))
+            raise BitplaneException("Minimum number of planes is {}, forced to {} (nb colors = {})".format(min_nb_planes,forced_nb_planes,len(palette)))
         nb_planes = forced_nb_planes
     else:
         nb_planes = min_nb_planes
@@ -360,7 +367,7 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
                     msg = "{}: (x={},y={}) rounded color {} (#{}) not found, orig color {} (#{}), maybe try adjusting precision mask".format(
                 input_image,x,y,p,html(p),porg,html(porg))
                     msg += " {} close colors: {}".format(len(close_colors),close_colors)
-                    raise Exception(msg)
+                    raise BitplaneException(msg)
 
                 for pindex in range(nb_planes):
                     if color_index & (1<<pindex):
@@ -388,7 +395,7 @@ def palette_image2sprite(input_image,output_filename,palette,palette_precision_m
     palette_precision_mask: 0xFF: no mask, full precision when looking up the colors, 0xF0: ECS palette mask, or custom
     """
     if len(palette) != 4:
-        raise Exception("Palette size must be 4")
+        raise BitplaneException("Palette size must be 4")
     # quick palette index lookup, with a privilege of the lowest color numbers
     # where there are duplicates (example: EHB emulated palette)
     palette_dict = {p:i for i,p in reversed(list(enumerate(palette)))}
@@ -399,7 +406,7 @@ def palette_image2sprite(input_image,output_filename,palette,palette_precision_m
     # image could be paletted already. But we cannot trust palette order anyway
     width,height = imgorg.size
     if width != 16:
-        raise Exception("{} width must be 16, found {}".format(input_image,width))
+        raise BitplaneException("{} width must be 16, found {}".format(input_image,width))
     img = PIL.Image.new('RGB', (width,height))
     img.paste(imgorg, (0,0))
     nb_planes = 2
@@ -422,7 +429,7 @@ def palette_image2sprite(input_image,output_filename,palette,palette_precision_m
                     msg = "{}: (x={},y={}) rounded color {} not found, orig color {}, maybe try adjusting precision mask (current: 0x{:x})".format(
                 input_image,x+i,y,p,porg,palette_precision_mask)
                     msg += " {} close colors: {}".format(len(close_colors),close_colors)
-                    raise Exception(msg)
+                    raise BitplaneException(msg)
 
                 for pindex in range(nb_planes):
                     if color_index & (1<<pindex):
