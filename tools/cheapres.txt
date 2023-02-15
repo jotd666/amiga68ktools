@@ -63,3 +63,16 @@ To conclude, cheapres also detects wrapper functions that just get args from sta
 		DC.W	$0000			;2b486
 
 We see that as soon as DosBase has been identified and set, the tool detects the wrapping function. And when it detects it, it also detects the other fake wrapping function that calls it (renaming of lb_2b474 isn't done, do it manually)
+
+*Q*: I don't want to change xxxx(A4) by DosBase or such because I want to reassemble the source identically. How to proceed?
+
+*A*: previous versions forced you to search/replace so cheapres could find bases. Now you can add those special comments at the
+     start of your file. Ex:
+
+;!1590(A4)=DosBase
+;!1594(A4)=IntuitionBase
+;!1598(A4)=GraphicsBase
+;!1602(A4)=LayersBase
+
+So now when cheapres encounters: move.l  1590(A4) it knows it's dealing with DosBase
+ 
