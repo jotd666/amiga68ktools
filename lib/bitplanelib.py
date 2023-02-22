@@ -252,6 +252,7 @@ def palette_extract(input_image,palette_precision_mask=0xFF):
     """
     extract the palette of an image
     palette_precision_mask: 0xFF: full RGB range, 0xF0: amiga ECS palette
+    sort palette (order isn't preserved in pngs anyway) so black is first
     """
     if isinstance(input_image,str):
         imgorg = PIL.Image.open(input_image)
@@ -308,7 +309,7 @@ def palette_fromjascpalette(infile,rgb_mask=0xFF):
 
 
 def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,forced_nb_planes=None,
-                    palette_precision_mask=0xFF,generate_mask=False,blit_pad=False,mask_color_index=0):
+                    palette_precision_mask=0xFF,generate_mask=False,blit_pad=False,mask_color=(0,0,0)):
     """ rebuild raw bitplanes with palette (ordered) and any image which has
     the proper number of colors and color match
     pass None as output_filename to avoid writing to file
@@ -329,8 +330,9 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
 
     if blit_pad:
         width += 16
-    img = PIL.Image.new('RGB', (width,height))
+    img = PIL.Image.new('RGB', (width,height), mask_color if generate_mask else 0)
     img.paste(imgorg, (0,0))
+
     # number of planes is automatically converted from palette size
     min_nb_planes = int(math.ceil(math.log2(len(palette))))
     if forced_nb_planes:
@@ -353,29 +355,32 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
         for xb in range(0,width,8):
             for i in range(8):
                 x = xb+i
+                bitset = (1<<(7-i))
                 offset = (y*width + x)//8
                 porg = img.getpixel((x,y))
+                if porg != mask_color:
+                    if generate_mask:
+                        # any non-mask color: set bit in mask
+                        out[nb_planes*plane_size + offset] |= bitset
 
-                p = tuple(x & palette_precision_mask for x in porg)
-                try:
-                    color_index = palette_dict[p]
-                except KeyError:
-                    # try to suggest close colors
-                    approx = tuple(x&0xFE for x in p)
-                    close_colors = [c for c in palette_dict if tuple(x&0xFE for x in c)==approx]
+                    p = tuple(x & palette_precision_mask for x in porg)
+                    try:
+                        color_index = palette_dict[p]
+                    except KeyError:
+                        # try to suggest close colors
+                        approx = tuple(x&0xFE for x in p)
+                        close_colors = [c for c in palette_dict if tuple(x&0xFE for x in c)==approx]
 
-                    msg = "{}: (x={},y={}) rounded color {} (#{}) not found, orig color {} (#{}), maybe try adjusting precision mask".format(
-                input_image,x,y,p,html(p),porg,html(porg))
-                    msg += " {} close colors: {}".format(len(close_colors),close_colors)
-                    raise BitplaneException(msg)
+                        msg = "{}: (x={},y={}) rounded color {} (#{}) not found, orig color {} (#{}), maybe try adjusting precision mask".format(
+                    input_image,x,y,p,html(p),porg,html(porg))
+                        msg += " {} close colors: {}".format(len(close_colors),close_colors)
+                        raise BitplaneException(msg)
 
-                for pindex in range(nb_planes):
-                    if color_index & (1<<pindex):
-                        bitset = (1<<(7-i))
-                        out[pindex*plane_size + offset] |= bitset
-                        if generate_mask and color_index != mask_color_index:
-                            # any color (except mask) set sets a bit in the mask
-                            out[nb_planes*plane_size + offset] |= bitset
+                    for pindex in range(nb_planes):
+                        if color_index & (1<<pindex):
+                            out[pindex*plane_size + offset] |= bitset
+
+
     out = bytes(out)
 
     if output_filename:
@@ -387,12 +392,13 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
     return out
 
 
-def palette_image2sprite(input_image,output_filename,palette,palette_precision_mask=0xFF):
+def palette_image2sprite(input_image,output_filename,palette,palette_precision_mask=0xFF,fmode=0):
     """ rebuild raw bitplanes with palette (ordered) and any image which has
     the proper number of colors and color match
     pass None as output_filename to avoid writing to file
     returns image raw data
     palette_precision_mask: 0xFF: no mask, full precision when looking up the colors, 0xF0: ECS palette mask, or custom
+    fmode = 0 for OCS/ECS (16-bit wide), 1 & 2 (32-bit wide, unsupported), 3 (64-bit wide)
     """
     if len(palette) != 4:
         raise BitplaneException("Palette size must be 4")
@@ -404,9 +410,11 @@ def palette_image2sprite(input_image,output_filename,palette,palette_precision_m
     else:
         imgorg = input_image
     # image could be paletted already. But we cannot trust palette order anyway
-    width,height = imgorg.size
-    if width != 16:
-        raise BitplaneException("{} width must be 16, found {}".format(input_image,width))
+    img_width,height = imgorg.size
+    width = {0:16,1:32,2:32,3:64}[fmode]
+    if img_width > width:
+        raise BitplaneException("{} width must be <= {}, found {}".format(input_image,width,img_width))
+    # convert to RGB and pad width if needed (16 bit wide sprite will be 64 bit wide in fmode=3)
     img = PIL.Image.new('RGB', (width,height))
     img.paste(imgorg, (0,0))
     nb_planes = 2
