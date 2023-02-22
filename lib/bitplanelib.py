@@ -392,13 +392,13 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
     return out
 
 
-def palette_image2sprite(input_image,output_filename,palette,palette_precision_mask=0xFF,fmode=0):
+def palette_image2sprite(input_image,output_filename,palette,palette_precision_mask=0xFF,sprite_fmode=0):
     """ rebuild raw bitplanes with palette (ordered) and any image which has
     the proper number of colors and color match
     pass None as output_filename to avoid writing to file
     returns image raw data
     palette_precision_mask: 0xFF: no mask, full precision when looking up the colors, 0xF0: ECS palette mask, or custom
-    fmode = 0 for OCS/ECS (16-bit wide), 1 & 2 (32-bit wide, unsupported), 3 (64-bit wide)
+    sprite_fmode = 0 for OCS/ECS (16-bit wide), 1 & 2 (32-bit wide, unsupported), 3 (64-bit wide)
     """
     if len(palette) != 4:
         raise BitplaneException("Palette size must be 4")
@@ -411,7 +411,7 @@ def palette_image2sprite(input_image,output_filename,palette,palette_precision_m
         imgorg = input_image
     # image could be paletted already. But we cannot trust palette order anyway
     img_width,height = imgorg.size
-    width = {0:16,1:32,2:32,3:64}[fmode]
+    width = {0:16,1:32,2:32,3:64}[sprite_fmode]
     if img_width > width:
         raise BitplaneException("{} width must be <= {}, found {}".format(input_image,width,img_width))
     # convert to RGB and pad width if needed (16 bit wide sprite will be 64 bit wide in fmode=3)
