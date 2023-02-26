@@ -9,6 +9,38 @@ PALETTE_FORMAT_PNG = 1<<4
 class BitplaneException(Exception):
     pass
 
+def closest_color(c1,colorlist):
+    """
+    c1: rgb of color to approach
+    colorlist: list of rgb tuples of the palette
+    returns: one of the colors of colorlist
+
+    probably not the best algorithm but...
+    """
+    closest = None
+    min_dist = (255*255)*3
+    # not sure this is the best: compute square distance in RGB diff
+    for c in colorlist:
+        dist = sum((x1-x2)*(x1-x2) for x1,x2 in zip(c,c1))
+        if dist < min_dist:
+            min_dist = dist
+            closest = c
+    return closest
+
+def dump_asm_bytes(block,f,mit_format=False,nb_elements_per_row=8):
+    c = 0
+    hs = "0x" if mit_format else "$"
+    for d in block:
+        if c==0:
+            f.write("\n\t{}\t".format(".byte" if mit_format else "dc.b"))
+        else:
+            f.write(",")
+        f.write("{}{:02x}".format(hs,d))
+        c += 1
+        if c == nb_elements_per_row:
+            c = 0
+    f.write("\n")
+
 def palette_load_from_json(filename):
     with open(filename) as f:
         p = [tuple(x) for x in json.load(f)]
@@ -228,25 +260,31 @@ def palette_to_image(palette,output):
     img.save(output)
 
 def palette_dump(palette,output,pformat=PALETTE_FORMAT_ASMMOT,high_precision=False):
+    """
+    output: string (filename to write into) or open file handle (in writing)
+    """
     if pformat & PALETTE_FORMAT_PNG:
         # special case: png dump
         palette_to_image(palette,output)
     else:
         as_binary = pformat & PALETTE_FORMAT_BINARY
         mode = "wb" if as_binary else "w"
-        if high_precision:
-            with open(output,mode) as f:
-                # upper nibble
-                __palette_dump(palette,f,pformat=pformat,low_nibble=False)
-                if not pformat & PALETTE_FORMAT_COPPERLIST and not as_binary:
-
-                    f.write("\t{}lower nibble\n".format(";" if pformat & PALETTE_FORMAT_ASMMOT else "*"))
-                __palette_dump(palette,f,pformat,low_nibble=True)
+        if isinstance(output,str):
+            f = open(output,mode)
         else:
-            with open(output,mode) as f:
-                # upper nibble
-                __palette_dump(palette,f,pformat,low_nibble=False)
+            f = output
+        if high_precision:
+            # upper nibble
+            __palette_dump(palette,f,pformat=pformat,low_nibble=False)
+            if not pformat & PALETTE_FORMAT_COPPERLIST and not as_binary:
 
+                f.write("\t{}lower nibble\n".format(";" if pformat & PALETTE_FORMAT_ASMMOT else "*"))
+            __palette_dump(palette,f,pformat,low_nibble=True)
+        else:
+            # upper nibble
+            __palette_dump(palette,f,pformat,low_nibble=False)
+        if isinstance(output,str):
+            f.close()
 
 def palette_extract(input_image,palette_precision_mask=0xFF):
     """
@@ -415,7 +453,7 @@ def palette_image2sprite(input_image,output_filename,palette,palette_precision_m
     if img_width > width:
         raise BitplaneException("{} width must be <= {}, found {}".format(input_image,width,img_width))
     # convert to RGB and pad width if needed (16 bit wide sprite will be 64 bit wide in fmode=3)
-    img = PIL.Image.new('RGB', (width,height))
+    img = PIL.Image.new('RGB', (width,height),palette[0])
     img.paste(imgorg, (0,0))
     nb_planes = 2
 
