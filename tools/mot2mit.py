@@ -104,6 +104,8 @@ regexes_1 = [
 (r"\bendc\b",r".endif"),
 (r"\belse\b",r".else"),
 (r"\bif(n*)d\b",r".if\1def"),
+(r"\bif(eq|ne)\b",r".if\1"),
+(r"\beven\b",r".align\t2"),
 # mnemonic synomyms
 (r"\bshs\b",r"scc"),
 (r"\bslo\b",r"scs"),

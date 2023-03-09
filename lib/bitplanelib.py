@@ -363,13 +363,18 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
         imgorg = input_image
     # image could be paletted already. But we cannot trust palette order anyway
     width,height = imgorg.size
-    if width % 8:
-        raise BitplaneException("{} width must be a multiple of 8, found {}".format(input_image,width))
 
     if blit_pad:
+        r = width % 16
+        if r:
+            width += 16-r
         width += 16
     img = PIL.Image.new('RGB', (width,height), mask_color if generate_mask else 0)
     img.paste(imgorg, (0,0))
+
+    if width % 8:
+        raise BitplaneException("{} width must be a multiple of 8, found {}".format(input_image,width))
+
 
     # number of planes is automatically converted from palette size
     min_nb_planes = int(math.ceil(math.log2(len(palette))))
