@@ -1,4 +1,4 @@
-import sys,os,glob,subprocess
+import sys,os,glob
 import wx_generic_gui_frame,wx_utils
 from collections import OrderedDict
 import compilation_maker

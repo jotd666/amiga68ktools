@@ -31,7 +31,7 @@ for i in range(0,len(contents)//8,8):
 
     pc -= start
 
-    if 0 < pc < 0x100000:
+    if 0 < pc < 0x200000:
         kept += 1
         d[(pc//0x40)*0x40][pc] += 1
     else:

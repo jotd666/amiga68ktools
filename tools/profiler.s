@@ -1,11 +1,12 @@
 ; < A0: buffer start
 ; < D0: buffer size
 ; < A1: where to read control & write start & size (example $100.W)
-init_fixed_address
+init_fixed_address:
 	movem.l	d0/a0-a2,-(a7)
 	lea	profiler_control(pc),a2
 	move.l	a1,(a2)
-	clr.l	(a1)+			; default: profiler starts disabled
+	* default: profiler starts disabled
+	clr.l	(a1)+			
 	move.l	a0,(a1)+
 	move.l	d0,(a1)
 	lea	buffer_start(pc),a2
@@ -22,7 +23,7 @@ init_fixed_address
 	
 ; < D0: buffer size
 ; < A1: where to read control & write start & size (example $100.W)
-init_allocated_address
+init_allocated_address:
 	movem.l	d1/a0/a6,-(a7)
 	move.l	4,A6
 	move.l	#MEMF_PUBLIC|MEMF_CLEAR,d1
@@ -46,11 +47,12 @@ install_profiler_vbl_hook:
 	move.l	(a7)+,a0
 	rts
 	
-profiler_vbl_interrupt
+profiler_vbl_interrupt:
 	movem.l	d0/a0,-(a7)
-	move.l	10(a7),d0	; PC where interrupt occurred
+	* PC where interrupt occurred
+	move.l	10(a7),d0	
 	move.l	USP,a0
-	bsr		profiler_vbl_hook
+	bsr.b		profiler_vbl_hook
 	movem.l	(a7)+,d0/a0
 	move.l	old_vbl(pc),-(a7)
 	rts
@@ -79,20 +81,21 @@ profiler_vbl_hook:
 	move.l	a0,(a1)
 	move.l	profiler_control(pc),a1
 	sub.l	(4,a1),a0
-	move.l	a0,(8,a1)	; update size
+	* update size
+	move.l	a0,(8,a1)
 .out	
 	movem.l	(a7)+,a0/a1/d1
 	rts
 	
-profiler_control
+profiler_control:
 	dc.l	0
-buffer_start
+buffer_start:
 	dc.l	0
-buffer_pointer
+buffer_pointer:
 	dc.l	0
-buffer_end
+buffer_end:
 	dc.l	0
-buffer_size
+buffer_size:
 	dc.l	0
-old_vbl
+old_vbl:
 	dc.l	0
