@@ -5,6 +5,9 @@ general_instruction_re = re.compile(r"^\s+\b([^\s]*)\b\s*([^\s]*)\s*;([a-f0-9]{2
 dc_instruction_re = re.compile(r"^\s+\b(DC\..)\b\s*([^\s]*|[\"'].*[\"'])\s*;([a-f0-9]{2,})",flags=re.I)
 decl_label_re = re.compile("^(\w+):")
 
+class AsmException(Exception):
+    pass
+
 def get_offset(line):
     """ try to extract offset from either offset comment or label
     """
@@ -20,13 +23,18 @@ def get_offset(line):
             dc = m.group(1)[-1].lower()
             offset = m.group(3)
             size = {"l":4,"w":2,"b":1}[dc]
+            args = m.group(2)
+            if size == 1 and '"' in args or "'" in args:
+                size *= len(args)-2
+            else:
+                size *= args.count(",")+1
         else:
             m = re.match("lb_(\w+)",line)
             if m:
                 offset = m.group(1)
 
     if offset is None:
-        raise Exception("Cannot compute offset for line: {}".format(line))
+        raise AsmException("Cannot compute offset for line: {}".format(line))
     return (int(offset.split("_")[0],16),size)
 
 def convert_instruction_to_data(line):
@@ -76,7 +84,24 @@ def get_line_address(l):
     return int(toks[0],16)
 
 def get_line_size(l):
-    return len(l.split(";")[-1].split(":")[1].strip())//2
+    stoks = l.split(";")
+    if len(stoks)==2:
+        last_tok = stoks[-1]
+        ctoks = last_tok.split(":")
+        if len(ctoks)==2:
+            return len(ctoks[1].strip())//2
+
+    elif stoks:
+        ftok = stoks[0].strip()
+        if not ftok or ftok.endswith(":"):
+            return 0
+
+        ftok = ftok.split()
+        mnemonic = ftok[0].lower()
+        if mnemonic.startswith("dc."):
+            size = {"b":1,"w":2,"l":4}[mnemonic[3]]
+            return size * (ftok[1].count(",")+1)
+    return 0
 
 class AsmFile:
     def __init__(self,asm_filepath,binary_filepath=None,start_address=None):

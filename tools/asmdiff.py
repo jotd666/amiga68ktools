@@ -37,6 +37,8 @@ lines1,filtered_lines1 = readlines(file1)
 lines2,filtered_lines2 = readlines(file2)
 
 if args.work_dir:
+    if not os.path.isdir(args.work_dir):
+        os.mkdir(args.work_dir)
     with open(os.path.join(args.work_dir,file1+"_xxx.asm"),'w') as f:
         f.writelines("{}\n".format(x) for x in filtered_lines1)
     with open(os.path.join(args.work_dir,file2+"_xxx.asm"),'w') as f:

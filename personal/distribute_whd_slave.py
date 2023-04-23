@@ -62,7 +62,11 @@ try:
         with open(os.path.join(usrdir,"readme")) as f:
             contents = f.read()
             version_info = sorted(re.findall("^\s*[Vv]ersion\s+(\d+\.\d+[\-ABC]*)",contents,flags=re.M),key=lambda x:[[int(z.split("-")[0]),z] for z in re.findall("\d+[\-ABC]*",x)])[-1]
-
+            # check that we didn't forget any "TODO:" in readme either because it's done but readme not updated
+            # or just forgotten to do/test it :)
+            nb_todo = contents.count("TODO:")
+            if nb_todo:
+                raise Exception("{} TODO items found in readme".format(nb_todo))
 
         one_version_match = False
         for src in glob.glob(os.path.join(devdir,"*.s")):
@@ -84,9 +88,15 @@ try:
                 else:
                     print("{} unknown version".format(src))
 
-                for line in f:
-                    if "blitz" in line:
-                        raise Exception("blitz macro found in {}".format(src))
+                contents = "".join(f)
+                if "blitz" in contents:
+                    raise Exception("blitz macro found in {}".format(src))
+                if contents.count("DECL_VERSION") < 3:
+                    # needs 3 occs: DECL_VERSION:MACRO + DECL_VERSION in whd info + DECL_VERSION
+                    # for "version" tool
+                    raise Exception("DECL_VERSION macro found {} times in {} should be 3 times".
+                            format(contents.count("DECL_VERSION"),src))
+
             shutil.copy(src,sd)
         if not one_version_match:
             raise Exception("No version match between any source and the readme")
