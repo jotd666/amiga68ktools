@@ -10,7 +10,10 @@ cli_args = parser.parse_args()
 if os.path.abspath(cli_args.input_file) == os.path.abspath(cli_args.output_file):
     raise Exception("Define an output file which isn't the input file")
 
-
+# input & output comments are "*" and "|" (MIT syntax)
+# some day I may set as as an option...
+# registers are also hardcoded, and sometimes not coherent (hl = a0, or d5 depending on
+# what we do with it)
 
 
 regexes = []
@@ -58,8 +61,8 @@ with open(cli_args.input_file) as f:
 registers = {
 "a":"d0","b":"d1","c":"d2","ix":"a2","iy":"a3","hl":"a0","de":"a1"}  #,"d":"d3","e":"d4","h":"d5","l":"d6",
 
-a_instructions = {"neg":"neg.b\t","cpl":"not.b\t","rra":"asr.b\t#1,",
-                    "rla":"asl.b\t#1,","rrca":"roxr.b\t#1,","rlca":"roxl.b\t#1,"}
+a_instructions = {"neg":"neg.b\t","cpl":"not.b\t","rra":"roxr.b\t#1,",
+                    "rla":"roxl.b\t#1,","rrca":"ror.b\t#1,","rlca":"rol.b\t#1,"}
 single_instructions = {"ret":"rts"}
 
 m68_regs = set(registers.values())
@@ -76,6 +79,7 @@ def f_djnz(args,address,comment):
     target_address = int(args[0],16)
     # a dbf wouldn't work as d1 loaded as byte and with 1 more iteration
     # adapt manually if needed
+    addresses_to_reference.add(target_address)
     return f"\tsubq.b\t#1,d1\t| [...]\n\tjne\tl_{target_address:04x}\t{comment}"
 
 
@@ -87,6 +91,22 @@ def f_xor(args,address,comment):
     if arg=="d0":
         return f"\tmoveq\t#0,d0{comment}"
     return f"\teor.b\t{arg},d0{comment}"
+
+def f_rl(args,address,comment):
+    arg = args[0]
+    return f"\troxl.b\t#1,{arg}{comment}"
+
+def f_rlc(args,address,comment):
+    arg = args[0]
+    return f"\trol.b\t#1,{arg}{comment}"
+
+def f_rr(args,address,comment):
+    arg = args[0]
+    return f"\troxr.b\t#1,{arg}{comment}"
+
+def f_rrc(args,address,comment):
+    arg = args[0]
+    return f"\tror.b\t#1,{arg}{comment}"
 
 def f_ret(args,address,comment):
     binst = rts_cond_dict[args[0]]
@@ -181,9 +201,17 @@ def f_or(args,address,comment):
 
 def f_call(args,address,comment):
     func = args[0]
+    if len(args)==2:
+        cond = func
+        func = args[1]
     if func.startswith("0x"):
         func = f"l_{int(func,16):04x}"
-    out = f"\tjbsr\t{func}{comment}"
+    if len(args)==2:
+        out = f"\t{rts_cond_dict[cond]}\t0f\n"
+
+    out += f"\tjbsr\t{func}{comment}"
+    if len(args)==2:
+        out += f"\n0:"
     return out
 
 def f_cp(args,address,comment):
@@ -197,13 +225,15 @@ def f_cp(args,address,comment):
 
 def f_dec(args,address,comment):
     p = args[0]
-    out = f"\tsubq.b\t#1,{p}{comment}"
+    size = "w" if p in ["de","hl"] else "b"
+    out = f"\tsubq.{size}\t#1,{p}{comment}"
 
     return out
 
 def f_inc(args,address,comment):
     p = args[0]
-    out = f"\taddq.b\t#1,{p}{comment}"
+    size = "w" if p in ["de","hl"] else "b"
+    out = f"\taddq.{size}\t#1,{p}{comment}"
     return out
 
 def f_ld(args,address,comment):
@@ -230,7 +260,11 @@ def f_ld(args,address,comment):
             else:
                 out = f"\tlea\t{source}(pc),{dest}{comment}"
         else:
-            out = f"\tmove.b\t{prefix}{source},{dest}{comment}"
+            src = f"{prefix}{source}".strip("0")
+            if src=="#0x" or src == "#":
+                out = f"\tclr.b\t{dest}{comment}"
+            else:
+                out = f"\tmove.b\t{prefix}{source},{dest}{comment}"
     elif dest.startswith("("):
         destlab = dest.strip("()")
         # don't convert to label if register somewhere (indexed or not)
@@ -241,7 +275,11 @@ def f_ld(args,address,comment):
         prefix = ""
         if source.startswith("0x"):
             prefix = "#"
-        out = f"\tmove.b\t{prefix}{source},{dest}{comment}"
+        src = f"{prefix}{source}".strip("0")
+        if src=="#0x" or src == "#":
+            out = f"\tclr.b\t{dest}{comment}"
+        else:
+            out = f"\tmove.b\t{prefix}{source},{dest}{comment}"
 
 
     return out
@@ -330,7 +368,7 @@ with open(cli_args.output_file,"w") as f:
 
 print(f"Converted {converted} lines on {len(lines)} total, {instructions} instruction lines")
 print(f"Converted instruction ratio {converted}/{instructions} {int(100*converted/instructions)}%")
-
+print("\nPLEASE REVIEW THE CONVERTED CODE CAREFULLY AS IT MAY CONTAIN ERRORS!")
 
 
 
