@@ -201,6 +201,7 @@ def f_or(args,address,comment):
 
 def f_call(args,address,comment):
     func = args[0]
+    out = ""
     if len(args)==2:
         cond = func
         func = args[1]
@@ -232,7 +233,7 @@ def f_dec(args,address,comment):
 
 def f_inc(args,address,comment):
     p = args[0]
-    size = "w" if p in ["de","hl"] else "b"
+    size = "w" if p[0]=="a" else "b"
     out = f"\taddq.{size}\t#1,{p}{comment}"
     return out
 
@@ -324,12 +325,12 @@ for i,(l,is_inst) in enumerate(lines):
                 # switch registers now
                 jargs = [re.sub(r"\b(\w+)\b",lambda m:registers.get(m.group(1),m.group(1)),a) for a in jargs]
                 # replace "+" for address registers and swap params
-                jargs = [re.sub("\((a\d)\+(0x\d+)\)",r"(\2,\1)",a) for a in jargs]
+                jargs = [re.sub("\((a\d)\+(0x[0-9A-F]+)\)",r"(\2,\1)",a,flags=re.I) for a in jargs]
                 out = conv_func(jargs,address,comment)
     else:
         out=address_re.sub(r"l_\1:",l)
         # convert tables like xx yy aa bb with .byte
-        out = re.sub(r"\s+([0-9A-F][0-9A-F])\b",r",0x\1",out)
+        out = re.sub(r"\s+([0-9A-F][0-9A-F])\b",r",0x\1",out,flags=re.I)
         out = out.replace(":,",":\n\t.byte\t")
 
     if out and old_out != out:
