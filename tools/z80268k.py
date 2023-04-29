@@ -104,6 +104,22 @@ def f_rr(args,address,comment):
     arg = args[0]
     return f"\troxr.b\t#1,{arg}{comment}"
 
+def f_srl(args,address,comment):
+    arg = args[0]
+    return f"\tlsr.b\t#1,{arg}{comment}"
+
+def f_sra(args,address,comment):
+    arg = args[0]
+    return f"\tasr.b\t#1,{arg}{comment}"
+
+def f_sll(args,address,comment):
+    arg = args[0]
+    return f"\tlsl.b\t#1,{arg}{comment}"
+
+def f_sla(args,address,comment):
+    arg = args[0]
+    return f"\tasl.b\t#1,{arg}{comment}"
+
 def f_rrc(args,address,comment):
     arg = args[0]
     return f"\tror.b\t#1,{arg}{comment}"
@@ -148,7 +164,7 @@ def f_add(args,address,comment):
         return
 
     if source in m68_regs:
-        out = f"\t{inst}.b\t{source},{dest}{comment}"
+        out = f"\tadd.b\t{source},{dest}{comment}"
     elif source.startswith("0x"):
         if int(source,16)<8:
             out = f"\taddq.b\t#{source},{dest}{comment}"
@@ -156,6 +172,22 @@ def f_add(args,address,comment):
             out = f"\tadd.b\t#{source},{dest}{comment}"
     else:
         out = f"\tadd.b\t{source},{dest}{comment}"
+    return out
+
+def f_sbc(args,address,comment):
+    dest = args[0]
+    source = args[1]
+    out = None
+    if dest in m68_address_regs:
+        # not supported
+        return
+
+    if source in m68_regs:
+        out = f"\tsubx.b\t{source},{dest}{comment}"
+    elif source.startswith("0x"):
+        out = f"\tsubx.b\t#{source},{dest}{comment}"
+    else:
+        out = f"\tsubx.b\t{source},{dest}{comment}"
     return out
 
 def f_sub(args,address,comment):
