@@ -89,8 +89,10 @@ def f_bit(args,address,comment):
 def f_xor(args,address,comment):
     arg = args[0]
     if arg=="d0":
-        return f"\tmoveq\t#0,d0{comment}"
-    return f"\teor.b\t{arg},d0{comment}"
+        # optim, as xor a is a way to zero a
+        return f"\tclr.b\td0{comment}"
+    prefix = "#" if arg.startswith("0x") else ""
+    return f"\teor.b\t{prefix}{arg},d0{comment}"
 
 def f_rl(args,address,comment):
     arg = args[0]
