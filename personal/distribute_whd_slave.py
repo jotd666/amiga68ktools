@@ -73,7 +73,11 @@ try:
             with open(src) as f:
                 f = list(f)
                 fi = iter(f)
+                is_slave = False
                 for line in fi:
+                    if "whdload.i" in line.lower():
+                        is_slave = True
+
                     if "DECL_VERSION" in line:
                         version = re.findall(r'\s+dc\.b\s+"(\d+\.\d+[\-ABC]*)"',next(fi))[0]
                         print("{} version {}, readme version {}".format(src,version,version_info))
@@ -91,7 +95,7 @@ try:
                 contents = "".join(f)
                 if "blitz" in contents:
                     raise Exception("blitz macro found in {}".format(src))
-                if contents.count("DECL_VERSION") < 3:
+                if is_slave and contents.count("DECL_VERSION") < 3:
                     # needs 3 occs: DECL_VERSION:MACRO + DECL_VERSION in whd info + DECL_VERSION
                     # for "version" tool
                     raise Exception("DECL_VERSION macro found {} times in {} should be 3 times".
