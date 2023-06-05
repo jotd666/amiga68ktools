@@ -132,12 +132,13 @@ def arg2label(s):
         return s
 
 def f_djnz(args,address,comment):
-    target_address = parse_hex(args[0])
+    target_address = arg2label(args[0])
+    if target_address != args[0]:
+        add_entrypoint(parse_hex(args[0]))
+
     # a dbf wouldn't work as d1 loaded as byte and with 1 more iteration
     # adapt manually if needed
-    add_entrypoint(target_address)
-
-    return f"\tsubq.b\t#1,d1\t{out_comment} [...]\n\tjne\t{lab_prefix}{target_address:04x}\t{comment}"
+    return f"\tsubq.b\t#1,d1\t{out_comment} [...]\n\tjne\t{target_address}\t{comment}"
 
 
 def f_bit(args,address,comment):
@@ -447,7 +448,7 @@ for i,(l,is_inst) in enumerate(lines):
                 # switch registers now
                 jargs = [re.sub(r"\b(\w+)\b",lambda m:registers.get(m.group(1),m.group(1)),a) for a in jargs]
                 # replace "+" for address registers and swap params
-                jargs = [re.sub("\((a\d)\+({}[0-9A-F]+)\)".format(re.escape(in_hex_sign)),r"(\2,\1)",a,flags=re.I) for a in jargs]
+                jargs = [re.sub("\((a\d)\+([^)]+)\)",r"(\2,\1)",a,flags=re.I) for a in jargs]
                 # replace hex by hex
                 if in_hex_sign != out_hex_sign:
                     # pre convert hex signs in arguments
