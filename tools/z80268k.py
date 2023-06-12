@@ -47,7 +47,8 @@ else:
 
 regexes = []
 
-has_ldir = False
+special_loop_instructions = {"ldir","cpir","cpdr"}
+special_loop_instructions_met = set()
 
 ##for s,r in regexes_1:
 ##    try:
@@ -101,9 +102,11 @@ with open(cli_args.input_file,"rb") as f:
 registers = {
 "a":"d0","b":"d1","c":"d2","d":"d3","e":"d4","h":"d5","l":"d6","ix":"a2","iy":"a3","hl":"a0","de":"a1","bc":"a4"}  #,"d":"d3","e":"d4","h":"d5","l":"d6",
 
+addr2data = {"a4":"d1/d2","a1":"d3/d4"}
+
 a_instructions = {"neg":"neg.b\t","cpl":"not.b\t","rra":"roxr.b\t#1,",
                     "rla":"roxl.b\t#1,","rrca":"ror.b\t#1,","rlca":"rol.b\t#1,"}
-single_instructions = {"ret":"rts","ldir":"jbsr\tldir"}
+single_instructions = {"ret":"rts","ldir":"jbsr\tldir","cpir":"jbsr\tcpir"}
 
 m68_regs = set(registers.values())
 m68_data_regs = {x for x in m68_regs if x[0]=="d"}
@@ -151,9 +154,34 @@ def f_res(args,address,comment):
 def f_ex(args,address,comment):
     return f"\texg\t{args[0]},{args[1]}{comment}"
 def f_push(args,address,comment):
-    return f"\tmove.l\t{args[0]},-(sp){comment}"
+    reg = args[0]
+    dreg = addr2data.get(reg)
+    rval = ""
+    # play it safe, we don't know what the program needs
+    # address or data
+    if dreg:
+        rval = f"\tmovem.w\t{dreg},-(sp){comment}"
+    if args[0]=="af":
+        rval = f"\tmove.w\td0,-(sp){comment}"
+    elif args[0].startswith("a"):
+        rval += f"\n\tmove.l\t{args[0]},-(sp){comment}"
+    else:
+        rval = f"\tmove.w\t{args[0]},-(sp){comment}"
+    return rval
+
 def f_pop(args,address,comment):
-    return f"\tmove.l\t(sp)+,{args[0]}{comment}"
+    reg = args[0]
+    if reg=="af":
+        rval = f"\tmove.w\t(sp)+,d0{comment}"
+    elif reg.startswith("a"):
+        rval = f"\tmove.l\t(sp)+,{reg}{comment}"
+    else:
+        rval = f"\tmove.w\t(sp)+,{reg}{comment}"
+    dreg = addr2data.get(reg)
+    if dreg:
+        rval += f"\n\tmovem.w\t(sp)+,{dreg}{comment}"
+
+    return rval
 
 def f_xor(args,address,comment):
     arg = args[0]
@@ -436,8 +464,9 @@ for i,(l,is_inst) in enumerate(lines):
                 si = single_instructions.get(inst)
                 if si:
                     out = f"\t{si}{comment}"
-            if inst=="ldir":
-                has_ldir = True
+            if inst in special_loop_instructions:
+                special_loop_instructions_met.add(inst)
+
         else:
             inst = itoks[0]
             args = itoks[1:]
@@ -464,7 +493,8 @@ for i,(l,is_inst) in enumerate(lines):
         if "dc.w" in out or ".word" in out:
             # those are tables referencing other addresses
             # convert them to long
-            args = out.split()
+            outcom = out.split(in_comment)
+            args = outcom[0].split()
             if len(args)==2:
                 words = args[1].split(",")
                 outwords = []
@@ -474,6 +504,8 @@ for i,(l,is_inst) in enumerate(lines):
                         add_entrypoint(parse_hex(w))
                     outwords.append(wl)
                 out = f"\t{out_long_decl}\t{','.join(outwords)}"
+                if len(outcom)==2:
+                    out += f" {out_comment} {outcom[1]}"
     if out and old_out != out:
         converted += 1
     else:
@@ -510,7 +542,7 @@ for line in out_lines:
 with open(cli_args.output_file,"w") as f:
     f.writelines(nout_lines)
 
-    if has_ldir:
+    if "ldir" in special_loop_instructions_met:
         f.write(f"""
 {out_start_line_comment} < A0: source (HL)
 {out_start_line_comment} < A1: destination (DE)
@@ -523,6 +555,26 @@ ldir:
     clr.w    d1
     rts
 """)
+
+    if "cpir" in special_loop_instructions_met:
+        f.write(f"""
+{out_start_line_comment} < A0: source (HL)
+{out_start_line_comment} < D1: length to search
+{out_start_line_comment} > D0.B value searched for (A)
+{out_start_line_comment} > Z flag if found
+cpir:
+    subq.w    #1,d1
+0:
+    cmp.b    (a0)+,d0
+    beq.b    1f
+    dbf        d1,0b
+    clr.w    d1
+    {out_start_line_comment} not found: unset Z
+    cmp.b   #1,d1
+1:
+    rts
+""")
+
 
 print(f"Converted {converted} lines on {len(lines)} total, {instructions} instruction lines")
 print(f"Converted instruction ratio {converted}/{instructions} {int(100*converted/instructions)}%")
