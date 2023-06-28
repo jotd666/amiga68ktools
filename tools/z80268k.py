@@ -5,7 +5,7 @@ import simpleeval # get it on pypi (pip install simpleeval)
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
 parser.add_argument("-i","--input-mode",help="input mode either mot style (comments: ;, hex: $)\n"
-"or mit style (comments *|, hex: 0x",choices=asm_styles,default=asm_styles[0])
+"or mit style (comments *|, hex: 0x",choices=asm_styles,default=asm_styles[1])
 parser.add_argument("-o","--output-mode",help="output mode either mot style or mit style",choices=asm_styles
 ,default=asm_styles[0])
 
@@ -44,6 +44,12 @@ else:
 # registers are also hardcoded, and sometimes not coherent (hl = a0, or d5 depending on
 # what we do with it)
 
+label_counter = 0
+def get_mot_local_label():
+    global label_counter
+    rval = f".lb_{label_counter}"
+    label_counter += 1
+    return rval
 
 regexes = []
 
@@ -120,7 +126,7 @@ registers = {
 "a":"d0","b":"d1","c":"d2","d":"d3","e":"d4","h":"d5","l":"d6","ix":"a2","iy":"a3","hl":"a0","de":"a1","bc":"a4"}  #,"d":"d3","e":"d4","h":"d5","l":"d6",
 
 addr2data = {"a4":"d1/d2","a1":"d3/d4"}
-addr2data_single = {"a1":"d3","a0":"d5"}
+addr2data_single = {"a1":"d3","a0":"d5","a4":"d1"}
 
 a_instructions = {"neg":"neg.b\t","cpl":"not.b\t","rra":"roxr.b\t#1,",
                     "rla":"roxl.b\t#1,","rrca":"ror.b\t#1,","rlca":"rol.b\t#1,"}
@@ -246,7 +252,11 @@ def f_rrc(args,address,comment):
 
 def f_ret(args,address,comment):
     binst = rts_cond_dict[args[0]]
-    return f"\t{binst}.b\t0f\n\trts{comment}\n0:"
+    if cli_args.output_mode == "mit":
+        return f"\t{binst}.b\t0f\n\trts{comment}\n0:"
+    else:
+        loclab = get_mot_local_label()
+        return f"\t{binst}.b\t{loclab}\n\trts{comment}\n{loclab}:"
 
 def f_jp(args,address,comment):
     target_address = None
@@ -349,6 +359,8 @@ def gen_addsub(args,address,comment,inst):
 
 def address_to_label(s):
     return s.strip("()").replace(in_hex_sign,lab_prefix)
+def address_to_label_out(s):
+    return s.strip("()").replace(out_hex_sign,lab_prefix)
 
 def f_or(args,address,comment):
     p = args[0]
@@ -375,11 +387,18 @@ def f_call(args,address,comment):
         target_address = func
     func = funcc
     if len(args)==2:
-        out = f"\t{rts_cond_dict[cond]}\t0f\n"
+        if cli_args.output_mode == "mot":
+            loclab = get_mot_local_label()
+            out = f"\t{rts_cond_dict[cond]}\t{loclab}\n"
+        else:
+            out = f"\t{rts_cond_dict[cond]}\t0f\n"
 
     out += f"\tjbsr\t{func}{comment}"
     if len(args)==2:
-        out += f"\n0:"
+        if cli_args.output_mode == "mot":
+            out += f"\n{loclab}:"
+        else:
+            out += f"\n0:"
     if target_address is not None:
         add_entrypoint(parse_hex(target_address))
     return out
@@ -425,8 +444,8 @@ def f_ld(args,address,comment):
         else:
             prefix = "#"
         if dest[0]=="a":
-            source = address_to_label(source)
             if direct:
+                source = address_to_label_out(source)
                 out = f"\tmove.w\t{source}(pc),{dest}{comment}"
             else:
                 source_val = None
@@ -434,12 +453,15 @@ def f_ld(args,address,comment):
                     source_val = parse_hex(source)
                 except ValueError:
                     pass
-                if source_val is not None and source_val < 0x80:  # heuristic limit
+
+                if source_val is not None and source_val > 0x80:  # heuristic limit: address 0x80
+                    source = address_to_label_out(source)
+
+                    out = f"\tlea\t{source}(pc),{dest}{comment}"
+                else:
                     # maybe not lea but 16 bit immediate value load
                     dest = addr2data_single.get(dest,dest)
                     out = f"\tmove.w\t#{source},{dest}{comment}"
-                else:
-                    out = f"\tlea\t{source}(pc),{dest}{comment}"
         else:
             src = f"{prefix}{source}".strip("0")
             if src=="#"+out_hex_sign or src == "#":
@@ -596,9 +618,18 @@ with open(cli_args.output_file,"w") as f:
 {out_start_line_comment} < D1: length (16 bit)
 ldir:
     subq.w    #1,d1
-0:
+""")
+        if cli_args.output_mode == "mit":
+            f.write(f"""0:
     move.b    (a0)+,(a1)+
     dbf        d1,0b
+    clr.w    d1
+    rts
+""")
+        else:
+            f.write(f""".loop:
+    move.b    (a0)+,(a1)+
+    dbf        d1,.loop
     clr.w    d1
     rts
 """)
@@ -611,7 +642,9 @@ ldir:
 {out_start_line_comment} > Z flag if found
 cpir:
     subq.w    #1,d1
-0:
+""")
+        if cli_args.output_mode == "mit":
+            f.write("""0:
     cmp.b    (a0)+,d0
     beq.b    1f
     dbf        d1,0b
@@ -619,6 +652,17 @@ cpir:
     {out_start_line_comment} not found: unset Z
     cmp.b   #1,d1
 1:
+    rts
+""")
+        else:
+            f.write(""".loop:
+    cmp.b    (a0)+,d0
+    beq.b    .out
+    dbf        d1,.loop
+    clr.w    d1
+    {out_start_line_comment} not found: unset Z
+    cmp.b   #1,d1
+.out:
     rts
 """)
 
