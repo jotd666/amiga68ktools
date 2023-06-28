@@ -98,15 +98,35 @@ with open(cli_args.input_file,"rb") as f:
 # e => d4  (manual rework required!)
 # h => d5 or a0 for hl
 # l => d6 (manual rework required!)
+# all cpu flags preserved. Careful
+#
+# C (carry) => d7 trashed to set carry properly (d7 isn't used anywhere else)
+# X (extended bit) => same as C but Z80 doesn't have it, and relies on CMP to set carry
+# then use rl or rr to get its value. It doesn't work that way on 68k, you have to sub or add
+# to change X flag and then be able to use ROXL/ROXR.
+#
+# additionally:
+#
+# after ccf, carry is cleared and d7.b !=0,
+# after scf, carry is set and d7.b = 0
+#
+# (useful because push/pop af isn't emulated properly, it would involve R/W of 68000 SR
+# or 68020 CCR registers and would make that complex to port/would require supervisor mode,
+# or would need to call the protected code from a TRAP to make it transparent)
+
+# Galaxian compute_tangent function had to be adapted for this
 
 registers = {
 "a":"d0","b":"d1","c":"d2","d":"d3","e":"d4","h":"d5","l":"d6","ix":"a2","iy":"a3","hl":"a0","de":"a1","bc":"a4"}  #,"d":"d3","e":"d4","h":"d5","l":"d6",
 
 addr2data = {"a4":"d1/d2","a1":"d3/d4"}
+addr2data_single = {"a1":"d3","a0":"d5"}
 
 a_instructions = {"neg":"neg.b\t","cpl":"not.b\t","rra":"roxr.b\t#1,",
                     "rla":"roxl.b\t#1,","rrca":"ror.b\t#1,","rlca":"rol.b\t#1,"}
-single_instructions = {"ret":"rts","ldir":"jbsr\tldir","cpir":"jbsr\tcpir"}
+single_instructions = {"ret":"rts","ldir":"jbsr\tldir","cpir":"jbsr\tcpir",
+"scf":"clr.b\td7\n\tcmp.b\t#1,d7",
+"ccf":"st.b\td7\n\tcmp.b\t#1,d7"}
 
 m68_regs = set(registers.values())
 m68_data_regs = {x for x in m68_regs if x[0]=="d"}
@@ -142,6 +162,7 @@ def f_djnz(args,address,comment):
     # a dbf wouldn't work as d1 loaded as byte and with 1 more iteration
     # adapt manually if needed
     return f"\tsubq.b\t#1,d1\t{out_comment} [...]\n\tjne\t{target_address}\t{comment}"
+
 
 
 def f_bit(args,address,comment):
@@ -266,8 +287,10 @@ def f_add(args,address,comment):
     source = args[1]
     out = None
     if dest in m68_address_regs:
-        # not supported
-        return
+        # supported but not sure, must be reviewed
+        source = addr2data_single.get(source,source)
+        out = f"\tadd.w\t{source},{dest}{comment}\n  ^^^^ review"
+        return out
 
     if source in m68_regs:
         out = f"\tadd.b\t{source},{dest}{comment}"
@@ -406,7 +429,17 @@ def f_ld(args,address,comment):
             if direct:
                 out = f"\tmove.w\t{source}(pc),{dest}{comment}"
             else:
-                out = f"\tlea\t{source}(pc),{dest}{comment}"
+                source_val = None
+                try:
+                    source_val = parse_hex(source)
+                except ValueError:
+                    pass
+                if source_val is not None and source_val < 0x80:  # heuristic limit
+                    # maybe not lea but 16 bit immediate value load
+                    dest = addr2data_single.get(dest,dest)
+                    out = f"\tmove.w\t#{source},{dest}{comment}"
+                else:
+                    out = f"\tlea\t{source}(pc),{dest}{comment}"
         else:
             src = f"{prefix}{source}".strip("0")
             if src=="#"+out_hex_sign or src == "#":
