@@ -124,7 +124,7 @@ addr2data_single = {"a1":"d3","a0":"d5"}
 
 a_instructions = {"neg":"neg.b\t","cpl":"not.b\t","rra":"roxr.b\t#1,",
                     "rla":"roxl.b\t#1,","rrca":"ror.b\t#1,","rlca":"rol.b\t#1,"}
-single_instructions = {"ret":"rts","ldir":"jbsr\tldir","cpir":"jbsr\tcpir",
+single_instructions = {"nop":"nop","ret":"rts","ldir":"jbsr\tldir","cpir":"jbsr\tcpir",
 "scf":"clr.b\td7\n\tcmp.b\t#1,d7",
 "ccf":"st.b\td7\n\tcmp.b\t#1,d7"}
 
@@ -551,6 +551,20 @@ for address in addresses_to_reference:
         # insert label at the proper line
         to_insert = f"{lab_prefix}{address:04x}:\n{out_lines[al]}"
         out_lines[al] = to_insert
+
+# group exact following same instructions ror/rol/add ...
+for v in [list(v) for k,v in itertools.groupby(enumerate(out_lines),lambda x:x[1])]:
+    repeats = len(v)
+    if repeats>1:
+        # we have a group
+        line,instr = v[0]
+        if "#1," in instr:
+            grouped = instr.rstrip().replace("#1,",f"#{len(v)},")
+            grouped += f" * {len(v)}\n"
+            out_lines[line] = grouped
+            # delete following lines
+            for i in range(line+1,line+len(v)):
+                out_lines[i] = ""
 
 
 # cosmetic: compute optimal position for pipe comments
