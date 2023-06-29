@@ -8,6 +8,7 @@ parser.add_argument("-i","--input-mode",help="input mode either mot style (comme
 "or mit style (comments *|, hex: 0x",choices=asm_styles,default=asm_styles[1])
 parser.add_argument("-o","--output-mode",help="output mode either mot style or mit style",choices=asm_styles
 ,default=asm_styles[0])
+parser.add_argument("-s","--spaces",help="replace tabs by x spaces",type=int)
 
 parser.add_argument("input_file")
 parser.add_argument("output_file")
@@ -491,6 +492,15 @@ def f_ld(args,address,comment):
 
 f_jr = f_jp
 
+def tab2space(line):
+    out = []
+    nbsp = cli_args.spaces
+    for i,c in enumerate(line):
+        if c == "\t":
+            c = " "*(nbsp-(i%nbsp))
+        out.append(c)
+    return "".join(out)
+
 
 converted = 0
 instructions = 0
@@ -607,6 +617,9 @@ for line in out_lines:
         spaces = " "*(comment_col-len(fp))
         line = f'{fp}{spaces}\t|{sp}'
     nout_lines.append(line+"\n")
+
+if cli_args.spaces:
+    nout_lines = [tab2space(n) for n in nout_lines]
 
 with open(cli_args.output_file,"w") as f:
     f.writelines(nout_lines)
