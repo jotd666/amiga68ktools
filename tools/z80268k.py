@@ -513,12 +513,14 @@ for i,(l,is_inst) in enumerate(lines):
         instructions += 1
         # try to convert
         toks = l.split(in_comment,maxsplit=1)
-        comment = "" if len(toks)==1 else f"\t\t{out_comment}{toks[1]}"
         # add original z80 instruction
-        if not comment:
-            comment = "\t\t"+out_comment
         inst = toks[0].strip()
-        comment += f" [{inst}]"
+        comment = f"\t\t{out_comment} [{inst}]"
+        if len(toks)>1:
+            if not toks[1].startswith(" "):
+                comment += " "
+            comment += toks[1]
+
         itoks = inst.split()
         if len(itoks)==1:
             # single instruction either towards a or without argument
