@@ -74,6 +74,7 @@ lines = []
 with open(cli_args.input_file,"rb") as f:
     for i,line in enumerate(f):
         is_inst = False
+        address = None
         line = line.decode(errors="ignore")
         if line.lstrip().startswith((in_start_line_comment,in_comment)):
             ls = line.lstrip()
@@ -82,6 +83,7 @@ with open(cli_args.input_file,"rb") as f:
             txt = (" "*nb_spaces)+out_start_line_comment+ls.rstrip()
         else:
             m = instruction_re.match(line)
+
             if m:
                 address = int(m.group(1),0x10)
                 instruction = m.group(3)
@@ -90,7 +92,7 @@ with open(cli_args.input_file,"rb") as f:
                 is_inst = True
             else:
                 txt = line.rstrip()
-        lines.append((txt,is_inst))
+        lines.append((txt,is_inst,address))
 
 
 # convention:
@@ -506,7 +508,7 @@ converted = 0
 instructions = 0
 out_lines = []
 
-for i,(l,is_inst) in enumerate(lines):
+for i,(l,is_inst,address) in enumerate(lines):
     out = ""
     old_out = l
     if is_inst:
@@ -515,7 +517,8 @@ for i,(l,is_inst) in enumerate(lines):
         toks = l.split(in_comment,maxsplit=1)
         # add original z80 instruction
         inst = toks[0].strip()
-        comment = f"\t\t{out_comment} [{inst}]"
+
+        comment = f"\t\t{out_comment} [${address:04x}: {inst}]"
         if len(toks)>1:
             if not toks[1].startswith(" "):
                 comment += " "
@@ -543,8 +546,9 @@ for i,(l,is_inst) in enumerate(lines):
                 jargs = args[0].split(",")
                 # switch registers now
                 jargs = [re.sub(r"\b(\w+)\b",lambda m:registers.get(m.group(1),m.group(1)),a) for a in jargs]
-                # replace "+" for address registers and swap params
+                # replace "+" or "-" for address registers and swap params
                 jargs = [re.sub("\((a\d)\+([^)]+)\)",r"(\2,\1)",a,flags=re.I) for a in jargs]
+                jargs = [re.sub("\((a\d)-([^)]+)\)",r"(-\2,\1)",a,flags=re.I) for a in jargs]
                 # replace hex by hex
                 if in_hex_sign != out_hex_sign:
                     # pre convert hex signs in arguments
@@ -587,7 +591,7 @@ for address in addresses_to_reference:
         out_lines[al] = to_insert
 
 # group exact following same instructions ror/rol/add ...
-for v in [list(v) for k,v in itertools.groupby(enumerate(out_lines),lambda x:x[1])]:
+for v in [list(v) for k,v in itertools.groupby(enumerate(out_lines),lambda x:x[1].split(out_comment)[0])]:
     repeats = len(v)
     if repeats>1:
         # we have a group
