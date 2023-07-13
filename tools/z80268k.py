@@ -455,14 +455,14 @@ def f_ld(args,address,comment):
                 except ValueError:
                     pass
 
-                if source_val is not None and source_val > 0x80:  # heuristic limit: address 0x80
+                if source_val is None or source_val > 0x80:  # heuristic limit: address 0x80
                     source = address_to_label_out(source)
 
                     out = f"\tlea\t{source}(pc),{dest}{comment}"
                 else:
                     # maybe not lea but 16 bit immediate value load
                     dest = addr2data_single.get(dest,dest)
-                    out = f"\tmove.w\t#{source},{dest}{comment}"
+                    out = f"\tmove.w\t#{source},{dest}{comment} {source_val}"
         else:
             src = f"{prefix}{source}".strip("0")
             if src=="#"+out_hex_sign or src == "#":
