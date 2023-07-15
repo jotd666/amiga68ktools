@@ -213,13 +213,7 @@ def f_pop(args,address,comment):
 
     return rval
 
-def f_xor(args,address,comment):
-    arg = args[0]
-    if arg=="d0":
-        # optim, as xor a is a way to zero a
-        return f"\tclr.b\td0{comment}"
-    prefix = "#" if arg.startswith(out_hex_sign) else ""
-    return f"\teor.b\t{prefix}{arg},d0{comment}"
+
 
 def f_rl(args,address,comment):
     arg = args[0]
@@ -284,15 +278,39 @@ def f_jp(args,address,comment):
 
     return out
 
+def f_xor(args,address,comment):
+    p = args[0]
+    if p=="d0":
+        # optim, as xor a is a way to zero a/clear carry
+        out = f"\tclr.b\td0{comment}"
+    elif p.startswith(out_hex_sign):
+        out = f"\teor.b\t#{p},d0{comment}"
+    elif p in m68_data_regs:
+        out = f"\teor.b\t{p},d0{comment}"
+    else:
+        out = f"\tmove.b\t{p},d7\n\teor.b\td7,d0{comment}"
+    return out
+
+def f_or(args,address,comment):
+    p = args[0]
+    out = None
+
+    if p.startswith(out_hex_sign):
+        out = f"\tor.b\t#{p},d0{comment}"
+    else:
+        out = f"\tor.b\t{p},d0{comment}"
+    return out
+
 def f_and(args,address,comment):
     p = args[0]
     out = None
     if p == "d0":
         out = f"\ttst.b\td0{comment}"
-    elif p in m68_regs:
-        out = f"\tand.b\t{p},d0{comment}"
     elif p.startswith(out_hex_sign):
         out = f"\tand.b\t#{p},d0{comment}"
+    else:
+        out = f"\tand.b\t{p},d0{comment}"
+
     return out
 
 def f_add(args,address,comment):
@@ -365,15 +383,6 @@ def address_to_label(s):
 def address_to_label_out(s):
     return s.strip("()").replace(out_hex_sign,lab_prefix)
 
-def f_or(args,address,comment):
-    p = args[0]
-    out = None
-
-    if p.startswith(out_hex_sign):
-        out = f"\tor.b\t#{p},d0{comment}"
-    else:
-        out = f"\tor.b\t{p},d0{comment}"
-    return out
 
 
 def f_call(args,address,comment):
