@@ -1,4 +1,4 @@
-import re,itertools,os,collections
+import re,itertools,os,collections,glob
 import argparse
 import simpleeval # get it on pypi (pip install simpleeval)
 
@@ -9,11 +9,15 @@ parser.add_argument("-i","--input-mode",help="input mode either mot style (comme
 parser.add_argument("-o","--output-mode",help="output mode either mot style or mit style",choices=asm_styles
 ,default=asm_styles[0])
 parser.add_argument("-s","--spaces",help="replace tabs by x spaces",type=int)
+parser.add_argument("-n","--no-mame-prefixes",help="treat as real source, not MAME disassembly",action="store_true")
 
 parser.add_argument("input_file")
 parser.add_argument("output_file")
 
 cli_args = parser.parse_args()
+
+no_mame_prefixes = cli_args.no_mame_prefixes
+
 if os.path.abspath(cli_args.input_file) == os.path.abspath(cli_args.output_file):
     raise Exception("Define an output file which isn't the input file")
 
@@ -54,7 +58,7 @@ def get_mot_local_label():
 
 regexes = []
 
-special_loop_instructions = {"ldir","cpir","cpdr"}
+special_loop_instructions = {"ldi","ldir","cpir","cpdr"}
 special_loop_instructions_met = set()
 
 ##for s,r in regexes_1:
@@ -65,34 +69,47 @@ special_loop_instructions_met = set()
 
 address_re = re.compile("^([0-9A-F]{4}):")
 # doesn't capture all hex codes properly but we don't care
-instruction_re = re.compile("([0-9A-F]{4}):( [0-9A-F]{2}){1,}\s+(\S.*)")
+if no_mame_prefixes:
+    instruction_re = re.compile("\s+(\S.*)")
+else:
+    instruction_re = re.compile("([0-9A-F]{4}):( [0-9A-F]{2}){1,}\s+(\S.*)")
 
 addresses_to_reference = set()
 
 address_lines = {}
 lines = []
-with open(cli_args.input_file,"rb") as f:
-    for i,line in enumerate(f):
-        is_inst = False
-        address = None
-        line = line.decode(errors="ignore")
-        if line.lstrip().startswith((in_start_line_comment,in_comment)):
-            ls = line.lstrip()
-            nb_spaces = len(line)-len(ls)
-            ls = ls.lstrip(in_start_line_comment+in_comment)
-            txt = (" "*nb_spaces)+out_start_line_comment+ls.rstrip()
-        else:
-            m = instruction_re.match(line)
+input_files = glob.glob(cli_args.input_file)
+if not input_files:
+    raise Exception(f"{cli_args.input_file}: no match")
 
-            if m:
-                address = int(m.group(1),0x10)
-                instruction = m.group(3)
-                address_lines[address] = i
-                txt = instruction.rstrip()
-                is_inst = True
+for input_file in input_files:
+    with open(input_file,"rb") as f:
+        if len(input_files)>1:
+            lines.append((f"{out_start_line_comment} input file {os.path.basename(input_file)}",False,None))
+        for i,line in enumerate(f):
+            is_inst = False
+            address = None
+            line = line.decode(errors="ignore")
+            if line.lstrip().startswith((in_start_line_comment,in_comment)):
+                ls = line.lstrip()
+                nb_spaces = len(line)-len(ls)
+                ls = ls.lstrip(in_start_line_comment+in_comment)
+                txt = (" "*nb_spaces)+out_start_line_comment+ls.rstrip()
             else:
-                txt = line.rstrip()
-        lines.append((txt,is_inst,address))
+                m = instruction_re.match(line)
+                if m:
+                    if no_mame_prefixes:
+                        address = i*0x10  # fake address
+                        instruction = m.group(1)
+                    else:
+                        address = int(m.group(1),0x10)
+                        instruction = m.group(3)
+                    address_lines[address] = i
+                    txt = instruction.rstrip()
+                    is_inst = True
+                else:
+                    txt = line.rstrip()
+            lines.append((txt,is_inst,address))
 
 
 # convention:
@@ -133,7 +150,7 @@ addr2data_single = {"a1":"d3","a0":"d5","a4":"d1"}
 
 a_instructions = {"neg":"neg.b\t","cpl":"not.b\t","rra":"roxr.b\t#1,",
                     "rla":"roxl.b\t#1,","rrca":"ror.b\t#1,","rlca":"rol.b\t#1,"}
-single_instructions = {"nop":"nop","ret":"rts","ldir":"jbsr\tldir","cpir":"jbsr\tcpir",
+single_instructions = {"nop":"nop","ret":"rts","ldir":"jbsr\tldir","ldi":"jbsr\tldi","cpi":"jbsr\tcpi","cpir":"jbsr\tcpir",
 "scf":"clr.b\td7\n\tcmp.b\t#1,d7",
 "ccf":"st.b\td7\n\tcmp.b\t#1,d7"}
 
@@ -151,9 +168,15 @@ lab_prefix = "l_"
 def add_entrypoint(address):
     addresses_to_reference.add(address)
 
-def parse_hex(s):
+def parse_hex(s,default=None):
     s = s.strip("$")
-    return int(s,16)
+    try:
+        return int(s,16)
+    except ValueError as e:
+        if default is None:
+            raise
+        else:
+            return default
 
 def arg2label(s):
     try:
@@ -163,7 +186,7 @@ def arg2label(s):
         # already resolved as a name
         return s
 
-def f_djnz(args,address,comment):
+def f_djnz(args,comment):
     target_address = arg2label(args[0])
     if target_address != args[0]:
         add_entrypoint(parse_hex(args[0]))
@@ -174,16 +197,16 @@ def f_djnz(args,address,comment):
 
 
 
-def f_bit(args,address,comment):
+def f_bit(args,comment):
     return f"\tbtst.b\t#{args[0]},{args[1]}{comment}"
-def f_set(args,address,comment):
+def f_set(args,comment):
     return f"\tbset.b\t#{args[0]},{args[1]}{comment}"
-def f_res(args,address,comment):
+def f_res(args,comment):
     return f"\tbclr.b\t#{args[0]},{args[1]}{comment}"
 
-def f_ex(args,address,comment):
+def f_ex(args,comment):
     return f"\texg\t{args[0]},{args[1]}{comment}"
-def f_push(args,address,comment):
+def f_push(args,comment):
     reg = args[0]
     dreg = addr2data.get(reg)
     rval = ""
@@ -199,7 +222,7 @@ def f_push(args,address,comment):
         rval = f"\tmove.w\t{args[0]},-(sp){comment}"
     return rval
 
-def f_pop(args,address,comment):
+def f_pop(args,comment):
     reg = args[0]
     if reg=="af":
         rval = f"\tmove.w\t(sp)+,d0{comment}"
@@ -215,39 +238,39 @@ def f_pop(args,address,comment):
 
 
 
-def f_rl(args,address,comment):
+def f_rl(args,comment):
     arg = args[0]
     return f"\troxl.b\t#1,{arg}{comment}"
 
-def f_rlc(args,address,comment):
+def f_rlc(args,comment):
     arg = args[0]
     return f"\trol.b\t#1,{arg}{comment}"
 
-def f_rr(args,address,comment):
+def f_rr(args,comment):
     arg = args[0]
     return f"\troxr.b\t#1,{arg}{comment}"
 
-def f_srl(args,address,comment):
+def f_srl(args,comment):
     arg = args[0]
     return f"\tlsr.b\t#1,{arg}{comment}"
 
-def f_sra(args,address,comment):
+def f_sra(args,comment):
     arg = args[0]
     return f"\tasr.b\t#1,{arg}{comment}"
 
-def f_sll(args,address,comment):
+def f_sll(args,comment):
     arg = args[0]
     return f"\tlsl.b\t#1,{arg}{comment}"
 
-def f_sla(args,address,comment):
+def f_sla(args,comment):
     arg = args[0]
     return f"\tasl.b\t#1,{arg}{comment}"
 
-def f_rrc(args,address,comment):
+def f_rrc(args,comment):
     arg = args[0]
     return f"\tror.b\t#1,{arg}{comment}"
 
-def f_ret(args,address,comment):
+def f_ret(args,comment):
     binst = rts_cond_dict[args[0]]
     if cli_args.output_mode == "mit":
         return f"\t{binst}.b\t0f\n\trts{comment}\n0:"
@@ -255,7 +278,7 @@ def f_ret(args,address,comment):
         loclab = get_mot_local_label()
         return f"\t{binst}.b\t{loclab}\n\trts{comment}\n{loclab}:"
 
-def f_jp(args,address,comment):
+def f_jp(args,comment):
     target_address = None
     if len(args)==1:
         label = arg2label(args[0])
@@ -278,7 +301,7 @@ def f_jp(args,address,comment):
 
     return out
 
-def f_xor(args,address,comment):
+def f_xor(args,comment):
     p = args[0]
     if p=="d0":
         # optim, as xor a is a way to zero a/clear carry
@@ -291,7 +314,7 @@ def f_xor(args,address,comment):
         out = f"\tmove.b\t{p},d7\n\teor.b\td7,d0{comment}"
     return out
 
-def f_or(args,address,comment):
+def f_or(args,comment):
     p = args[0]
     out = None
 
@@ -301,7 +324,7 @@ def f_or(args,address,comment):
         out = f"\tor.b\t{p},d0{comment}"
     return out
 
-def f_and(args,address,comment):
+def f_and(args,comment):
     p = args[0]
     out = None
     if p == "d0":
@@ -313,7 +336,7 @@ def f_and(args,address,comment):
 
     return out
 
-def f_add(args,address,comment):
+def f_add(args,comment):
     dest = args[0]
     source = args[1]
     out = None
@@ -326,7 +349,7 @@ def f_add(args,address,comment):
     if source in m68_regs:
         out = f"\tadd.b\t{source},{dest}{comment}"
     elif source.startswith(out_hex_sign):
-        if parse_hex(source)<8:
+        if can_be_quick(source):
             out = f"\taddq.b\t#{source},{dest}{comment}"
         else:
             out = f"\tadd.b\t#{source},{dest}{comment}"
@@ -334,7 +357,7 @@ def f_add(args,address,comment):
         out = f"\tadd.b\t{source},{dest}{comment}"
     return out
 
-def f_sbc(args,address,comment):
+def f_sbc(args,comment):
     dest = args[0]
     source = args[1]
     out = None
@@ -350,14 +373,14 @@ def f_sbc(args,address,comment):
         out = f"\tsubx.b\t{source},{dest}{comment}"
     return out
 
-def f_sub(args,address,comment):
+def f_sub(args,comment):
     dest = "d0"
     source = args[0]
     out = None
     if source in m68_regs:
         out = f"\tsub.b\t{source},{dest}{comment}"
     elif source.startswith(out_hex_sign):
-        if parse_hex(source)<8:
+        if can_be_quick(source):
             out = f"\tsubq.b\t#{source},{dest}{comment}"
         else:
             out = f"\tsub.b\t#{source},{dest}{comment}"
@@ -365,7 +388,7 @@ def f_sub(args,address,comment):
         out = f"\tsub.b\t{source},{dest}{comment}"
     return out
 
-def gen_addsub(args,address,comment,inst):
+def gen_addsub(args,comment,inst):
     dest = args[0]
     source = args[1] if len(args)==2 else "d0"
     out = None
@@ -385,7 +408,7 @@ def address_to_label_out(s):
 
 
 
-def f_call(args,address,comment):
+def f_call(args,comment):
     func = args[0]
     out = ""
     target_address = None
@@ -415,30 +438,30 @@ def f_call(args,address,comment):
         add_entrypoint(parse_hex(target_address))
     return out
 
-def f_cp(args,address,comment):
+def f_cp(args,comment):
     p = args[0]
     out = None
     if p in m68_regs or re.match("\(a\d\)",p) or "," in p:
         out = f"\tcmp.b\t{p},d0{comment}"
-    elif p.startswith(out_hex_sign):
+    elif p.startswith(out_hex_sign) or p.isdigit():
         out = f"\tcmp.b\t#{p},d0{comment}"
 
     return out
 
-def f_dec(args,address,comment):
+def f_dec(args,comment):
     p = args[0]
     size = "w" if p in ["de","hl"] else "b"
     out = f"\tsubq.{size}\t#1,{p}{comment}"
 
     return out
 
-def f_inc(args,address,comment):
+def f_inc(args,comment):
     p = args[0]
     size = "w" if p[0]=="a" else "b"
     out = f"\taddq.{size}\t#1,{p}{comment}"
     return out
 
-def f_ld(args,address,comment):
+def f_ld(args,comment):
     dest,source = args[0],args[1]
     out = None
     direct = False
@@ -503,6 +526,9 @@ def f_ld(args,address,comment):
 
 f_jr = f_jp
 
+def can_be_quick(source):
+    return parse_hex(source,default=8)<8
+
 def tab2space(line):
     out = []
     nbsp = cli_args.spaces
@@ -527,13 +553,18 @@ for i,(l,is_inst,address) in enumerate(lines):
         # add original z80 instruction
         inst = toks[0].strip()
 
-        comment = f"\t\t{out_comment} [${address:04x}: {inst}]"
+        if no_mame_prefixes:
+            comment = f"\t\t{out_comment} [{inst}]"
+        else:
+            comment = f"\t\t{out_comment} [${address:04x}: {inst}]"
         if len(toks)>1:
             if not toks[1].startswith(" "):
                 comment += " "
             comment += toks[1]
 
-        itoks = inst.split()
+
+        # now we can split according to remaining spaces
+        itoks = inst.split(maxsplit=1)
         if len(itoks)==1:
             # single instruction either towards a or without argument
             ai = a_instructions.get(inst)
@@ -549,10 +580,18 @@ for i,(l,is_inst,address) in enumerate(lines):
         else:
             inst = itoks[0]
             args = itoks[1:]
+            sole_arg = args[0].replace(" ","")
+            # pre-process instruction to remove spaces
+            # (only required when source is manually reworked, not in MAME dumps)
+            #sole_arg = re.sub("(\(.*?\))",lambda m:m.group(1).replace(" ",""),sole_arg)
+
+            # also manual rework for 0x03(ix) => (ix+0x03)
+            sole_arg = re.sub("(-?0x[A-F0-9]+)\((\w+)\)",r"(\2+\1)",sole_arg)
+
             # other instructions, not single, not implicit a
             conv_func = globals().get(f"f_{inst}")
             if conv_func:
-                jargs = args[0].split(",")
+                jargs = sole_arg.split(",")
                 # switch registers now
                 jargs = [re.sub(r"\b(\w+)\b",lambda m:registers.get(m.group(1),m.group(1)),a) for a in jargs]
                 # replace "+" or "-" for address registers and swap params
@@ -563,7 +602,14 @@ for i,(l,is_inst,address) in enumerate(lines):
                     # pre convert hex signs in arguments
                     jargs = [x.replace(in_hex_sign,out_hex_sign) for x in jargs]
 
-                out = conv_func(jargs,address,comment)
+                # some source codes have immediate signs, not really needed as if not between ()
+                # it is immediate
+                jargs = [x.strip("#") for x in jargs]
+                try:
+                    out = conv_func(jargs,comment)
+                except Exception as e:
+                    print(f"Problem parsing: {l}, args={jargs}")
+                    raise
     else:
         out=address_re.sub(rf"{lab_prefix}\1:",l)
         if not re.search(r"\bdc.[bwl]",out,flags=re.I) and not out.strip().startswith((out_start_line_comment,out_comment)):
@@ -639,6 +685,25 @@ if cli_args.spaces:
 with open(cli_args.output_file,"w") as f:
     f.writelines(nout_lines)
 
+    if "ldi" in special_loop_instructions_met:
+        f.write(f"""
+{out_start_line_comment} < A0: source (HL)
+{out_start_line_comment} < A1: destination (DE)
+{out_start_line_comment} < D1: decremented (16 bit)
+ldi:
+""")
+        if cli_args.output_mode == "mit":
+            f.write(f"""
+    move.b    (a0)+,(a1)+
+""")
+        else:
+            f.write(f""":
+    move.b    (a0)+,(a1)+
+""")
+        f.write("""    subq.w    #1,d1
+    rts
+""")
+
     if "ldir" in special_loop_instructions_met:
         f.write(f"""
 {out_start_line_comment} < A0: source (HL)
@@ -693,6 +758,28 @@ cpir:
 .out:
     rts
 """)
+
+    if "cpi" in special_loop_instructions_met:
+        f.write(f"""
+{out_start_line_comment} < A0: source (HL)
+{out_start_line_comment} < D1: decremented
+{out_start_line_comment} > D0.B value searched for (A)
+{out_start_line_comment} > Z flag if found
+{out_start_line_comment} careful: d1 overflow not emulated
+cpi:
+        subq.w    #1,d1
+""")
+        if cli_args.output_mode == "mit":
+            f.write("""
+    cmp.b    (a0)+,d0
+    rts
+""")
+        else:
+            f.write("""
+    cmp.b    (a0)+,d0
+    rts
+""")
+
 
 
 print(f"Converted {converted} lines on {len(lines)} total, {instructions} instruction lines")
