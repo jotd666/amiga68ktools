@@ -1,3 +1,5 @@
+# todo ld a,0 => add #
+# rst xxx => jbsr  rst
 import re,itertools,os,collections,glob
 import argparse
 import simpleeval # get it on pypi (pip install simpleeval)
@@ -133,7 +135,6 @@ for input_file in input_files:
 #
 # additionally:
 #
-# after ccf, carry is cleared and d7.b !=0,
 # after scf, carry is set and d7.b = 0
 #
 # (useful because push/pop af isn't emulated properly, it would involve R/W of 68000 SR
@@ -147,12 +148,22 @@ registers = {
 
 addr2data = {"a4":"d1/d2","a1":"d3/d4"}
 addr2data_single = {"a1":"d3","a0":"d5","a4":"d1"}
+data2addr_msb = {v:k for k,v in addr2data_single.items()}
+data2addr_lsb = {"d4":"a1","d6":"a0","d2":"a4"}
+addr2data_lsb = {v:k for k,v in data2addr_lsb.items()}
 
 a_instructions = {"neg":"neg.b\t","cpl":"not.b\t","rra":"roxr.b\t#1,",
                     "rla":"roxl.b\t#1,","rrca":"ror.b\t#1,","rlca":"rol.b\t#1,"}
 single_instructions = {"nop":"nop","ret":"rts","ldir":"jbsr\tldir","ldi":"jbsr\tldi","cpi":"jbsr\tcpi","cpir":"jbsr\tcpir",
 "scf":"clr.b\td7\n\tcmp.b\t#1,d7",
-"ccf":"st.b\td7\n\tcmp.b\t#1,d7"}
+"ccf":"""
+\tbcs.b\t0f
+\tclr.b\td7
+\tbra.b\t1f
+0:
+\tst.b\td7
+1:
+\tcmp.b\t#1,d7"""}
 
 m68_regs = set(registers.values())
 m68_data_regs = {x for x in m68_regs if x[0]=="d"}
@@ -169,9 +180,10 @@ def add_entrypoint(address):
     addresses_to_reference.add(address)
 
 def parse_hex(s,default=None):
+    is_hex = s.startswith(("$","0x"))
     s = s.strip("$")
     try:
-        return int(s,16)
+        return int(s,16 if is_hex else 10)
     except ValueError as e:
         if default is None:
             raise
@@ -196,6 +208,12 @@ def f_djnz(args,comment):
     return f"\tsubq.b\t#1,d1\t{out_comment} [...]\n\tjne\t{target_address}\t{comment}"
 
 
+
+def f_rst(args,comment):
+    """ generates a function name that the user has to code
+    """
+    arg = parse_hex(args[0])
+    return f"\tjbsr\trst_{arg:02x}{comment}"
 
 def f_bit(args,comment):
     return f"\tbtst.b\t#{args[0]},{args[1]}{comment}"
@@ -306,7 +324,7 @@ def f_xor(args,comment):
     if p=="d0":
         # optim, as xor a is a way to zero a/clear carry
         out = f"\tclr.b\td0{comment}"
-    elif p.startswith(out_hex_sign):
+    elif is_immediate_value(p):
         out = f"\teor.b\t#{p},d0{comment}"
     elif p in m68_data_regs:
         out = f"\teor.b\t{p},d0{comment}"
@@ -318,7 +336,7 @@ def f_or(args,comment):
     p = args[0]
     out = None
 
-    if p.startswith(out_hex_sign):
+    if is_immediate_value(p):
         out = f"\tor.b\t#{p},d0{comment}"
     else:
         out = f"\tor.b\t{p},d0{comment}"
@@ -329,7 +347,7 @@ def f_and(args,comment):
     out = None
     if p == "d0":
         out = f"\ttst.b\td0{comment}"
-    elif p.startswith(out_hex_sign):
+    elif is_immediate_value(p):
         out = f"\tand.b\t#{p},d0{comment}"
     else:
         out = f"\tand.b\t{p},d0{comment}"
@@ -348,7 +366,7 @@ def f_add(args,comment):
 
     if source in m68_regs:
         out = f"\tadd.b\t{source},{dest}{comment}"
-    elif source.startswith(out_hex_sign):
+    elif is_immediate_value(source):
         if can_be_quick(source):
             out = f"\taddq.b\t#{source},{dest}{comment}"
         else:
@@ -367,7 +385,7 @@ def f_sbc(args,comment):
 
     if source in m68_regs:
         out = f"\tsubx.b\t{source},{dest}{comment}"
-    elif source.startswith(out_hex_sign):
+    elif is_immediate_value(source):
         out = f"\tsubx.b\t#{source},{dest}{comment}"
     else:
         out = f"\tsubx.b\t{source},{dest}{comment}"
@@ -379,7 +397,7 @@ def f_sub(args,comment):
     out = None
     if source in m68_regs:
         out = f"\tsub.b\t{source},{dest}{comment}"
-    elif source.startswith(out_hex_sign):
+    elif is_immediate_value(source):
         if can_be_quick(source):
             out = f"\tsubq.b\t#{source},{dest}{comment}"
         else:
@@ -466,6 +484,16 @@ def f_ld(args,comment):
     out = None
     direct = False
 
+    half_msb =  source.startswith(">")
+    if half_msb:
+        source = source[1:]
+        # half-address: must load address register
+        # then add relevant data register
+        addr_reg = data2addr_msb.get(dest)
+        if addr_reg:
+            dest = addr_reg
+        lsb_data_reg = addr2data_lsb.get(addr_reg)
+
     if dest in m68_regs:
         if source.startswith("("):
             # direct addressing
@@ -492,7 +520,10 @@ def f_ld(args,comment):
                 if source_val is None or source_val > 0x80:  # heuristic limit: address 0x80
                     source = address_to_label_out(source)
 
+
                     out = f"\tlea\t{source}(pc),{dest}{comment}"
+                    if half_msb:
+                        out += f"\n\tand.w\t#{out_hex_sign}FF,{lsb_data_reg}\n\tadd.w\t{lsb_data_reg},{dest}\n\t      ^^^^ review XX value"
                 else:
                     # maybe not lea but 16 bit immediate value load
                     dest = addr2data_single.get(dest,dest)
@@ -513,10 +544,10 @@ def f_ld(args,comment):
             dest = address_to_label(dest)
 
         prefix = ""
-        if source.startswith(out_hex_sign):
+        if is_immediate_value(source):
             prefix = "#"
-        src = f"{prefix}{source}".strip("0")
-        if src=="#"+out_hex_sign or src == "#":
+        src = f"{prefix}{source}".lstrip("0")
+        if prefix == "#" and parse_hex(source) == 0:
             out = f"\tclr.b\t{dest}{comment}"
         else:
             out = f"\tmove.b\t{prefix}{source},{dest}{comment}"
@@ -525,6 +556,10 @@ def f_ld(args,comment):
     return out
 
 f_jr = f_jp
+
+def is_immediate_value(p):
+    srcval = parse_hex(p,"FAIL")
+    return srcval != "FAIL"
 
 def can_be_quick(source):
     return parse_hex(source,default=8)<8
@@ -677,7 +712,16 @@ for line in out_lines:
         sp = toks[1]
         spaces = " "*(comment_col-len(fp))
         line = f'{fp}{spaces}\t|{sp}'
+    if line.startswith(".db") and line[3].isspace():
+        line = line.replace(".db","\t.byte")
+        line = line.replace(in_comment,out_comment)
+    elif line.startswith(".dw") and line[3].isspace():
+        line = line.replace(".dw","\t.long")
+        line = line.replace(in_comment,out_comment)
+
     nout_lines.append(line+"\n")
+
+# post-processing
 
 if cli_args.spaces:
     nout_lines = [tab2space(n) for n in nout_lines]
