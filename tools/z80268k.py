@@ -223,7 +223,13 @@ def f_res(args,comment):
     return f"\tbclr.b\t#{args[0]},{args[1]}{comment}"
 
 def f_ex(args,comment):
-    return f"\texg\t{args[0]},{args[1]}{comment}"
+    arg0,arg1 = args
+    if arg1 == "af'":
+        arg1 = "d7"
+    txt = f"\texg\t{arg0},{arg1}{comment}"
+    if arg1 == "d7":
+        txt += "\n         ^^^ review, wrong if carry is needed or D7 used in between!"
+    return txt
 def f_push(args,comment):
     reg = args[0]
     dreg = addr2data.get(reg)
