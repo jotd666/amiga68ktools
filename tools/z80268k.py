@@ -60,7 +60,7 @@ def get_mot_local_label():
 
 regexes = []
 
-special_loop_instructions = {"ldi","ldir","cpir","cpdr"}
+special_loop_instructions = {"ldi","ldir","cpir","cpdr","rld","rrd"}
 special_loop_instructions_met = set()
 
 ##for s,r in regexes_1:
@@ -154,7 +154,7 @@ addr2data_lsb = {v:k for k,v in data2addr_lsb.items()}
 
 a_instructions = {"neg":"neg.b\t","cpl":"not.b\t","rra":"roxr.b\t#1,",
                     "rla":"roxl.b\t#1,","rrca":"ror.b\t#1,","rlca":"rol.b\t#1,"}
-single_instructions = {"nop":"nop","ret":"rts","ldir":"jbsr\tldir","ldi":"jbsr\tldi","cpi":"jbsr\tcpi","cpir":"jbsr\tcpir",
+single_instructions = {"nop":"nop","ret":"rts",
 "scf":"clr.b\td7\n\tcmp.b\t#1,d7",
 "ccf":"""
 \tbcs.b\t0f
@@ -612,11 +612,13 @@ for i,(l,is_inst,address) in enumerate(lines):
             if ai:
                 out = f"\t{ai}d0{comment}"
             else:
-                si = single_instructions.get(inst)
-                if si:
-                    out = f"\t{si}{comment}"
-            if inst in special_loop_instructions:
-                special_loop_instructions_met.add(inst)
+                if inst in special_loop_instructions:
+                    special_loop_instructions_met.add(inst)  # note down that it's used
+                    out = f"\tjbsr\t{inst}{comment}"
+                else:
+                    si = single_instructions.get(inst)
+                    if si:
+                        out = f"\t{si}{comment}"
 
         else:
             inst = itoks[0]
@@ -735,6 +737,26 @@ if cli_args.spaces:
 with open(cli_args.output_file,"w") as f:
     f.writelines(nout_lines)
 
+    if "rld" in special_loop_instructions_met:
+        f.write(f"""
+{out_start_line_comment} < A0 (HL)
+{out_start_line_comment} < D0 (A)
+rld:
+    movem.w    d1/d2,-(a7)
+    move.b    d0,d1        {out_comment} backup A
+    clr.w    d2            {out_comment} make sure high bits of D2 are clear
+    move.b    (a0),d2       {out_comment} read (HL)
+    and.b #0xF,d1        {out_comment} keep 4 lower bits of A
+    lsl.w    #4,d2       {out_comment} make room for 4 lower bits
+    or.b    d1,d2        {out_comment} insert bits
+    move.b    d2,(a0)        {out_comment} update (HL)
+    lsr.w    #8,d2        {out_comment} get 4 shifted bits of (HL)
+    and.b    #0xF0,d0    {out_comment} keep only the 4 highest bits of A
+    or.b    d2,d0        {out_comment} insert high bits from (HL) into first bits of A
+    movem.w    (a7)+,d1/d2
+    rts
+
+""")
     if "ldi" in special_loop_instructions_met:
         f.write(f"""
 {out_start_line_comment} < A0: source (HL)
