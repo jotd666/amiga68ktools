@@ -180,7 +180,10 @@ def round_color(rgb,mask):
     return tuple(p & mask for p in rgb)
 
 def to_rgb4_color(rgb):
-    return ((rgb[0] >>4)<<8) + ((rgb[1] >>4)<<4) +(rgb[2]>>4)
+    return ((rgb[0]>>4)<<8) + ((rgb[1] >>4)<<4) +(rgb[2]>>4)
+
+def rgb4_to_rgb_triplet(rgb4):
+    return tuple((x<<4) for x in ((rgb4&0xF00)>>8,(rgb4&0xF0)>>4,rgb4&0xF))
 
 def palette_regdump2palette(text):
     """ converts a winuae custom register dump (e command) to a palette
