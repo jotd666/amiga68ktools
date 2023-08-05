@@ -12,7 +12,7 @@ parser.add_argument("-o","--output-mode",help="output mode either mot style or m
 ,default=asm_styles[0])
 parser.add_argument("-s","--spaces",help="replace tabs by x spaces",type=int)
 parser.add_argument("-n","--no-mame-prefixes",help="treat as real source, not MAME disassembly",action="store_true")
-
+parser.add_argument("--use-bc-as-pointer",help="bc will be saved/restored as address register as well")
 parser.add_argument("input_file")
 parser.add_argument("output_file")
 
@@ -145,6 +145,8 @@ for input_file in input_files:
 
 registers = {
 "a":"d0","b":"d1","c":"d2","d":"d3","e":"d4","h":"d5","l":"d6","ix":"a2","iy":"a3","hl":"a0","de":"a1","bc":"a4"}  #,"d":"d3","e":"d4","h":"d5","l":"d6",
+inv_registers = {v:k for k,v in registers.items()}
+
 
 addr2data = {"a4":"d1/d2","a1":"d3/d4"}
 addr2data_single = {"a1":"d3","a0":"d5","a4":"d1"}
@@ -232,28 +234,42 @@ def f_ex(args,comment):
     return txt
 def f_push(args,comment):
     reg = args[0]
+    block_areg = False
+    if not cli_args.use_bc_as_pointer:
+        zreg = inv_registers.get(reg)
+        if zreg == "bc":
+            block_areg = True
+
     dreg = addr2data.get(reg)
     rval = ""
     # play it safe, we don't know what the program needs
-    # address or data
+    # address or data, but special case for BC (option)
     if dreg:
         rval = f"\tmovem.w\t{dreg},-(sp){comment}"
     if args[0]=="af":
         rval = f"\tmove.w\td0,-(sp){comment}"
-    elif args[0].startswith("a"):
-        rval += f"\n\tmove.l\t{args[0]},-(sp){comment}"
-    else:
-        rval = f"\tmove.w\t{args[0]},-(sp){comment}"
+    elif not block_areg:
+        if args[0].startswith("a"):
+            rval += f"\n\tmove.l\t{args[0]},-(sp){comment}"
+        else:
+            rval = f"\tmove.w\t{args[0]},-(sp){comment}"
     return rval
 
 def f_pop(args,comment):
     reg = args[0]
+    block_areg = False
+    if not cli_args.use_bc_as_pointer:
+        zreg = inv_registers.get(reg)
+        if zreg == "bc":
+            block_areg = True
+    rval = ""
     if reg=="af":
         rval = f"\tmove.w\t(sp)+,d0{comment}"
-    elif reg.startswith("a"):
-        rval = f"\tmove.l\t(sp)+,{reg}{comment}"
-    else:
-        rval = f"\tmove.w\t(sp)+,{reg}{comment}"
+    elif not block_areg:
+        if reg.startswith("a"):
+            rval = f"\tmove.l\t(sp)+,{reg}{comment}"
+        else:
+            rval = f"\tmove.w\t(sp)+,{reg}{comment}"
     dreg = addr2data.get(reg)
     if dreg:
         rval += f"\n\tmovem.w\t(sp)+,{dreg}{comment}"
@@ -367,7 +383,7 @@ def f_add(args,comment):
     if dest in m68_address_regs:
         # supported but not sure, must be reviewed
         source = addr2data_single.get(source,source)
-        out = f"\tadd.w\t{source},{dest}{comment}\n  ^^^^ review"
+        out = f"\tadd.w\t{source},{dest}{comment}\n  ^^^^ review {source} computation above"
         return out
 
     if source in m68_regs:
@@ -489,6 +505,7 @@ def f_ld(args,comment):
     dest,source = args[0],args[1]
     out = None
     direct = False
+    word_split = False
 
     half_msb =  source.startswith(">")
     if half_msb:
@@ -513,6 +530,12 @@ def f_ld(args,comment):
         else:
             prefix = "#"
         if dest[0]=="a":
+            if not cli_args.use_bc_as_pointer:
+                zreg = inv_registers.get(dest)
+                if zreg == "bc":
+                    direct = False
+                    word_split = True
+
             if direct:
                 source = address_to_label_out(source)
                 out = f"\tmove.w\t{source}(pc),{dest}{comment}"
@@ -523,7 +546,7 @@ def f_ld(args,comment):
                 except ValueError:
                     pass
 
-                if source_val is None or source_val > 0x80:  # heuristic limit: address 0x80
+                if not word_split and (source_val is None or source_val > 0x80):  # heuristic limit: address 0x80
                     source = address_to_label_out(source)
 
 
@@ -531,9 +554,18 @@ def f_ld(args,comment):
                     if half_msb:
                         out += f"\n\tand.w\t#{out_hex_sign}FF,{lsb_data_reg}\n\tadd.w\t{lsb_data_reg},{dest}\n\t      ^^^^ review XX value"
                 else:
-                    # maybe not lea but 16 bit immediate value load
-                    dest = addr2data_single.get(dest,dest)
-                    out = f"\tmove.w\t#{source},{dest}{comment} {source_val}"
+                    if word_split:
+                        dest = addr2data[dest].split("/")
+                        if source_val is not None:
+                            out = f"\tmove.b\t#{out_hex_sign}{source_val >> 8:02x},{dest[0]}{comment} {source_val}"
+                            out += f"\n\tmove.b\t#{out_hex_sign}{source_val & 0xFF:02x},{dest[1]}{comment} {source_val}"
+                        else:
+                            out = f"\tmove.b\t#{source}_msb,{dest[0]}{comment} {source_val}"
+                            out += f"\n\tmove.b\t#{source}_lsb,{dest[1]}{comment} {source_val}"
+                    else:
+                        # maybe not lea but 16 bit immediate value load
+                        dest = addr2data_single.get(dest,dest)
+                        out = f"\tmove.w\t#{source},{dest}{comment} {source_val}"
         else:
             src = f"{prefix}{source}".strip("0")
             if src=="#"+out_hex_sign or src == "#":
@@ -729,6 +761,19 @@ for line in out_lines:
 
     nout_lines.append(line+"\n")
 
+# add review flag message in case of move.x followed by a branch
+prev_fp = None
+for i,line in enumerate(nout_lines):
+    line = line.rstrip()
+    toks = line.split("|",maxsplit=1)
+    if len(toks)==2:
+        fp = toks[0].rstrip().split()
+        finst = fp[0]
+        if finst.startswith(("j","b")) and not finst[1:].startswith(("set","clr","tst","sr","bsr","ra")):
+            # conditional branch, examine previous instruction
+            if prev_fp and prev_fp[0].startswith("move."):
+                nout_lines[i] += "      ^^^^^^ review cpu flags\n"
+        prev_fp = fp
 # post-processing
 
 if cli_args.spaces:
