@@ -1,5 +1,4 @@
-# todo ld a,0 => add #
-# rst xxx => jbsr  rst
+
 import re,itertools,os,collections,glob
 import argparse
 import simpleeval # get it on pypi (pip install simpleeval)
@@ -39,12 +38,14 @@ if cli_args.output_mode == "mit":
     out_byte_decl = ".byte"
     out_word_decl = ".word"
     out_long_decl = ".long"
+    jsr_instruction = "jbsr"
 else:
     out_comment = ";"
     out_start_line_comment = out_comment
     out_hex_sign = "$"
     out_byte_decl = "dc.b"
     out_long_decl = "dc.l"
+    jsr_instruction = "jsr"
 
 # input & output comments are "*" and "|" (MIT syntax)
 # some day I may set as as an option...
@@ -171,10 +172,14 @@ m68_regs = set(registers.values())
 m68_data_regs = {x for x in m68_regs if x[0]=="d"}
 m68_address_regs = {x for x in m68_regs if x[0]=="a"}
 
-# inverted
-rts_cond_dict = {"d2":"bcc","nc":"bcs","z":"bne","nz":"beq","p":"bmi","m":"bpl","po":"bvc","pe":"bvs"}
+# inverted (note: C flag is already converted to 68k counterpart at that point hence the access to registers dict
+rts_cond_dict = {registers["c"]:"bcc","nc":"bcs","z":"bne","nz":"beq","p":"bmi","m":"bpl","po":"bvc","pe":"bvs"}
 # d2 stands for c which has been replaced in a generic pass
-jr_cond_dict = {"d2":"jcs","nc":"jcc","z":"jeq","nz":"jne","p":"jpl","m":"jmi","po":"jvs","pe":"jvc"}
+jr_cond_dict = {registers["c"]:"jcs","nc":"jcc","z":"jeq","nz":"jne","p":"jpl","m":"jmi","po":"jvs","pe":"jvc"}
+
+if cli_args.output_mode == "mot":
+    # change "j" by "b"
+    jr_cond_dict = {k:"b"+v[1:] for k,v in jr_cond_dict.items()}
 
 lab_prefix = "l_"
 
@@ -230,7 +235,7 @@ def f_ex(args,comment):
         arg1 = "d7"
     txt = f"\texg\t{arg0},{arg1}{comment}"
     if arg1 == "d7":
-        txt += "\n         ^^^ review, wrong if carry is needed or D7 used in between!"
+        txt += "\n         ^^^ TODO review: wrong if carry is needed or D7 used in between!"
     return txt
 def f_push(args,comment):
     reg = args[0]
@@ -383,7 +388,7 @@ def f_add(args,comment):
     if dest in m68_address_regs:
         # supported but not sure, must be reviewed
         source = addr2data_single.get(source,source)
-        out = f"\tadd.w\t{source},{dest}{comment}\n  ^^^^ review {source} computation above"
+        out = f"\tadd.w\t{source},{dest}{comment}\n  ^^^^ TODO: review {source} computation above"
         return out
 
     if source in m68_regs:
@@ -464,11 +469,11 @@ def f_call(args,comment):
     if len(args)==2:
         if cli_args.output_mode == "mot":
             loclab = get_mot_local_label()
-            out = f"\t{rts_cond_dict[cond]}\t{loclab}\n"
+            out = f"\t{rts_cond_dict[cond]}.b\t{loclab}\n"
         else:
-            out = f"\t{rts_cond_dict[cond]}\t0f\n"
+            out = f"\t{rts_cond_dict[cond]}.b\t0f\n"
 
-    out += f"\tjbsr\t{func}{comment}"
+    out += f"\t{jsr_instruction}\t{func}{comment}"
     if len(args)==2:
         if cli_args.output_mode == "mot":
             out += f"\n{loclab}:"
@@ -552,7 +557,7 @@ def f_ld(args,comment):
 
                     out = f"\tlea\t{source}(pc),{dest}{comment}"
                     if half_msb:
-                        out += f"\n\tand.w\t#{out_hex_sign}FF,{lsb_data_reg}\n\tadd.w\t{lsb_data_reg},{dest}\n\t      ^^^^ review XX value"
+                        out += f"\n\tand.w\t#{out_hex_sign}FF,{lsb_data_reg}\n\tadd.w\t{lsb_data_reg},{dest}\n\t      ^^^^ TODO: review XX value"
                 else:
                     if word_split:
                         dest = addr2data[dest].split("/")
@@ -646,7 +651,7 @@ for i,(l,is_inst,address) in enumerate(lines):
             else:
                 if inst in special_loop_instructions:
                     special_loop_instructions_met.add(inst)  # note down that it's used
-                    out = f"\tjbsr\t{inst}{comment}"
+                    out = f"\t{jsr_instruction}\t{inst}{comment}"
                 else:
                     si = single_instructions.get(inst)
                     if si:
@@ -772,7 +777,15 @@ for i,line in enumerate(nout_lines):
         if finst.startswith(("j","b")) and not finst[1:].startswith(("set","clr","tst","sr","bsr","ra")):
             # conditional branch, examine previous instruction
             if prev_fp and prev_fp[0].startswith("move."):
-                nout_lines[i] += "      ^^^^^^ review cpu flags\n"
+                nout_lines[i] += "      ^^^^^^ TODO: review cpu flags\n"
+        elif finst.startswith(("rox","addx","subx")):
+            # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
+            if prev_fp:
+                if prev_fp == ["tst.b","d0"]:
+                    # clear carry
+                    nout_lines[i] = f"\tCLEAR_X_FLAG\t{out_comment} clear carry is not enough\n"+nout_lines[i]
+                elif not prev_fp[0].startswith(("rox","add","sub","as","ls")):
+                    nout_lines[i] += "      ^^^^^^ TODO: review cpu X flag\n"
         prev_fp = fp
 # post-processing
 
@@ -780,6 +793,18 @@ if cli_args.spaces:
     nout_lines = [tab2space(n) for n in nout_lines]
 
 with open(cli_args.output_file,"w") as f:
+    if cli_args.output_mode == "mit":
+        f.write("""\t.macro CLEAR_X_FLAG
+\tmoveq\t#0,d7
+\troxl.b\t#1,d7
+\t.endm
+""")
+    else:
+        f.write("""\tCLEAR_X_FLAG:MACRO
+\tmoveq\t#0,d7
+\troxl.b\t#1,d7
+\tENDM
+""")
     f.writelines(nout_lines)
 
     if "rld" in special_loop_instructions_met:
@@ -901,7 +926,8 @@ cpi:
 
 print(f"Converted {converted} lines on {len(lines)} total, {instructions} instruction lines")
 print(f"Converted instruction ratio {converted}/{instructions} {int(100*converted/instructions)}%")
-print("\nPLEASE REVIEW THE CONVERTED CODE CAREFULLY AS IT MAY CONTAIN ERRORS!")
+print("\nPLEASE REVIEW THE CONVERTED CODE CAREFULLY AS IT MAY CONTAIN ERRORS!\n")
+print("(some TODO: review lines may have been added, and the code won't build on purpose)")
 
 
 
