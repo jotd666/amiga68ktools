@@ -65,7 +65,7 @@ class ArgParser(object):
 class Template:
     __VERSION_NUMBER = "1.0"
     try:
-        __MODULE_FILE = sys.modules[__name__].__file__
+        __MODULE_FILE = __file__
     except:
         __MODULE_FILE = sys.executable
     __PROGRAM_NAME = os.path.basename(__MODULE_FILE)
@@ -170,7 +170,7 @@ class Template:
             # ssh tunneling bug workaround
             pass
         if self.__logfile != "":
-            f = open(self.__logfile,"ab")
+            f = open(self.__logfile,"a")
             f.write(msg)
             f.close()
 

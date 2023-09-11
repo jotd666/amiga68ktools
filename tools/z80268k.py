@@ -1,4 +1,13 @@
 
+# TODO:
+#add SET_XC_FLAGS/CLR_XC_FLAGS macro
+#add.b immediate + daa => abcd d7,xx + review
+#adc.b + daa => abcd d7,xx aussi!
+#ld  bc,imm => issue a "review pick one", issue D1/D2 AND D1.W
+#Label_ =  for  jump marks
+#Mem_ = memory addresses
+
+
 import re,itertools,os,collections,glob
 import argparse
 import simpleeval # get it on pypi (pip install simpleeval)
@@ -61,7 +70,7 @@ def get_mot_local_label():
 
 regexes = []
 
-special_loop_instructions = {"ldi","ldir","cpir","cpdr","rld","rrd"}
+special_loop_instructions = {"ldi","ldd","ldir","cpir","cpdr","rld","rrd","cpi","cpd","exx"}
 special_loop_instructions_met = set()
 
 ##for s,r in regexes_1:
@@ -136,7 +145,7 @@ for input_file in input_files:
 #
 # additionally:
 #
-# after scf, carry is set and d7.b = 0
+# after scf, carry & X is set
 #
 # (useful because push/pop af isn't emulated properly, it would involve R/W of 68000 SR
 # or 68020 CCR registers and would make that complex to port/would require supervisor mode,
@@ -158,7 +167,7 @@ addr2data_lsb = {v:k for k,v in data2addr_lsb.items()}
 a_instructions = {"neg":"neg.b\t","cpl":"not.b\t","rra":"roxr.b\t#1,",
                     "rla":"roxl.b\t#1,","rrca":"ror.b\t#1,","rlca":"rol.b\t#1,"}
 single_instructions = {"nop":"nop","ret":"rts",
-"scf":"clr.b\td7\n\tcmp.b\t#1,d7",
+"scf":"SET_XC_FLAG",
 "ccf":"""
 \tbcs.b\t0f
 \tclr.b\td7
@@ -233,6 +242,9 @@ def f_ex(args,comment):
     arg0,arg1 = args
     if arg1 == "af'":
         arg1 = "d7"
+        if arg0 == "af":
+            arg0 = "d0"
+
     txt = f"\texg\t{arg0},{arg1}{comment}"
     if arg1 == "d7":
         txt += "\n         ^^^ TODO review: wrong if carry is needed or D7 used in between!"
@@ -651,7 +663,7 @@ for i,(l,is_inst,address) in enumerate(lines):
             else:
                 if inst in special_loop_instructions:
                     special_loop_instructions_met.add(inst)  # note down that it's used
-                    out = f"\t{jsr_instruction}\t{inst}{comment}"
+                    out = f"\t{jsr_instruction}\t{inst}{comment}\n     ^^^^ TODO: review special instruction inputs"
                 else:
                     si = single_instructions.get(inst)
                     if si:
@@ -767,6 +779,7 @@ for line in out_lines:
     nout_lines.append(line+"\n")
 
 # add review flag message in case of move.x followed by a branch
+# also add review for writes to unlabelled memory
 prev_fp = None
 for i,line in enumerate(nout_lines):
     line = line.rstrip()
@@ -776,8 +789,8 @@ for i,line in enumerate(nout_lines):
         finst = fp[0]
         if finst.startswith(("j","b")) and not finst[1:].startswith(("set","clr","tst","sr","bsr","ra")):
             # conditional branch, examine previous instruction
-            if prev_fp and prev_fp[0].startswith("move."):
-                nout_lines[i] += "      ^^^^^^ TODO: review cpu flags\n"
+            if prev_fp and prev_fp[0].startswith(("move.","clr.")):
+                nout_lines[i] += f"      ^^^^^^ TODO: review cpu flags ({prev_fp[0]})\n"
         elif finst.startswith(("rox","addx","subx")):
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
@@ -786,6 +799,14 @@ for i,line in enumerate(nout_lines):
                     nout_lines[i] = f"\tCLEAR_X_FLAG\t{out_comment} clear carry is not enough\n"+nout_lines[i]
                 elif not prev_fp[0].startswith(("rox","add","sub","as","ls")):
                     nout_lines[i] += "      ^^^^^^ TODO: review cpu X flag\n"
+
+        if len(fp)>1:
+            args = fp[1].split(",")
+            if len(args)==2:
+                if args[1].startswith("0x"):
+                    nout_lines[i] += "          ^^^^^^ TODO: review absolute 16-bit address write\n"
+                elif args[0].startswith("0x"):
+                    nout_lines[i] += "       ^^^^^^ TODO: review absolute 16-bit address read\n"
         prev_fp = fp
 # post-processing
 
@@ -794,14 +815,22 @@ if cli_args.spaces:
 
 with open(cli_args.output_file,"w") as f:
     if cli_args.output_mode == "mit":
-        f.write("""\t.macro CLEAR_X_FLAG
+        f.write("""\t.macro CLEAR_XC_FLAG
 \tmoveq\t#0,d7
+\troxl.b\t#1,d7
+\t.endm
+\t.macro SET_XC_FLAG
+\tst\td7
 \troxl.b\t#1,d7
 \t.endm
 """)
     else:
-        f.write("""\tCLEAR_X_FLAG:MACRO
+        f.write("""\tCLEAR_XC_FLAGS:MACRO
 \tmoveq\t#0,d7
+\troxl.b\t#1,d7
+\tENDM
+\tSET_XC_FLAGS:MACRO
+\tst.b\td7
 \troxl.b\t#1,d7
 \tENDM
 """)
@@ -827,22 +856,26 @@ rld:
     rts
 
 """)
+    if "ldd" in special_loop_instructions_met:
+        f.write(f"""
+{out_start_line_comment} < A0: source (HL)
+{out_start_line_comment} < A1: destination (DE)
+{out_start_line_comment} < D1: decremented (16 bit)
+ldd:
+    move.b    (a0),(a1)
+    subq.w  #1,a0
+    subq.w  #1,a1
+    subq.w    #1,d1
+    rts
+""")
     if "ldi" in special_loop_instructions_met:
         f.write(f"""
 {out_start_line_comment} < A0: source (HL)
 {out_start_line_comment} < A1: destination (DE)
 {out_start_line_comment} < D1: decremented (16 bit)
 ldi:
-""")
-        if cli_args.output_mode == "mit":
-            f.write(f"""
     move.b    (a0)+,(a1)+
-""")
-        else:
-            f.write(f""":
-    move.b    (a0)+,(a1)+
-""")
-        f.write("""    subq.w    #1,d1
+    subq.w    #1,d1
     rts
 """)
 
@@ -879,7 +912,7 @@ cpir:
     subq.w    #1,d1
 """)
         if cli_args.output_mode == "mit":
-            f.write("""0:
+            f.write(f"""0:
     cmp.b    (a0)+,d0
     beq.b    1f
     dbf        d1,0b
@@ -909,19 +942,81 @@ cpir:
 {out_start_line_comment} > Z flag if found
 {out_start_line_comment} careful: d1 overflow not emulated
 cpi:
-        subq.w    #1,d1
-""")
-        if cli_args.output_mode == "mit":
-            f.write("""
-    cmp.b    (a0)+,d0
-    rts
-""")
-        else:
-            f.write("""
+    subq.w    #1,d1
     cmp.b    (a0)+,d0
     rts
 """)
 
+    if "cpd" in special_loop_instructions_met:
+        f.write(f"""
+{out_start_line_comment} < A0: source (HL)
+{out_start_line_comment} < D1: decremented
+{out_start_line_comment} > D0.B value searched for (A)
+{out_start_line_comment} > Z flag if found
+{out_start_line_comment} careful: d1 overflow not emulated
+cpi:
+    subq.w    #1,d1
+    subq.w    #1,a0
+    cmp.b    (1,a0),d0
+    rts
+""")
+
+    if "exx" in special_loop_instructions_met:
+        regs = "d1-d4/a0-a4"
+        regs_size = 9*4
+        f.write(f"""
+{out_start_line_comment} < all registers {regs}
+{out_start_line_comment} > all registers swapped
+{out_start_line_comment}: note regscopy must be defined somewhere in RAM
+{out_start_line_comment}: with a size of {regs_size*2}
+exx:
+    lea     regscopy+{regs_size},a6
+    {out_start_line_comment} save current regs in region 1
+    movem.l {regs},-(a6)
+    {out_start_line_comment} restore old regs from region 2
+    lea     regscopy+{regs_size},a6
+    movem.l (a6),{regs}
+    {out_start_line_comment} now copy region 1 to region 2
+    movem.l {regs},-(a7)
+    lea     regscopy,a6
+    movem.l (a6)+,{regs}
+    movem.l {regs},(a6)
+    movem.l (a7)+,{regs}
+    rts
+""")
+    if "cpdr" in special_loop_instructions_met:
+        f.write(f"""
+{out_start_line_comment} < A0: source (HL)
+{out_start_line_comment} < D1: length to search
+{out_start_line_comment} > D0.B value searched for (A)
+{out_start_line_comment} > Z flag if found
+cpdr:
+    subq.w    #1,d1
+""")
+        if cli_args.output_mode == "mit":
+            f.write(f"""0:
+    subq.w  #1,a0
+    cmp.b    (1,a0),d0
+    beq.b    1f
+    dbf        d1,0b
+    clr.w    d1
+    {out_start_line_comment} not found: unset Z
+    cmp.b   #1,d1
+1:
+    rts
+""")
+        else:
+            f.write(""".loop:
+    subq.w  #1,a0
+    cmp.b    (1,a0),d0
+    beq.b    .out
+    dbf        d1,.loop
+    clr.w    d1
+    {out_start_line_comment} not found: unset Z
+    cmp.b   #1,d1
+.out:
+    rts
+""")
 
 
 print(f"Converted {converted} lines on {len(lines)} total, {instructions} instruction lines")
