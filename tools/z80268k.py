@@ -214,6 +214,8 @@ def arg2label(s):
         # already resolved as a name
         return s
 
+
+
 def f_djnz(args,comment):
     target_address = arg2label(args[0])
     if target_address != args[0]:
@@ -419,10 +421,12 @@ def f_sbc(args,comment):
     source = args[1]
     out = None
     if dest in m68_address_regs:
-        # not supported
-        return
+        # probably comparison between 2 data registers
+        source = addr2data_single.get(source,source)
+        dest = addr2data_single.get(dest,dest)
+        out = f"\tsub.w\t{source},{dest}{comment}\n     ^^^^ TODO: review compared/subbed registers"
 
-    if source in m68_regs:
+    elif source in m68_regs:
         out = f"\tsubx.b\t{source},{dest}{comment}"
     elif is_immediate_value(source):
         out = f"\tsubx.b\t#{source},{dest}{comment}"
@@ -507,7 +511,7 @@ def f_cp(args,comment):
 
 def f_dec(args,comment):
     p = args[0]
-    size = "w" if p in ["de","hl"] else "b"
+    size = "w" if p[0]=="a" else "b"
     out = f"\tsubq.{size}\t#1,{p}{comment}"
 
     return out
@@ -680,6 +684,7 @@ for i,(l,is_inst,address) in enumerate(lines):
             # also manual rework for 0x03(ix) => (ix+0x03)
             sole_arg = re.sub("(-?0x[A-F0-9]+)\((\w+)\)",r"(\2+\1)",sole_arg)
 
+
             # other instructions, not single, not implicit a
             conv_func = globals().get(f"f_{inst}")
             if conv_func:
@@ -807,6 +812,11 @@ for i,line in enumerate(nout_lines):
                     nout_lines[i] += "          ^^^^^^ TODO: review absolute 16-bit address write\n"
                 elif args[0].startswith("0x"):
                     nout_lines[i] += "       ^^^^^^ TODO: review absolute 16-bit address read\n"
+                elif ".w" in finst and args[1].startswith("a"):
+                    nout_lines[i] += "                  ^^^^^^ TODO: review move.w into address register\n"
+                elif ".w" in finst and args[0].startswith("a") and args[0][1].isdigit():
+                    nout_lines[i] += "                  ^^^^^^ TODO: review move.w from address register\n"
+
         prev_fp = fp
 # post-processing
 
