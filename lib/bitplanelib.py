@@ -440,7 +440,8 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
     return out
 
 
-def palette_image2sprite(input_image,output_filename,palette,palette_precision_mask=0xFF,sprite_fmode=0):
+def palette_image2sprite(input_image,output_filename,palette,
+                        palette_precision_mask=0xFF,sprite_fmode=0,with_control_words=True):
     """ rebuild raw bitplanes with palette (ordered) and any image which has
     the proper number of colors and color match
     pass None as output_filename to avoid writing to file
@@ -491,6 +492,9 @@ def palette_image2sprite(input_image,output_filename,palette,palette_precision_m
                     if color_index & (1<<pindex):
                         out[(((y*nb_planes)+pindex)*width + x)//8] |= (1<<(7-i))
 
+    if with_control_words:
+        cwl = 8 if sprite_fmode > 0 else 4
+        out = [0]*cwl + out + [0]*cwl
     out = bytes(out)
 
     if output_filename:

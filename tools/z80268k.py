@@ -330,10 +330,10 @@ def f_rrc(args,comment):
 def f_ret(args,comment):
     binst = rts_cond_dict[args[0]]
     if cli_args.output_mode == "mit":
-        return f"\t{binst}.b\t0f\n\trts{comment}\n0:"
+        return f"\t{binst}.b\t0f{out_comment} [...]\n\trts{comment} [...]\n0:"
     else:
         loclab = get_mot_local_label()
-        return f"\t{binst}.b\t{loclab}\n\trts{comment}\n{loclab}:"
+        return f"\t{binst}.b\t{loclab}{out_comment} [...]\n\trts{comment} [...]\n{loclab}:"
 
 def f_jp(args,comment):
     target_address = None
@@ -481,9 +481,9 @@ def f_call(args,comment):
     if len(args)==2:
         if cli_args.output_mode == "mot":
             loclab = get_mot_local_label()
-            out = f"\t{rts_cond_dict[cond]}.b\t{loclab}\n"
+            out = f"\t{rts_cond_dict[cond]}.b\t{loclab}{out_comment} [...]\n"
         else:
-            out = f"\t{rts_cond_dict[cond]}.b\t0f\n"
+            out = f"\t{rts_cond_dict[cond]}.b\t0f{out_comment} [...]\n"
 
     out += f"\t{jsr_instruction}\t{func}{comment}"
     if len(args)==2:
@@ -790,7 +790,7 @@ for i,line in enumerate(nout_lines):
         if finst.startswith(("j","b")) and not finst[1:].startswith(("set","clr","tst","sr","bsr","ra")):
             # conditional branch, examine previous instruction
             if prev_fp and prev_fp[0].startswith(("move.","clr.")):
-                nout_lines[i] += f"      ^^^^^^ TODO: review cpu flags ({prev_fp[0]})\n"
+                nout_lines[i] += f"      ^^^^^^ TODO: review cpu flags ({prev_fp[0]},{finst})\n"
         elif finst.startswith(("rox","addx","subx")):
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
