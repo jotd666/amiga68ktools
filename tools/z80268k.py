@@ -972,19 +972,19 @@ cpi:
 """)
 
     if "exx" in special_loop_instructions_met:
-        regs = "d1-d4/a0-a4"
-        regs_size = 9*4
+        regs = "d1-d4/a0/a1/a4"
+        regs_size = 7*4
         f.write(f"""
 {out_start_line_comment} < all registers {regs}
 {out_start_line_comment} > all registers swapped
 {out_start_line_comment}: note regscopy must be defined somewhere in RAM
 {out_start_line_comment}: with a size of {regs_size*2}
 exx:
-    lea     regscopy+{regs_size},a6
+    lea     regscopy+28,a6
     {out_start_line_comment} save current regs in region 1
     movem.l {regs},-(a6)
     {out_start_line_comment} restore old regs from region 2
-    lea     regscopy+{regs_size},a6
+    lea     regscopy+28,a6
     movem.l (a6),{regs}
     {out_start_line_comment} now copy region 1 to region 2
     movem.l {regs},-(a7)
