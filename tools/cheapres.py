@@ -182,6 +182,7 @@ class Template:
     __SYSCALL_RE2 = re.compile("(JMP|JSR)\s+\((-\d+),A6\)",flags=re.I)
     __SYSCALL_RE3 = re.compile("(JMP|JSR)\s+(-\$[\dA-F]+)\(A6\)",flags=re.I)
     __VALID_BASE = re.compile("([\-\w]{3,}(\(A\d\))?)",flags=re.I)
+    __VALID_BASE_020 = re.compile("\(([\-\w]{3,},A\d\))",flags=re.I)
     __ADDRESS_REG_RE = re.compile("A([0-6])",flags=re.I)
     __DCL_RE = re.compile("\s+DC\.L\s+(\w+)",flags=re.I)
     __RETURN_RE = re.compile(r"\b(RT[SED])\b",flags=re.I)
@@ -212,6 +213,8 @@ class Template:
                 self.__base_aliases[k]=v
             else:
                 break
+        for k,v in self.__base_aliases.items():
+            print("Alias: {} = {}".format(k,v))
 
     def __identify_libs(self,debug=False):
         current_libbase = [None]*7
@@ -228,8 +231,10 @@ class Template:
             m = self.__SET_AX_RE.search(line)
             if m:
                 target_reg = int(m.group(2))
-                first_op = m.group(1).replace("(PC)","").strip("(").replace(",PC)","")
-                if self.__VALID_BASE.match(first_op):
+                first_op = m.group(1).replace("(PC)","").replace(",PC)","")
+                if first_op.count("(")!=first_op.count(")"):
+                    first_op = first_op.strip("(")
+                if self.__VALID_BASE.match(first_op) or self.__VALID_BASE_020.match(first_op):
                     # if finds an alias for a lib base, replaces it
                     first_op = self.__base_aliases.get(first_op,first_op)
 

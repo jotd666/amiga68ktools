@@ -505,7 +505,10 @@ def f_cp(args,comment):
     if p in m68_regs or re.match("\(a\d\)",p) or "," in p:
         out = f"\tcmp.b\t{p},d0{comment}"
     elif p.startswith(out_hex_sign) or p.isdigit():
-        out = f"\tcmp.b\t#{p},d0{comment}"
+        if parse_hex(p)==0:
+            out = f"\ttst.b\td0{comment}"
+        else:
+            out = f"\tcmp.b\t#{p},d0{comment}"
 
     return out
 
@@ -796,12 +799,18 @@ for i,line in enumerate(nout_lines):
             # conditional branch, examine previous instruction
             if prev_fp and prev_fp[0].startswith(("move.","clr.")):
                 nout_lines[i] += f"      ^^^^^^ TODO: review cpu flags ({prev_fp[0]},{finst})\n"
+        elif finst == "tst.b" and fp[1] == "d0":
+            if prev_fp[-1].endswith(",d0") and not prev_fp[0].startswith("movem"):
+                # previous instruction targets d0 but not movem, so no need to test it
+                nout_lines[i] = nout_lines[i].replace("tst.b\td0","")
         elif finst.startswith(("rox","addx","subx")):
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
                 if prev_fp == ["tst.b","d0"]:
                     # clear carry
                     nout_lines[i] = f"\tCLEAR_X_FLAG\t{out_comment} clear carry is not enough\n"+nout_lines[i]
+                elif prev_fp[0].startswith("cmp"):
+                    nout_lines[i] += "      ^^^^^^ TODO: review cpu X flag, cmp doesn't affect it!\n"
                 elif not prev_fp[0].startswith(("rox","add","sub","as","ls")):
                     nout_lines[i] += "      ^^^^^^ TODO: review cpu X flag\n"
 
@@ -812,7 +821,7 @@ for i,line in enumerate(nout_lines):
                     nout_lines[i] += "          ^^^^^^ TODO: review absolute 16-bit address write\n"
                 elif args[0].startswith("0x"):
                     nout_lines[i] += "       ^^^^^^ TODO: review absolute 16-bit address read\n"
-                elif ".w" in finst and args[1].startswith("a"):
+                elif ".w" in finst and "move" in finst and args[1].startswith("a"):
                     nout_lines[i] += "                  ^^^^^^ TODO: review move.w into address register\n"
                 elif ".w" in finst and args[0].startswith("a") and args[0][1].isdigit():
                     nout_lines[i] += "                  ^^^^^^ TODO: review move.w from address register\n"
