@@ -116,24 +116,9 @@ class Template:
 
     def _init_from_sys_args(self):
         """ standalone mode """
-
         try:
             self.__do_init()
-            self.__delete_temp_directory()
-        except SystemExit as se:
-            # do not catch user exits
-            raise se
-        except:
-            # catch exception
-            if self.__with_traceback:
-                # get full exception traceback
-                traceback.print_exc()
-            else:
-                self.__message(python_lacks.ascii_compliant(sys.exc_info()[1].message, best_ascii_approximation=True))
-            # log exception by e-mail
-            error_report.ErrorReport()
 
-            sys.exit(1)
         finally:
             self.__delete_temp_directory()
 
@@ -236,13 +221,14 @@ class Template:
 """.format(outbase))
             eof = False
             def myhex(x):
-                return "${:02x}".format(x) if self.__amiga else hex(x)
+                return "${:02x}".format(x) if self.__amiga else "0x{:02x}".format(x)
 
             while not eof:
                 to_write = []
                 if current_offset==len(contents):
                     break
                 if current_offset<len(contents):
+                    line_offset = current_offset
                     if self.__amiga:
                         fw.write("\tdc.b\t")
                     else:
@@ -254,7 +240,9 @@ class Template:
                         else:
                             eof = True
                     if len(to_write)>0:
-                        fw.write(",".join(to_write)+"\n")
+                        fw.write(",".join(to_write))
+                        fw.write(f"\t|\t0x{line_offset:04x}")
+                        fw.write("\n")
 
             fw.write(outbase+"_end:\n")
             fw.close()
