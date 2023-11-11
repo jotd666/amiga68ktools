@@ -167,7 +167,7 @@ addr2data_lsb = {v:k for k,v in data2addr_lsb.items()}
 a_instructions = {"neg":"neg.b\t","cpl":"not.b\t","rra":"roxr.b\t#1,",
                     "rla":"roxl.b\t#1,","rrca":"ror.b\t#1,","rlca":"rol.b\t#1,"}
 single_instructions = {"nop":"nop","ret":"rts",
-"scf":"SET_XC_FLAG",
+"scf":"SET_XC_FLAGS",
 "ccf":"""
 \tbcs.b\t0f
 \tclr.b\td7
@@ -808,7 +808,7 @@ for i,line in enumerate(nout_lines):
             if prev_fp:
                 if prev_fp == ["tst.b","d0"]:
                     # clear carry
-                    nout_lines[i] = f"\tCLEAR_X_FLAG\t{out_comment} clear carry is not enough\n"+nout_lines[i]
+                    nout_lines[i] = f"\tCLEAR_XC_FLAGS\t{out_comment} clear carry is not enough\n"+nout_lines[i]
                 elif prev_fp[0].startswith("cmp"):
                     nout_lines[i] += "      ^^^^^^ TODO: review cpu X flag, cmp doesn't affect it!\n"
                 elif not prev_fp[0].startswith(("rox","add","sub","as","ls")):
@@ -834,11 +834,11 @@ if cli_args.spaces:
 
 with open(cli_args.output_file,"w") as f:
     if cli_args.output_mode == "mit":
-        f.write("""\t.macro CLEAR_XC_FLAG
+        f.write("""\t.macro CLEAR_XC_FLAGS
 \tmoveq\t#0,d7
 \troxl.b\t#1,d7
 \t.endm
-\t.macro SET_XC_FLAG
+\t.macro SET_XC_FLAGS
 \tst\td7
 \troxl.b\t#1,d7
 \t.endm

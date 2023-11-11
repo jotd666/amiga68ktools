@@ -1,16 +1,10 @@
-
-# TODO:
-#add SET_XC_FLAGS/CLR_XC_FLAGS macro
-#add.b immediate + daa => abcd d7,xx + review
-#adc.b + daa => abcd d7,xx aussi!
-#ld  bc,imm => issue a "review pick one", issue D1/D2 AND D1.W
-#Label_ =  for  jump marks
-#Mem_ = memory addresses
-
+#TODO: sta
+#TODO: init function zero all regs
+#TODO: ,X ,Y missing in a lot of cases
 
 import re,itertools,os,collections,glob
 import argparse
-import simpleeval # get it on pypi (pip install simpleeval)
+#import simpleeval # get it on pypi (pip install simpleeval)
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -124,7 +118,9 @@ for input_file in input_files:
 # X (extended bit) => same as C but 6502 doesn't have it, and relies on CMP to set carry
 
 registers = {
-"a":"d0","x":"d1","y":"d2","p":"sr","c":"d7"}
+"a":"d0","x":"d1","y":"d2","p":"sr","c":"d7","d":"d3",
+"v":"d4","dwork1":"d5","dwork2":"d6",
+"awork1":"a0"}
 inv_registers = {v:k for k,v in registers.items()}
 
 
@@ -140,10 +136,15 @@ single_instructions = {"nop":"nop","rts":"rts",
 "inx":f"addq.b\t#1,{registers['x']}",
 "iny":f"addq.b\t#1,{registers['y']}",
 "inc":f"addq.b\t#1,{registers['a']}",
-"sec":"SET_XC_FLAG",
-"clc":"CLR_XC_FLAG",
-#"sed":"SET_XC_FLAG",
-#"cld":"CLR_XC_FLAG",
+"pha":f"move.w\t{registers['a']},-(sp)",
+"pla":f"move.w\t(sp)+,{registers['a']}",
+"pha":f"move.w\t{registers['a']},-(sp)",
+"plx":f"move.w\t(sp)+,{registers['a']}",
+"sec":"SET_XC_FLAGS",
+"clc":"CLR_XC_FLAGS",
+"sed":f"st\b{registers['d']}",
+"cld":f"clr.b\t{registers['d']}",
+"clv":f"CLR_V_FLAG",
 }
 
 m68_regs = set(registers.values())
@@ -180,40 +181,41 @@ def arg2label(s):
 def __f_bit(args,comment):
     return f"\tbtst.b\t#{args[0]},{args[1]}{comment}"
 
-def f_pha(args,comment):
-    f_push("a",comment)
+def f_lda(args,comment):
+    return generic_load('a',args,comment)
+def f_ldx(args,comment):
+    return generic_load('x',args,comment)
+def f_ldy(args,comment):
+    return generic_load('y',args,comment)
 
-def f_phx(args,comment):
-    f_push("x",comment)
+def f_inc(args,comment):
+    #TODO x,Y
+    return f"\taddq.b\t#1,{args[0]}{comment}"
+def f_dec(args,comment):
+    #TODO x,Y
+    return f"\tsubq.b\t#1,{args[0]}{comment}"
 
-def f_phy(args,comment):
-    f_push("y",comment)
+def generic_load(dest,args,comment):
+    return generic_indexed_from("move",dest,args,comment)
+def f_ora(args,comment):
+    return generic_indexed_from("or",'a',args,comment)
+def f_and(args,comment):
+    return generic_indexed_from("and",'a',args,comment)
 
-def f_php(args,comment):
-    f_push("p",comment)
+def generic_indexed_from(inst,dest,args,comment):
+    arg = args[0]
+    if len(args)>1:
+        index_reg = args[1]
+        return f"""\tlea\t{arg},{registers['awork1']}{comment}
+    {inst}.b\t({registers['awork1']},{index_reg}.w),{registers[dest]}{comment}
+"""
 
-def f_pla(args,comment):
-    f_pull("a",comment)
-
-def f_plx(args,comment):
-    f_pull("x",comment)
-
-def f_ply(args,comment):
-    f_pull("y",comment)
-
-def f_plp(args,comment):
-    f_pull("p",comment)
-
-def f_push(regname,comment):
-    r = registers.get(regname,regname)
-    rval = f"\tmove.w\t{r},-(sp){comment}"
-    return rval
-
-def f_pull(regname,comment):
-    r = registers.get(regname,regname)
-    rval = f"\tmove.w\t(sp)+,{r}{comment}"
-    return rval
-
+    else:
+        # optim
+        if inst=="move" and arg[0]=='#' and parse_hex(arg[1:])==0:
+           return f"\tclr.b\t{registers[dest]}{comment}"
+        else:
+            return f"\t{inst}.b\t{arg},{registers[dest]}{comment}"
 
 def f_lsr(args,comment):
     arg = args[0]
@@ -321,20 +323,21 @@ def address_to_label_out(s):
     return s.strip("()").replace(out_hex_sign,lab_prefix)
 
 
-
-
-def __f_cmp(args,comment):
+def generic_cmp(args,reg,comment):
     p = args[0]
-    out = None
-    if p in m68_regs or re.match("\(a\d\)",p) or "," in p:
-        out = f"\tcmp.b\t{p},d0{comment}"
-    elif p.startswith(out_hex_sign) or p.isdigit():
-        if parse_hex(p)==0:
-            out = f"\ttst.b\td0{comment}"
-        else:
-            out = f"\tcmp.b\t#{p},d0{comment}"
+    out = f"\tmove.b\t{p},{registers['dwork1']}{comment}\n\tcmp.b\t{registers[reg]},{registers['dwork1']}{comment}"
 
     return out
+
+
+def f_cmp(args,comment):
+    return generic_cmp(args,'a',comment)
+
+def f_cpx(args,comment):
+    return generic_cmp(args,'x',comment)
+
+def f_cpy(args,comment):
+    return generic_cmp(args,'y',comment)
 
 
 
@@ -466,7 +469,6 @@ for i,(l,is_inst,address) in enumerate(lines):
 
                 # some source codes have immediate signs, not really needed as if not between ()
                 # it is immediate
-                jargs = [x.strip("#") for x in jargs]
                 try:
                     out = conv_func(jargs,comment)
                 except Exception as e:
@@ -561,16 +563,25 @@ for i,line in enumerate(nout_lines):
             if prev_fp[-1].endswith(",d0") and not prev_fp[0].startswith("movem"):
                 # previous instruction targets d0 but not movem, so no need to test it
                 nout_lines[i] = nout_lines[i].replace("tst.b\td0","")
-        elif finst.startswith(("rox","addx","subx")):
+        elif finst == "bvc":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
-                if prev_fp == ["tst.b","d0"]:
-                    # clear carry
-                    nout_lines[i] = f"\tCLEAR_X_FLAG\t{out_comment} clear carry is not enough\n"+nout_lines[i]
-                elif prev_fp[0].startswith("cmp"):
-                    nout_lines[i] += "      ^^^^^^ TODO: review cpu X flag, cmp doesn't affect it!\n"
-                elif not prev_fp[0].startswith(("rox","add","sub","as","ls")):
-                    nout_lines[i] += "      ^^^^^^ TODO: review cpu X flag\n"
+                if prev_fp == ["CLR_V_FLAG"]:
+                    nout_lines[i-1] = f"{out_start_line_comment} clv+bvc => bra\n"
+                    nout_lines[i] = nout_lines[i].replace(finst,"bra.b")
+        elif finst == "bcc":
+            # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
+            if prev_fp:
+                if prev_fp == ["CLR_XC_FLAG"]:
+                    nout_lines[i-1] = f"{out_start_line_comment} clc+bcc => bra\n"
+                    nout_lines[i] = nout_lines[i].replace(finst,"bra.b")
+        elif finst == "bcd":
+            # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
+            if prev_fp:
+                if prev_fp == ["SET_XC_FLAG"]:
+                    nout_lines[i-1] = f"{out_start_line_comment} sec+bcs => bra\n"
+                    nout_lines[i] = nout_lines[i].replace(finst,"bra.b")
+
 
         if len(fp)>1:
             args = fp[1].split(",")
@@ -589,24 +600,36 @@ if cli_args.spaces:
     nout_lines = [tab2space(n) for n in nout_lines]
 
 with open(cli_args.output_file,"w") as f:
+    C = registers['c']
+    V = registers['v']
     if cli_args.output_mode == "mit":
-        f.write("""\t.macro CLEAR_XC_FLAG
-\tmoveq\t#0,d7
-\troxl.b\t#1,d7
+        f.write(f"""\t.macro CLEAR_XC_FLAGS
+\tmoveq\t#0,{C}
+\troxl.b\t#1,{C}
 \t.endm
-\t.macro SET_XC_FLAG
-\tst\td7
-\troxl.b\t#1,d7
+\t.macro SET_XC_FLAGS
+\tst\t{C}
+\troxl.b\t#1,{C}
+\t.endm
+
+\t.macro CLEAR_V_FLAG
+\tmoveq\t#0,{V}
+\tadd.b\t{V},{V}
 \t.endm
 """)
     else:
-        f.write("""\tCLEAR_XC_FLAGS:MACRO
-\tmoveq\t#0,d7
-\troxl.b\t#1,d7
+        f.write(f"""\tCLEAR_XC_FLAGS:MACRO
+\tmoveq\t#0,{C}
+\troxl.b\t#1,{C}
 \tENDM
 \tSET_XC_FLAGS:MACRO
-\tst.b\td7
-\troxl.b\t#1,d7
+\tst.b\t{C}
+\troxl.b\t#1,{C}
+\tENDM
+
+\tCLEAR_V_FLAG:MACRO
+\tmoveq\t#0,{V}
+\tadd.b\t{V},{V}
 \tENDM
 """)
     f.writelines(nout_lines)
