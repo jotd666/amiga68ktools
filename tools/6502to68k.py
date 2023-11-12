@@ -1,8 +1,25 @@
-#TODO: sta
-#TODO: init function zero all regs
-#TODO: ,X ,Y missing in a lot of cases
+#TODO: optimize beq (not .b) etc... by jxx if mit syntax
+# also if mit jmp => jra
+# CLR_XC_FLAGS    +  addx => addx changed to add
+# SET_XC_FLAGS    +  subx => subx changed to sub
+#9EB0: 18       clc
+#9EB1: 69 08    adc #$08
+#9EB3: 85 1B    sta $1b
+#9EB5: 90 02    bcc $9eb9  => review flag!!
+#
+# macro GET_ADDRESS to return pointer on memory layout
+# to replace lea/move/... in memory
+# extract RAM memory constants as defines, not variables
+# work like an emulator
+#
+# this is completely different from Z80. Easier for registers, but harder
+# for memory because of those indexed modes that read pointers from memory
+# so we can't really map 32-bit model on original code without heavily adapting everything
+#
+# on Z80, the ld instruction acted like lea or move, and it was easier to keep separate address
+# space for RAM and ROM.
 
-import re,itertools,os,collections,glob
+import re,itertools,os,collections,glob,io
 import argparse
 #import simpleeval # get it on pypi (pip install simpleeval)
 
@@ -12,6 +29,7 @@ parser.add_argument("-i","--input-mode",help="input mode either mot style (comme
 "or mit style (comments *|, hex: 0x",choices=asm_styles,default=asm_styles[1])
 parser.add_argument("-o","--output-mode",help="output mode either mot style or mit style",choices=asm_styles
 ,default=asm_styles[0])
+parser.add_argument("-w","--no-review",help="don't insert review lines",action="store_true")
 parser.add_argument("-s","--spaces",help="replace tabs by x spaces",type=int)
 parser.add_argument("-n","--no-mame-prefixes",help="treat as real source, not MAME disassembly",action="store_true")
 parser.add_argument("input_file")
@@ -125,7 +143,8 @@ inv_registers = {v:k for k,v in registers.items()}
 
 
 
-single_instructions = {"nop":"nop","rts":"rts",
+single_instructions = {"nop":"nop",
+"rts":"rts",
 "txa":f"move.b\t{registers['x']},{registers['a']}",
 "tya":f"move.b\t{registers['y']},{registers['a']}",
 "tax":f"move.b\t{registers['a']},{registers['x']}",
@@ -138,11 +157,15 @@ single_instructions = {"nop":"nop","rts":"rts",
 "inc":f"addq.b\t#1,{registers['a']}",
 "pha":f"move.w\t{registers['a']},-(sp)",
 "pla":f"move.w\t(sp)+,{registers['a']}",
-"pha":f"move.w\t{registers['a']},-(sp)",
-"plx":f"move.w\t(sp)+,{registers['a']}",
+"php":"PUSH_SR",
+"plp":"POP_SR",
 "sec":"SET_XC_FLAGS",
 "clc":"CLR_XC_FLAGS",
-"sed":f"st\b{registers['d']}",
+"sec":"SET_XC_FLAGS",
+"clc":"CLR_XC_FLAGS",
+"sei":"SET_I_FLAGS",
+"cli":"CLR_I_FLAGS",
+"sed":f"st.b{registers['d']}",
 "cld":f"clr.b\t{registers['d']}",
 "clv":f"CLR_V_FLAG",
 }
@@ -178,61 +201,124 @@ def arg2label(s):
         return s
 
 
-def __f_bit(args,comment):
-    return f"\tbtst.b\t#{args[0]},{args[1]}{comment}"
+def f_bit(args,comment):
+    """bits 7 and 6 of operand are transfered to bit 7 and 6 of SR (N,V);
+the zero-flag is set according to the result of the operand AND
+the accumulator (set, if the result is zero, unset otherwise).
+This allows a quick check of a few bits at once without affecting
+any of the registers, other than the status register (SR).
+
+A AND M, M7 -> N, M6 -> V
+N    Z    C    I    D    V
+M7   +    -    -    -    M6
+addressing    assembler    opc    bytes    cycles
+zeropage    BIT oper    24    2    3
+absolute    BIT oper    2C    3    4
+
+this is way too complex for a very marginal use for overflow
+"""
+    arg = args[0]
+    return f"\ttst.b\t{arg}{comment}"
+
 
 def f_lda(args,comment):
     return generic_load('a',args,comment)
+def f_sta(args,comment):
+    return generic_store('a',args,comment)
+def f_stx(args,comment):
+    return generic_store('x',args,comment)
+def f_sty(args,comment):
+    return generic_store('y',args,comment)
 def f_ldx(args,comment):
     return generic_load('x',args,comment)
 def f_ldy(args,comment):
     return generic_load('y',args,comment)
 
 def f_inc(args,comment):
-    #TODO x,Y
-    return f"\taddq.b\t#1,{args[0]}{comment}"
+    return generic_indexed_to("addq","#1",args,comment)
 def f_dec(args,comment):
-    #TODO x,Y
-    return f"\tsubq.b\t#1,{args[0]}{comment}"
+    return generic_indexed_to("subq","#1",args,comment)
 
 def generic_load(dest,args,comment):
     return generic_indexed_from("move",dest,args,comment)
+def generic_store(src,args,comment):
+    return generic_indexed_to("move",src,args,comment)
+
 def f_ora(args,comment):
     return generic_indexed_from("or",'a',args,comment)
+def f_asl(args,comment):
+    return generic_indexed_from("asl",'a',args,comment)
+def f_ror(args,comment):
+    return generic_indexed_from("ror",'a',args,comment)
+def f_rol(args,comment):
+    return generic_indexed_from("ror",'a',args,comment)
 def f_and(args,comment):
     return generic_indexed_from("and",'a',args,comment)
+def f_adc(args,comment):
+    return generic_indexed_from("addx",'a',args,comment)
+def f_sbc(args,comment):
+    return generic_indexed_from("subx",'a',args,comment)
+def f_eor(args,comment):
+    return generic_indexed_from("eor",'a',args,comment)
+def f_lsr(args,comment):
+    return generic_indexed_from("lsr",'a',args,comment)
 
-def generic_indexed_from(inst,dest,args,comment):
+def generic_indexed_to(inst,src,args,comment):
     arg = args[0]
+    if inst.islower():
+        inst += ".b"
+    regsrc = registers.get(src,src)
     if len(args)>1:
-        index_reg = args[1]
-        return f"""\tlea\t{arg},{registers['awork1']}{comment}
-    {inst}.b\t({registers['awork1']},{index_reg}.w),{registers[dest]}{comment}
+        index_reg = args[1].strip(")")
+        if arg.startswith("("):
+            if arg.endswith(")"):
+                # Y indirect indexed
+                load = "move.l"
+                arg = arg.strip("()")
+            else:
+                # X indirect indexed
+                arg = arg.strip("(")
+                arg2 = index_reg
+                return f"""\tlea\t{arg},{registers['awork1']}{comment}
+\tadd.w\t{arg2},{registers['awork1']}{comment}
+\tmove.l\t({registers['awork1']}),{registers['awork1']}{comment}
+    {inst}\t{regsrc},({registers['awork1']}){comment}
+"""
+        else:
+            load = "lea"
+
+        return f"""\t{load}\t{arg},{registers['awork1']}{comment}
+    {inst}\t{regsrc},({registers['awork1']},{index_reg}.w){comment}
 """
 
     else:
-        # optim
-        if inst=="move" and arg[0]=='#' and parse_hex(arg[1:])==0:
-           return f"\tclr.b\t{registers[dest]}{comment}"
-        else:
-            return f"\t{inst}.b\t{arg},{registers[dest]}{comment}"
+        return f"\t{inst}\t{regsrc},{arg}{comment}"
 
-def f_lsr(args,comment):
+
+def generic_indexed_from(inst,dest,args,comment):
     arg = args[0]
-    return f"\tlsr.b\t#1,{arg}{comment}"
+    if inst.islower():
+        inst += ".b"
 
-def f_asr(args,comment):
-    arg = args[0]
-    return f"\tasr.b\t#1,{arg}{comment}"
+    if len(args)>1:
+        index_reg = args[1]
+        return f"""\tlea\t{arg},{registers['awork1']}{comment}
+    {inst}\t({registers['awork1']},{index_reg}.w),{registers[dest]}{comment}
+"""
 
-def f_ror(args,comment):
-    arg = args[0]
-    return f"\tror.b\t#1,{arg}{comment}"
+    else:
+        # various optims
+        if inst=="move.b" and arg[0]=='#':
+            val = parse_hex(arg[1:])
+            if val == 0:
+                return f"\tclr.b\t{registers[dest]}{comment}"
+            elif val == 0xff:
+                return f"\tst.b\t{registers[dest]}{comment}"
 
-def f_rol(args,comment):
-    arg = args[0]
-    return f"\trol.b\t#1,{arg}{comment}"
+        if inst=="eor.b" and arg[0]=='#' and parse_hex(arg[1:])==0xff:
+           return f"\tnot.b\t{registers[dest]}{comment}"
 
+    return f"\t{inst}\t{arg},{registers[dest]}{comment}"
 
 
 def f_jmp(args,comment):
@@ -241,67 +327,13 @@ def f_jmp(args,comment):
     if args[0] != label:
         # had to convert the address, keep original to reference it
         target_address = args[0]
-    jinst = "jra"
 
-    out = f"\t{jinst}\t{label}{comment}"
+    out = f"\tjmp\t{label}{comment}"
 
     if target_address is not None:
         # note down that we have to insert a label here
         add_entrypoint(parse_hex(target_address))
 
-    return out
-
-def __f_eor(args,comment):
-    p = args[0]
-    if p=="d0":
-        # optim, as xor a is a way to zero a/clear carry
-        out = f"\tclr.b\td0{comment}"
-    elif is_immediate_value(p):
-        out = f"\teor.b\t#{p},d0{comment}"
-    elif p in m68_data_regs:
-        out = f"\teor.b\t{p},d0{comment}"
-    else:
-        out = f"\tmove.b\t{p},d7\n\teor.b\td7,d0{comment}"
-    return out
-
-def __f_ora(args,comment):
-    p = args[0]
-    out = None
-
-    if is_immediate_value(p):
-        out = f"\tor.b\t#{p},d0{comment}"
-    else:
-        out = f"\tor.b\t{p},d0{comment}"
-    return out
-
-def __f_and(args,comment):
-    p = args[0]
-    out = None
-    if p == "d0":
-        out = f"\ttst.b\td0{comment}"
-    elif is_immediate_value(p):
-        out = f"\tand.b\t#{p},d0{comment}"
-    else:
-        out = f"\tand.b\t{p},d0{comment}"
-
-    return out
-
-
-def __f_sbc(args,comment):
-    source = args[0]
-    out = None
-    if dest in m68_address_regs:
-        # probably comparison between 2 data registers
-        source = addr2data_single.get(source,source)
-        dest = addr2data_single.get(dest,dest)
-        out = f"\tsub.w\t{source},{dest}{comment}\n     ^^^^ TODO: review compared/subbed registers"
-
-    elif source in m68_regs:
-        out = f"\tsubx.b\t{source},{dest}{comment}"
-    elif is_immediate_value(source):
-        out = f"\tsubx.b\t#{source},{dest}{comment}"
-    else:
-        out = f"\tsubx.b\t{source},{dest}{comment}"
     return out
 
 def gen_addsub(args,comment,inst):
@@ -413,6 +445,7 @@ def tab2space(line):
 converted = 0
 instructions = 0
 out_lines = []
+unknown_instructions = set()
 
 for i,(l,is_inst,address) in enumerate(lines):
     out = ""
@@ -474,6 +507,9 @@ for i,(l,is_inst,address) in enumerate(lines):
                 except Exception as e:
                     print(f"Problem parsing: {l}, args={jargs}")
                     raise
+            else:
+                out = f"{l}\n   ^^^^ TODO: unknown/unsupported instruction"
+                unknown_instructions.add(inst)
     else:
         out=address_re.sub(rf"{lab_prefix}\1:",l)
         if not re.search(r"\bdc.[bwl]",out,flags=re.I) and not out.strip().startswith((out_start_line_comment,out_comment)):
@@ -552,35 +588,50 @@ for line in out_lines:
 
 # add review flag message in case of move.x followed by a branch
 # also add review for writes to unlabelled memory
+# also post-optimize stuff
 prev_fp = None
+
+reg_a = registers["a"]
+
 for i,line in enumerate(nout_lines):
     line = line.rstrip()
     toks = line.split("|",maxsplit=1)
     if len(toks)==2:
         fp = toks[0].rstrip().split()
         finst = fp[0]
-        if finst == "tst.b" and fp[1] == "d0":
-            if prev_fp[-1].endswith(",d0") and not prev_fp[0].startswith("movem"):
-                # previous instruction targets d0 but not movem, so no need to test it
-                nout_lines[i] = nout_lines[i].replace("tst.b\td0","")
-        elif finst == "bvc":
-            # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
+        if finst == "bvc":
             if prev_fp:
                 if prev_fp == ["CLR_V_FLAG"]:
                     nout_lines[i-1] = f"{out_start_line_comment} clv+bvc => bra\n"
                     nout_lines[i] = nout_lines[i].replace(finst,"bra.b")
+                elif prev_fp[0] == "tst.b":
+                    nout_lines[i] += "          ^^^^^^ TODO: handle bit 6 of operand / change overflow test\n"
+            else:
+                nout_lines[i] += "          ^^^^^^ TODO: warning: stray bvc test\n"
+        elif finst == "bvs":
+            if prev_fp:
+                if prev_fp[0] == "tst.b":
+                    nout_lines[i] += "          ^^^^^^ TODO: handle bit 6 of operand / change overflow test\n"
+            else:
+                nout_lines[i] += "          ^^^^^^ TODO: warning: stray bvs test\n"
+
         elif finst == "bcc":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
                 if prev_fp == ["CLR_XC_FLAG"]:
                     nout_lines[i-1] = f"{out_start_line_comment} clc+bcc => bra\n"
                     nout_lines[i] = nout_lines[i].replace(finst,"bra.b")
-        elif finst == "bcd":
+        elif finst == "bcs":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
                 if prev_fp == ["SET_XC_FLAG"]:
                     nout_lines[i-1] = f"{out_start_line_comment} sec+bcs => bra\n"
                     nout_lines[i] = nout_lines[i].replace(finst,"bra.b")
+        elif finst == "rts":
+            # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
+            if prev_fp:
+                if prev_fp == ["move.w","d0,-(sp)"]:
+                    nout_lines[i] += "          ^^^^^^ TODO: review push to stack+return\n"
 
 
         if len(fp)>1:
@@ -599,9 +650,21 @@ for i,line in enumerate(nout_lines):
 if cli_args.spaces:
     nout_lines = [tab2space(n) for n in nout_lines]
 
-with open(cli_args.output_file,"w") as f:
+
+f = io.StringIO()
+
+if True:
     C = registers['c']
     V = registers['v']
+
+    f.write(f""" {out_start_line_comment} Converted with 6502to68k by JOTD
+{out_start_line_comment}
+{out_start_line_comment} make sure you call "cpu_init" first so bits 8-15 of data registers
+{out_start_line_comment} are zeroed out so we can use (ax,dy.w) addressing mode
+{out_start_line_comment} without systematic masking
+
+""")
+
     if cli_args.output_mode == "mit":
         f.write(f"""\t.macro CLEAR_XC_FLAGS
 \tmoveq\t#0,{C}
@@ -616,6 +679,42 @@ with open(cli_args.output_file,"w") as f:
 \tmoveq\t#0,{V}
 \tadd.b\t{V},{V}
 \t.endm
+
+\t.macro SET_I_FLAGS
+^^^^ TODO: insert interrupt disable code here
+\t.endm
+\t.macro CLEAR_I_FLAGS
+^^^^ TODO: insert interrupt enable code here
+\t.endm
+\t.ifdef\tMC68020
+\t.macro PUSH_SR
+\tmove.w\tccr,-(sp)
+\t.endm
+\t.macro POP_SR
+\tmove.w\t(sp)+,ccr
+\t.endm
+\t.else
+\t.macro PUSH_SR
+\tmove.w\tsr,-(sp)
+\t.endm
+\t.macro POP_SR
+\tmove.w\t(sp)+,sr
+\t.endm
+\t.endif
+\t.macro ADD_WITH_CARRY\t\\value,\\operand
+\tbcc.b\t0f
+\taddq.b\t#1,\\operand
+0:
+\taddq.b\t\\value,\\operand
+\t.endm
+\t.macro SUB_WITH_CARRY\t\\value,\\operand
+\tbcc.b\t0f
+\tsubq.b\t#1,\\operand
+0:
+\tsubq.b\t\\value,\\operand
+\t.endm
+\t.endm
+\t.endif
 """)
     else:
         f.write(f"""\tCLEAR_XC_FLAGS:MACRO
@@ -631,12 +730,42 @@ with open(cli_args.output_file,"w") as f:
 \tmoveq\t#0,{V}
 \tadd.b\t{V},{V}
 \tENDM
+
+\tSET_I_FLAGS:MACRO
+^^^^ TODO: insert interrupt disable code here
+\tENDM
+\tCLEAR_I_FLAGS:MACRO
+^^^^ TODO: insert interrupt enable code here
+\tENDM
 """)
+
+    f.write("cpu_init:\n")
+    for i in range(8):
+        f.write(f"\tmoveq\t#0,d{i}\n")
+    f.write("\trts\n\n")
+
+buffer = f.getvalue()+"".join(nout_lines)
+
+# remove review flags if requested (not recommended!!)
+if cli_args.no_review:
+    nout_lines = [line for line in buffer.splitlines(True) if "^ TODO" not in line]
+
+with open(cli_args.output_file,"w") as f:
     f.writelines(nout_lines)
 
 
 print(f"Converted {converted} lines on {len(lines)} total, {instructions} instruction lines")
 print(f"Converted instruction ratio {converted}/{instructions} {int(100*converted/instructions)}%")
+if unknown_instructions:
+    print(f"Unknown instructions: ")
+    for s in sorted(unknown_instructions):
+        if "nop" in s:
+            print("  unofficial nop")
+        else:
+            print(f"  {s}")
+else:
+    print("No unknown instructions")
+
 print("\nPLEASE REVIEW THE CONVERTED CODE CAREFULLY AS IT MAY CONTAIN ERRORS!\n")
 print("(some TODO: review lines may have been added, and the code won't build on purpose)")
 
