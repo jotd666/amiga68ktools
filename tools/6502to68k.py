@@ -7,7 +7,7 @@
 #9EB3: 85 1B    sta $1b
 #9EB5: 90 02    bcc $9eb9  => review flag!!
 #
-# macro GET_ADDRESS to return pointer on memory layout
+# you'll have to implement the macro GET_ADDRESS_BASE to return pointer on memory layout
 # to replace lea/move/... in memory
 # extract RAM memory constants as defines, not variables
 # work like an emulator
@@ -267,33 +267,37 @@ def generic_indexed_to(inst,src,args,comment):
     arg = args[0]
     if inst.islower():
         inst += ".b"
+    y_indexed = False
     regsrc = registers.get(src,src)
     if len(args)>1:
+        # register indexed. There are many modes!
+        # TODO: sta    $2000, x/y not done
         index_reg = args[1].strip(")")
         if arg.startswith("("):
             if arg.endswith(")"):
                 # Y indirect indexed
-                load = "move.l"
                 arg = arg.strip("()")
+                return f"""\tGET_ADDRESS_Y\t{arg}{comment}
+\t{inst}\t{regsrc},({registers['awork1']},{index_reg}.w){comment}
+"""
+
             else:
                 # X indirect indexed
                 arg = arg.strip("(")
                 arg2 = index_reg
-                return f"""\tlea\t{arg},{registers['awork1']}{comment}
-\tadd.w\t{arg2},{registers['awork1']}{comment}
-\tmove.l\t({registers['awork1']}),{registers['awork1']}{comment}
-    {inst}\t{regsrc},({registers['awork1']}){comment}
-"""
+                if arg2.lower() != 'd1':
+                    # can't happen
+                    raise Exception("Unsupported indexed mode {}!=d1: {} {}".format(arg2,inst," ".join(args)))
+
+                return f"""\tGET_ADDRESS_X\t{arg}{comment}
+    {inst}\t{regsrc},({registers['awork1']}){comment}"""
         else:
-            load = "lea"
+            # X/Y indexed direct
+            return f"""\tGET_ADDRESS\t{arg}{comment}
+    {inst}\t{regsrc},({registers['awork1']},{index_reg}.w){comment}"""
 
-        return f"""\t{load}\t{arg},{registers['awork1']}{comment}
-    {inst}\t{regsrc},({registers['awork1']},{index_reg}.w){comment}
-"""
-
-    else:
-        return f"\t{inst}\t{regsrc},{arg}{comment}"
-
+    return f"""\tGET_ADDRESS\t{arg}{comment}
+\t{inst}\t{regsrc},({registers['awork1']}){comment}"""
 
 def generic_indexed_from(inst,dest,args,comment):
     arg = args[0]
@@ -634,14 +638,6 @@ for i,line in enumerate(nout_lines):
                     nout_lines[i] += "          ^^^^^^ TODO: review push to stack+return\n"
 
 
-        if len(fp)>1:
-            args = fp[1].split(",")
-            if len(args)==2:
-                if args[1].startswith("0x"):
-                    nout_lines[i] += "          ^^^^^^ TODO: review absolute 16-bit address write\n"
-                elif args[0].startswith("0x"):
-                    nout_lines[i] += "       ^^^^^^ TODO: review absolute 16-bit address read\n"
-
         # TODO: set overflow + bvc, set carry + bcs ... => bra
 
         prev_fp = fp
@@ -657,7 +653,7 @@ if True:
     C = registers['c']
     V = registers['v']
 
-    f.write(f""" {out_start_line_comment} Converted with 6502to68k by JOTD
+    f.write(f"""{out_start_line_comment} Converted with 6502to68k by JOTD
 {out_start_line_comment}
 {out_start_line_comment} make sure you call "cpu_init" first so bits 8-15 of data registers
 {out_start_line_comment} are zeroed out so we can use (ax,dy.w) addressing mode
@@ -701,20 +697,12 @@ if True:
 \tmove.w\t(sp)+,sr
 \t.endm
 \t.endif
-\t.macro ADD_WITH_CARRY\t\\value,\\operand
-\tbcc.b\t0f
-\taddq.b\t#1,\\operand
-0:
-\taddq.b\t\\value,\\operand
+\t.macro GET_ADDRESS\t\\offset
+\tlea\t\offset,{registers['awork1']}
+\tjbsr\tget_address
 \t.endm
-\t.macro SUB_WITH_CARRY\t\\value,\\operand
-\tbcc.b\t0f
-\tsubq.b\t#1,\\operand
-0:
-\tsubq.b\t\\value,\\operand
-\t.endm
-\t.endm
-\t.endif
+
+
 """)
     else:
         f.write(f"""\tCLEAR_XC_FLAGS:MACRO
@@ -744,11 +732,20 @@ if True:
         f.write(f"\tmoveq\t#0,d{i}\n")
     f.write("\trts\n\n")
 
+    f.write(f"""get_address:
+        ^^^^ TODO: implement this by adding memory base to {registers['awork1']}
+\trts
+
+""")
+
+
 buffer = f.getvalue()+"".join(nout_lines)
 
 # remove review flags if requested (not recommended!!)
 if cli_args.no_review:
     nout_lines = [line for line in buffer.splitlines(True) if "^ TODO" not in line]
+else:
+    nout_lines = [line for line in buffer.splitlines(True)]
 
 with open(cli_args.output_file,"w") as f:
     f.writelines(nout_lines)
