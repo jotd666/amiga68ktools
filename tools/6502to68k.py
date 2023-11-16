@@ -1,18 +1,6 @@
 #TODO: optimize beq (not .b) etc... by jxx if mit syntax
 # also if mit jmp => jra
-# CLR_XC_FLAGS    +  addx => addx changed to add
-# SET_XC_FLAGS    +  subx => subx changed to sub
-#9EB0: 18       clc
-#9EB1: 69 08    adc #$08
-#9EB3: 85 1B    sta $1b
-#9EB5: 90 02    bcc $9eb9  => review flag!!
 #
-# bit+bvc => review but change to btst #6+beq
-# bit+bvs => review but change to btst #6+bne
-
-# implement GET_ADDRESS... for _from too ATM only STA support!!
-
-# remove     POP_SR followed by PUSH_SR
 
 #
 # you'll have to implement the macro GET_ADDRESS_BASE to return pointer on memory layout
@@ -21,7 +9,7 @@
 # work like an emulator
 #
 # this is completely different from Z80. Easier for registers, but harder
-# for memory because of those indexed modes that read pointers from memory
+# for memory because of those indirect indexed modes that read pointers from memory
 # so we can't really map 32-bit model on original code without heavily adapting everything
 #
 # on Z80, the ld instruction acted like lea or move, and it was easier to keep separate address
@@ -107,6 +95,11 @@ def split_params(params):
 
     rval.append("".join(cur))
     return rval
+
+def change_tst_to_btst(nout_lines,i):
+    nout_lines[i-1] = nout_lines[i-1].replace("tst.b\t","btst.b\t#6,")
+    nout_lines[i] = (nout_lines[i].replace("bvc\t","beq\t",1).replace("bvs\t","bne\t",1)
+    + "          ^^^^^^ TODO: check bit 6 of operand\n")
 
 address_re = re.compile("^([0-9A-F]{4}):")
 # doesn't capture all hex codes properly but we don't care
@@ -243,8 +236,8 @@ absolute    BIT oper    2C    3    4
 
 this is way too complex for a very marginal use for overflow
 """
-    arg = args[0]
-    return f"\ttst.b\t{arg}{comment}"
+    # hack
+    return generic_logical_op("tst",args,comment).replace(f",{registers['a']}","")
 
 
 def f_lda(args,comment):
@@ -452,13 +445,18 @@ def address_to_label_out(s):
 
 
 def generic_cmp(args,reg,comment):
-    p = args[0]
-    if p[0]=='#' and parse_hex(p[1:])==0:
-        # optim
-        out = f"\ttst.b\t{registers[reg]}{comment}"
-    else:
-        out = f"\tmove.b\t{p},{registers['dwork1']}{comment}\n\tcmp.b\t{registers[reg]},{registers['dwork1']}{comment}"
+    # one more difficulty: we have to invert the terms as bcc/bmi/etc work the other way round
 
+    p = args[0]
+    if p[0]=='#':
+        if parse_hex(p[1:])==0:
+            # optim
+            out = f"\ttst.b\t{registers[reg]}{comment}"
+        else:
+            out = f"\tmove.b\t{p},{registers['dwork1']}{comment}\n\tcmp.b\t{registers[reg]},{registers['dwork1']}{comment}"
+    else:
+        out = generic_indexed_from("move",'dwork1',args,comment)
+        out += f"\n\tcmp.b\t{registers[reg]},{registers['dwork1']}{comment}"
     return out
 
 
@@ -715,13 +713,13 @@ for i,line in enumerate(nout_lines):
                     nout_lines[i-1] = f"{out_start_line_comment} clv+bvc => jra\n"
                     nout_lines[i] = nout_lines[i].replace(finst,"jra")
                 elif prev_fp[0] == "tst.b":
-                    nout_lines[i] += "          ^^^^^^ TODO: handle bit 6 of operand / change overflow test\n"
+                    change_tst_to_btst(nout_lines,i)
             else:
                 nout_lines[i] += "          ^^^^^^ TODO: warning: stray bvc test\n"
         elif finst == "bvs":
             if prev_fp:
                 if prev_fp[0] == "tst.b":
-                    nout_lines[i] += "          ^^^^^^ TODO: handle bit 6 of operand / change overflow test\n"
+                    change_tst_to_btst(nout_lines,i)
             else:
                 nout_lines[i] += "          ^^^^^^ TODO: warning: stray bvs test\n"
 
@@ -862,6 +860,15 @@ if True:
 \t.endm
 \t.endif
 
+\t.macro READ_LE_WORD\tsrcreg
+\tPUSH_SR
+\tmove.b\t(1,\srcreg),{registers['dwork1']}
+\tlsl.w\t#8,{registers['dwork1']}
+\tmove.b\t(\srcreg),{registers['dwork1']}
+\tmove.w\t{registers['dwork1']},\srcreg
+\tPOP_SR
+\t.endm
+
 \t.macro GET_ADDRESS\toffset
 \tlea\t\offset,{registers['awork1']}
 \tjbsr\tget_address
@@ -871,13 +878,13 @@ if True:
 \tlea\t\offset,{registers['awork1']}
 \tjbsr\tget_address
 \tlea\t({registers['awork1']},{registers['x']}.w),{registers['awork1']}
-\tmove.w\t({registers['awork1']}),{registers['awork1']}
+\tREAD_LE_WORD\t{registers['awork1']}
 \tjbsr\tget_address
 \t.endm
 
 \t.macro GET_ADDRESS_Y\toffset
 \tGET_ADDRESS\t\\offset
-\tmove.w\t({registers['awork1']}),{registers['awork1']}
+\tREAD_LE_WORD\t{registers['awork1']}
 \tjbsr\tget_address
 \t.endm
 
@@ -913,7 +920,6 @@ if True:
 
     f.write(f"""get_address:
         ^^^^ TODO: implement this by adding memory base to {registers['awork1']}
-{out_start_line_comment} do not use add to preserve X flag!
 \trts
 
 """)
