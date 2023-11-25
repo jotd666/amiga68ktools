@@ -445,7 +445,8 @@ def address_to_label_out(s):
 
 
 def generic_cmp(args,reg,comment):
-    # one more difficulty: we have to invert the terms as bcc/bmi/etc work the other way round
+    # bcc/bmi/etc work the other way round but if we just invert there"s a problem
+    # when operands are equal... So better convert as is and then post process
 
     p = args[0]
     if p[0]=='#':
@@ -453,10 +454,9 @@ def generic_cmp(args,reg,comment):
             # optim
             out = f"\ttst.b\t{registers[reg]}{comment}"
         else:
-            out = f"\tmove.b\t{p},{registers['dwork1']}{comment}\n\tcmp.b\t{registers[reg]},{registers['dwork1']}{comment}"
+            out = f"\tcmp.b\t{p},{registers[reg]}{comment}"
     else:
-        out = generic_indexed_from("move",'dwork1',args,comment)
-        out += f"\n\tcmp.b\t{registers[reg]},{registers['dwork1']}{comment}"
+        out = generic_indexed_from("cmp",reg,args,comment)
     return out
 
 
@@ -701,12 +701,17 @@ reg_a = registers["a"]
 clrxcflags_inst = ["CLR_XC_FLAGS"]
 setxcflags_inst = ["SET_XC_FLAGS"]
 
+# post-processing phase is crucial here, as the converted code is guaranteed to be WRONG
+# as opposed to Z80 conversion where it could be optimizations or warnings about well-known
+# problematic constructs
+
 for i,line in enumerate(nout_lines):
     line = line.rstrip()
     toks = line.split("|",maxsplit=1)
     if len(toks)==2:
         fp = toks[0].rstrip().split()
         finst = fp[0]
+
         if finst == "bvc":
             if prev_fp:
                 if prev_fp == ["CLR_V_FLAG"]:
@@ -728,13 +733,20 @@ for i,line in enumerate(nout_lines):
             if prev_fp:
                 if prev_fp == clrxcflags_inst:
                     nout_lines[i-1] = f"{out_start_line_comment} clc+bcc => bra\n"
-                    nout_lines[i] = nout_lines[i].replace(finst,"bra.b")
+                    nout_lines[i] = nout_lines[i].replace("\t"+finst,"\tbra.b")
+                elif prev_fp[0] == "cmp.b":
+                    # we KNOW we generated it wrong as in 6502 conditions are opposed. Change to bcs
+                    nout_lines[i] = f"\t{out_start_line_comment} bcc=>bcs\n"+nout_lines[i].replace("\tbcc","\tbcs")
+
         elif finst == "bcs":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
                 if prev_fp == setxcflags_inst:
                     nout_lines[i-1] = f"{out_start_line_comment} sec+bcs => bra\n"
                     nout_lines[i] = nout_lines[i].replace(finst,"bra.b")
+                elif prev_fp[0] == "cmp.b":
+                    # we KNOW we generated it wrong as in 6502 conditions are opposed. Change to bcs
+                    nout_lines[i] = f"\t{out_start_line_comment} bcs=>bcc\n"+nout_lines[i].replace("\tbcs","\tbcc")
         elif finst == "rts":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
@@ -750,8 +762,8 @@ for i,line in enumerate(nout_lines):
                 # clc+adc => add (way simpler & faster)
                 nout_lines[i-1] = nout_lines[i-1].replace(setxcflags_inst[0],"")
                 nout_lines[i] = nout_lines[i].replace("subx.b","sub.b")
-
-        # TODO: set overflow + bvc, set carry + bcs ... => bra
+        elif finst not in ["bne","beq"] and prev_fp and prev_fp[0] == "cmp.b":
+            nout_lines[i] = "          ^^^^^^ TODO: review stray cmp\n"+nout_lines[i]
 
         prev_fp = fp
 # post-processing
