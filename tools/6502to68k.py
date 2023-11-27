@@ -718,8 +718,8 @@ reg_a = registers["a"]
 clrxcflags_inst = ["CLR_XC_FLAGS"]
 setxcflags_inst = ["SET_XC_FLAGS"]
 
-carry_generating_instructions = {"lsr.b","asl.b","ror.b","rol.b","subq.b","sub.b","subx.b",
-"addx.b","addq.b","add.b"}
+# sub/add aren't included as they're the translation of dec/inc which don't affect C
+carry_generating_instructions = {"lsr.b","asl.b","ror.b","rol.b","subx.b","addx.b"}
 
 # post-processing phase is crucial here, as the converted code is guaranteed to be WRONG
 # as opposed to Z80 conversion where it could be optimizations or warnings about well-known
@@ -869,6 +869,19 @@ if True:
 \tPUSH_SR
 \tmove.w\t(sp),{registers['dwork1']}
 \teor.b\t#0x11,{registers['dwork1']}
+\tmove.w\t{registers['dwork1']},(sp)
+\tPOP_SR
+\t.endm
+
+{out_start_line_comment} useful to recall C from X (add then move then bcx)
+\t.macro\tSET_C_FROM_X
+\tPUSH_SR
+\tmove.w\t(sp),{registers['dwork1']}
+\tbset\t#0,{registers['dwork1']}   | set C
+\tbtst\t#4,{registers['dwork1']}
+\tbne.b\t0f
+\tbclr\t#0,{registers['dwork1']}   | X is clear: clear C
+0:
 \tmove.w\t{registers['dwork1']},(sp)
 \tPOP_SR
 \t.endm
