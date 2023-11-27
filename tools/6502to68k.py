@@ -174,8 +174,8 @@ single_instructions = {"nop":"nop",
 "inx":f"addq.b\t#1,{registers['x']}",
 "iny":f"addq.b\t#1,{registers['y']}",
 "inc":f"addq.b\t#1,{registers['a']}",
-"pha":f"move.w\t{registers['a']},-(sp)",
-"pla":f"move.w\t(sp)+,{registers['a']}",
+"pha":f"movem.w\t{registers['a']},-(sp)",  # movem preserves CCR like original 6502 inst.
+"pla":f"movem.w\t(sp)+,{registers['a']}",  # it takes more cycles but who cares?
 "php":"PUSH_SR",
 "plp":"POP_SR",
 "sec":"SET_XC_FLAGS",
@@ -336,8 +336,7 @@ def generic_indexed_to(inst,src,args,comment):
                 # Y indirect indexed
                 arg = arg.strip("()")
                 return f"""\tGET_ADDRESS_Y\t{arg}{comment}
-\t{inst}\t{regsrc},({registers['awork1']},{index_reg}.w){comment}
-"""
+\t{inst}\t{regsrc},({registers['awork1']},{index_reg}.w){comment}"""
 
             else:
                 # X indirect indexed
@@ -691,6 +690,24 @@ for line in out_lines:
     nout_lines.append(line+"\n")
 
 
+def follows_sr_protected_block(nout_lines,i):
+    # we have a chance of protected block only if POP_SR
+    # was just before the branch test
+    if "POP_SR" not in nout_lines[i-1]:
+        return False
+
+    for j in range(i-2,1,-1):
+        line = nout_lines[j]
+        if line.startswith("\trts"):
+            # sequence break:
+                return False
+
+        if line.startswith("\tPUSH_SR"):
+            # encountered POP then PUSH while going back
+            finst = nout_lines[j-1].split()[0]
+            return finst in carry_generating_instructions
+
+    return True
 
 # add review flag message in case of move.x followed by a branch
 # also add review for writes to unlabelled memory
@@ -700,6 +717,9 @@ prev_fp = None
 reg_a = registers["a"]
 clrxcflags_inst = ["CLR_XC_FLAGS"]
 setxcflags_inst = ["SET_XC_FLAGS"]
+
+carry_generating_instructions = {"lsr.b","asl.b","ror.b","rol.b","subq.b","sub.b","subx.b",
+"addx.b","addq.b","add.b"}
 
 # post-processing phase is crucial here, as the converted code is guaranteed to be WRONG
 # as opposed to Z80 conversion where it could be optimizations or warnings about well-known
@@ -737,6 +757,9 @@ for i,line in enumerate(nout_lines):
                 elif prev_fp[0] == "cmp.b":
                     # we KNOW we generated it wrong as in 6502 conditions are opposed. Change to bcs
                     nout_lines[i] = f"\t{out_start_line_comment} bcc=>bcs\n"+nout_lines[i].replace("\tbcc","\tbcs")
+                elif prev_fp[0] not in carry_generating_instructions:
+                    if not follows_sr_protected_block(nout_lines,i):
+                        nout_lines[i] += f"         ^^^^^^ TODO: warning: stray bcc test\n"
 
         elif finst == "bcs":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
@@ -747,11 +770,17 @@ for i,line in enumerate(nout_lines):
                 elif prev_fp[0] == "cmp.b":
                     # we KNOW we generated it wrong as in 6502 conditions are opposed. Change to bcs
                     nout_lines[i] = f"\t{out_start_line_comment} bcs=>bcc\n"+nout_lines[i].replace("\tbcs","\tbcc")
+                elif prev_fp[0] not in carry_generating_instructions:
+                   if not follows_sr_protected_block(nout_lines,i):
+                        nout_lines[i] += f"         ^^^^^^ TODO: warning: review stray bcs test\n"
         elif finst == "rts":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
-                if prev_fp == ["move.w","d0,-(sp)"]:
+                if prev_fp == ["movem.w","d0,-(sp)"]:
                     nout_lines[i] += "          ^^^^^^ TODO: review push to stack+return\n"
+                elif prev_fp[0] == "cmp.b":
+                    nout_lines[i] += "          ^^^^^^ TODO: review stray cmp (check caller)\n"
+
         elif finst == "addx.b":
             if prev_fp == clrxcflags_inst:
                 # clc+adc => add (way simpler & faster)
@@ -763,7 +792,7 @@ for i,line in enumerate(nout_lines):
                 nout_lines[i-1] = nout_lines[i-1].replace(setxcflags_inst[0],"")
                 nout_lines[i] = nout_lines[i].replace("subx.b","sub.b")
         elif finst not in ["bne","beq"] and prev_fp and prev_fp[0] == "cmp.b":
-            nout_lines[i] = "          ^^^^^^ TODO: review stray cmp\n"+nout_lines[i]
+                nout_lines[i] = "          ^^^^^^ TODO: review stray cmp (insert SET_X_FROM_CLEARED_C)\n"+nout_lines[i]
 
         prev_fp = fp
 # post-processing
@@ -836,7 +865,27 @@ if True:
 """)
 
     if cli_args.output_mode == "mit":
-        f.write(f"""\t.macro CLR_XC_FLAGS
+        f.write(f"""\t.macro INVERT_XC_FLAGS
+\tPUSH_SR
+\tmove.w\t(sp),{registers['dwork1']}
+\teor.b\t#0x11,{registers['dwork1']}
+\tmove.w\t{registers['dwork1']},(sp)
+\tPOP_SR
+\t.endm
+
+\t.macro\tSET_X_FROM_CLEARED_C
+\tPUSH_SR
+\tmove.w\t(sp),{registers['dwork1']}
+\tbset\t#4,{registers['dwork1']}   | set X
+\tbtst\t#0,{registers['dwork1']}
+\tbeq.b\t0f
+\tbclr\t#4,{registers['dwork1']}   | C is set: clear X
+0:
+\tmove.w\t{registers['dwork1']},(sp)
+\tPOP_SR
+\t.endm
+
+.macro CLR_XC_FLAGS
 \tmoveq\t#0,{C}
 \troxl.b\t#1,{C}
 \t.endm
