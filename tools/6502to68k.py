@@ -14,6 +14,14 @@
 #
 # on Z80, the ld instruction acted like lea or move, and it was easier to keep separate address
 # space for RAM and ROM.
+#
+# TODO:
+##- cmp: add a FIX_CMP_CARRY after each one: INVERT_C + SET_X_FROM_C, maybe optional
+## as bcs/bcc inversion is way faster and if beq/bne it is not immediately useful
+##- cmp + bmi??
+##- review: sec/clc + dex/dec + adc/sbc sandwich
+##- review: php+sei
+##- optim: grouping of simple shifts from 68k code
 
 import re,itertools,os,collections,glob,io
 import argparse
@@ -158,7 +166,7 @@ registers = {
 "a":"d0","x":"d1","y":"d2","p":"sr","c":"d7","v":"d3",
 "dwork1":"d4","dwork2":"d5","dwork3":"d6",
 "awork1":"a0"}
-inv_registers = {v:k for k,v in registers.items()}
+inv_registers = {v:k.upper() for k,v in registers.items()}
 
 
 
@@ -279,7 +287,7 @@ def generic_shift_op(inst,args,comment):
                     # Y indirect indexed
                     arg = arg.strip("()")
                     return f"""\tGET_ADDRESS_Y\t{arg}{comment}
-\t{inst}\t#1,({registers['awork1']},{index_reg}.w){comment}"""
+\t{inst}\t#1,({registers['awork1']},{index_reg}.w){out_comment} [...]"""
                 else:
                     # X indirect indexed
                     arg = arg.strip("(")
@@ -289,15 +297,15 @@ def generic_shift_op(inst,args,comment):
                         raise Exception("Unsupported indexed mode {}!=d1: {} {}".format(arg2,inst," ".join(args)))
 
                     return f"""\tGET_ADDRESS_X\t{arg}{comment}
-\t{inst}\t#1,({registers['awork1']}){comment}"""
+\t{inst}\t#1,({registers['awork1']}){out_comment} [...]"""
             else:
                 # X/Y indexed direct
                 return f"""\tGET_ADDRESS\t{arg}{comment}
-\t{inst}\t#1,({registers['awork1']},{index_reg}.w){comment}"""
+\t{inst}\t#1,({registers['awork1']},{index_reg}.w){out_comment} [...]"""
            # various optims
 
         return f"""\tGET_ADDRESS\t{arg}{comment}
-\t{inst}\t#1,({registers['awork1']}){comment}"""
+\t{inst}\t#1,({registers['awork1']}){out_comment} [...]"""
 
 def generic_logical_op(inst,args,comment):
     return generic_indexed_from(inst,'a',args,comment)
@@ -307,9 +315,9 @@ def f_lsr(args,comment):
 def f_asl(args,comment):
     return generic_shift_op("asl",args,comment)
 def f_ror(args,comment):
-    return generic_shift_op("ror",args,comment)
+    return generic_shift_op("roxr",args,comment)
 def f_rol(args,comment):
-    return generic_shift_op("rol",args,comment)
+    return generic_shift_op("roxl",args,comment)
 def f_ora(args,comment):
     return generic_logical_op("or",args,comment)
 def f_and(args,comment):
@@ -320,8 +328,35 @@ def f_eor(args,comment):
 def f_adc(args,comment):
     return generic_indexed_from("addx",'a',args,comment)
 def f_sbc(args,comment):
-    return generic_indexed_from("subx",'a',args,comment)
+    dest = 'a'
+    arg = args[0]
+    y_indexed = False
+    regdst = registers[dest]
+    if len(args)>1:
+        # register indexed. There are many modes!
+        index_reg = args[1].strip(")")
+        if arg.startswith("("):
+            if arg.endswith(")"):
+                # Y indirect indexed
+                arg = arg.strip("()")
+                return f"""\tSBC_IND_Y\t{arg}{comment}"""
+            else:
+                # X indirect indexed
+                arg = arg.strip("(")
+                arg2 = index_reg
 
+                return f"""\tSBC_X_IND\t{arg}{comment}"""
+        else:
+            # X/Y indexed direct
+            return f"""\tSBC_{inv_registers[index_reg]}\t{arg}{comment}"""
+       # various optims
+    else:
+        if arg[0]=='#':
+            # immediate mode
+            return f"\tSBC_IMM\t{arg[1:]}{comment}"
+
+    return f"""\tGET_ADDRESS\t{arg}{comment}
+\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
 def generic_indexed_to(inst,src,args,comment):
     arg = args[0]
     if inst.islower():
@@ -336,7 +371,7 @@ def generic_indexed_to(inst,src,args,comment):
                 # Y indirect indexed
                 arg = arg.strip("()")
                 return f"""\tGET_ADDRESS_Y\t{arg}{comment}
-\t{inst}\t{regsrc},({registers['awork1']},{index_reg}.w){comment}"""
+\t{inst}\t{regsrc},({registers['awork1']},{index_reg}.w){out_comment} [...]"""
 
             else:
                 # X indirect indexed
@@ -347,14 +382,14 @@ def generic_indexed_to(inst,src,args,comment):
                     raise Exception("Unsupported indexed mode {}!=d1: {} {}".format(arg2,inst," ".join(args)))
 
                 return f"""\tGET_ADDRESS_X\t{arg}{comment}
-    {inst}\t{regsrc},({registers['awork1']}){comment}"""
+    {inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
         else:
             # X/Y indexed direct
             return f"""\tGET_ADDRESS\t{arg}{comment}
-    {inst}\t{regsrc},({registers['awork1']},{index_reg}.w){comment}"""
+    {inst}\t{regsrc},({registers['awork1']},{index_reg}.w){out_comment} [...]"""
 
     return f"""\tGET_ADDRESS\t{arg}{comment}
-\t{inst}\t{regsrc},({registers['awork1']}){comment}"""
+\t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
 
 def generic_indexed_from(inst,dest,args,comment):
     arg = args[0]
@@ -370,7 +405,7 @@ def generic_indexed_from(inst,dest,args,comment):
                 # Y indirect indexed
                 arg = arg.strip("()")
                 return f"""\tGET_ADDRESS_Y\t{arg}{comment}
-\t{inst}\t({registers['awork1']},{index_reg}.w),{regdst}{comment}"""
+\t{inst}\t({registers['awork1']},{index_reg}.w),{regdst}{out_comment} [...]"""
             else:
                 # X indirect indexed
                 arg = arg.strip("(")
@@ -380,11 +415,11 @@ def generic_indexed_from(inst,dest,args,comment):
                     raise Exception("Unsupported indexed mode {}!=d1: {} {}".format(arg2,inst," ".join(args)))
 
                 return f"""\tGET_ADDRESS_X\t{arg}{comment}
-\t{inst}\t({registers['awork1']}),{regdst}{comment}"""
+\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
         else:
             # X/Y indexed direct
             return f"""\tGET_ADDRESS\t{arg}{comment}
-\t{inst}\t({registers['awork1']},{index_reg}.w),{regdst}{comment}"""
+\t{inst}\t({registers['awork1']},{index_reg}.w),{regdst}{out_comment} [...]"""
        # various optims
     else:
         if arg[0]=='#':
@@ -404,7 +439,7 @@ def generic_indexed_from(inst,dest,args,comment):
             return f"\t{inst}\t{arg},{regdst}{comment}"
 
     return f"""\tGET_ADDRESS\t{arg}{comment}
-\t{inst}\t({registers['awork1']}),{regdst}{comment}"""
+\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
 
 
 
@@ -645,18 +680,20 @@ for address in addresses_to_reference:
 
 
 # group exact following same instructions ror/rol/add ...
-for v in [list(v) for k,v in itertools.groupby(enumerate(out_lines),lambda x:x[1].split(out_comment)[0])]:
-    repeats = len(v)
-    if repeats>1:
-        # we have a group
-        line,instr = v[0]
-        if "#1," in instr:
-            grouped = instr.rstrip().replace("#1,",f"#{len(v)},")
-            grouped += f" * {len(v)}\n"
-            out_lines[line] = grouped
-            # delete following lines
-            for i in range(line+1,line+len(v)):
-                out_lines[i] = ""
+# this is more difficult than in Z80 because some instructions need 2 lines (one
+# to get address and one for the operation) so it was causing more problems that it solved
+##for v in [list(v) for k,v in itertools.groupby(enumerate(out_lines),lambda x:x[1].split(out_comment)[0])]:
+##    repeats = len(v)
+##    if repeats>1:
+##        # we have a group
+##        line,instr = v[0]
+##        if "#1," in instr:
+##            grouped = instr.rstrip().replace("#1,",f"#{len(v)},")
+##            grouped += f" * {len(v)}\n"
+##            out_lines[line] = grouped
+##            # delete following lines
+##            for i in range(line+1,line+len(v)):
+##                out_lines[i] = ""
 
 
 
@@ -719,7 +756,7 @@ clrxcflags_inst = ["CLR_XC_FLAGS"]
 setxcflags_inst = ["SET_XC_FLAGS"]
 
 # sub/add aren't included as they're the translation of dec/inc which don't affect C
-carry_generating_instructions = {"lsr.b","asl.b","ror.b","rol.b","subx.b","addx.b"}
+carry_generating_instructions = {"lsr.b","asl.b","roxr.b","roxl.b","subx.b","addx.b"}
 
 # post-processing phase is crucial here, as the converted code is guaranteed to be WRONG
 # as opposed to Z80 conversion where it could be optimizations or warnings about well-known
@@ -814,7 +851,7 @@ for line in nout_lines:
             nout_lines_2.append(f"\tmove.b\t{first_param},{tmpreg}{comment}\n")
             nout_lines_2.append(line.replace(first_param,tmpreg)+"\n")
             continue
-        if tok in {"ror","rol","lsr","asl"} and "(" in toks[1]:
+        if tok in {"roxr","roxl","ror","rol","lsr","asl"} and "(" in toks[1]:
             # 68k can't handle such modes
             comment = "\t|"+line.split("|")[1]
             first_param,second_param = split_params(toks[1])
@@ -853,19 +890,59 @@ if cli_args.spaces:
 f = io.StringIO()
 
 if True:
+    X = registers['x']
+    Y = registers['y']
     C = registers['c']
     V = registers['v']
-
+    A = registers['a']
+    W = registers['dwork1']
     f.write(f"""{out_start_line_comment} Converted with 6502to68k by JOTD
 {out_start_line_comment}
 {out_start_line_comment} make sure you call "cpu_init" first so bits 8-15 of data registers
 {out_start_line_comment} are zeroed out so we can use (ax,dy.w) addressing mode
 {out_start_line_comment} without systematic masking
+{out_start_line_comment}
+{out_start_line_comment} WARNING: you also have to add clr.w {registers['x']} and clr.w {registers['y']}
+{out_start_line_comment} at start of any interrupt you could hook
+{out_start_line_comment} we don't want to mask those at each X,Y indexed instruction
+{out_start_line_comment} for performance reasons
 
 """)
 
     if cli_args.output_mode == "mit":
-        f.write(f"""\t.macro INVERT_XC_FLAGS
+        f.write(f"""
+\t.macro\tSBC_X\taddress
+\tINVERT_XC_FLAGS
+\tGET_ADDRESS\t\address
+\tmove.b\t({registers['awork1']},{X}.w),{W}
+\tsubx.b\t{W},{A}
+\tINVERT_XC_FLAGS
+\t.endm
+\t
+\t.macro\tSBC_Y\taddress
+\tINVERT_XC_FLAGS
+\tGET_ADDRESS\t\address
+\tmove.b\t({registers['awork1']},{Y}.w),{W}
+\tsubx.b\t{W},{A}
+\tINVERT_XC_FLAGS
+\t.endm
+\t
+\t.macro\tSBC\taddress
+\tINVERT_XC_FLAGS
+\tGET_ADDRESS\t\address
+\tmove.b\t({registers['awork1']}),{W}
+\tsubx.b\t{W},{A}
+\tINVERT_XC_FLAGS
+\t.endm
+\t
+\t.macro\tSBC_IMM\tparam
+\tINVERT_XC_FLAGS
+\tmove.b\t#\param,{W}
+\tsubx.b\t{W},{A}
+\tINVERT_XC_FLAGS
+\t.endm
+
+\t.macro INVERT_XC_FLAGS
 \tPUSH_SR
 \tmove.w\t(sp),{registers['dwork1']}
 \teor.b\t#0x11,{registers['dwork1']}
