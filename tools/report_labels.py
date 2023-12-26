@@ -11,12 +11,63 @@ import argparse
 # to check the 68k converted code to see how it works
 
 parser = argparse.ArgumentParser()
-parser.add_argument("input_file(s)",nargs="+")
+parser.add_argument("input_files",nargs="+")
 parser.add_argument("--output_file","-o",help="file to update",action="store")
 
+labels = dict()
+equates = dict()
 
+label_re = re.compile("^(\w\w+_[0-9a-f]{4}):",re.I)
+hex_label_re = re.compile("^([0-9a-f]{4}):",re.I)
+hex_ref_re = re.compile("\$([0-9a-f]{4})",re.I)
+equates_re = re.compile("^(\w+_[0-9a-f]{4})\s*=\s*(\w+)")
 
 args = parser.parse_args()
 
 if not args.output_file:
     raise Excception("No output file")
+
+# scan input files
+for file in args.input_files:
+    with open(file) as f:
+        for line in f:
+            m = label_re.match(line)
+            if m:
+                name = m.group(1)
+                key = int(name[-4:],16)
+                labels[key] = name
+            else:
+                m = equates_re.match(line)
+                if m:
+                    equates[int(m.group(2),16)] = m.group(1)
+
+all_addresses = {**labels,**equates}
+
+# open output file
+
+outlines = []
+prev_line = ""
+with open(args.output_file) as f:
+    for line in f:
+        orgline = line
+
+        m = hex_label_re.match(line)
+        if m:
+            address = int(m.group(1),16)
+            newlab = labels.get(address)
+            if newlab:
+                m = label_re.match(prev_line)
+                toks = prev_line.split()
+                if not m or m.group(1)!= newlab:
+                    line = f"{newlab}:\n{line}"
+                    # see if we should add a linefeed
+
+                    if any(x in toks for x in ["jp","jmp","rts","ret"]): # Z80/6502 support
+                        line = "\n"+line
+
+        line = hex_ref_re.sub(lambda m: all_addresses.get(int(m.group(1),16),"$"+m.group(1)),line)
+        outlines.append(line)
+        prev_line = orgline
+
+with open(args.output_file+".txt","w") as f:
+    f.writelines(outlines)
