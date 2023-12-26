@@ -2,6 +2,9 @@ import os,sys,re,glob
 import getopt,traceback,codecs,itertools
 #import count_usage
 
+# use special comments like ";!" to declare baselib aliases
+# ;!-21170(A4)=ExecBase
+
 import fnmatch,shutil
 
 class Template:
