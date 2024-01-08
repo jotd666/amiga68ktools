@@ -70,7 +70,7 @@ def get_mot_local_label():
 
 regexes = []
 
-special_loop_instructions = {"ldi","ldd","ldir","cpir","cpdr","rld","rrd","cpi","cpd","exx"}
+special_loop_instructions = {"ldi","ldd","lddr","ldir","cpir","cpdr","rld","rrd","cpi","cpd","exx"}
 special_loop_instructions_met = set()
 
 ##for s,r in regexes_1:
@@ -168,14 +168,7 @@ a_instructions = {"neg":"neg.b\t","cpl":"not.b\t","rra":"roxr.b\t#1,",
                     "rla":"roxl.b\t#1,","rrca":"ror.b\t#1,","rlca":"rol.b\t#1,"}
 single_instructions = {"nop":"nop","ret":"rts",
 "scf":"SET_XC_FLAGS",
-"ccf":"""
-\tbcs.b\t0f
-\tclr.b\td7
-\tbra.b\t1f
-0:
-\tst.b\td7
-1:
-\tcmp.b\t#1,d7"""}
+"ccf":"INVERT_XC_FLAGS"}
 
 m68_regs = set(registers.values())
 m68_data_regs = {x for x in m68_regs if x[0]=="d"}
@@ -842,6 +835,23 @@ with open(cli_args.output_file,"w") as f:
 \tst\td7
 \troxl.b\t#1,d7
 \t.endm
+\t.macro\tINVERT_XC_FLAGS
+\tjcs\t0f
+\tSET_XC_FLAGS
+\tbra.b\t1f
+0:
+\tCLEAR_XC_FLAGS
+1:
+\t.endm
+\t.macro\tSET_X_FROM_C
+\tjcc\t0f
+\tSET_XC_FLAGS
+\tbra.b\t1f
+0:
+\tCLEAR_XC_FLAGS
+1:
+    .endm
+
 """)
     else:
         f.write("""\tCLEAR_XC_FLAGS:MACRO
@@ -851,6 +861,14 @@ with open(cli_args.output_file,"w") as f:
 \tSET_XC_FLAGS:MACRO
 \tst.b\td7
 \troxl.b\t#1,d7
+\tENDM
+\tINVERT_XC_FLAGS:MACRO
+\tbcc.b\tinv0\@
+\tSET_XC_FLAGS
+\tbra.b\tinv1\@
+inv0\@:
+\tCLEAR_XC_FLAGS
+inv1\@:
 \tENDM
 """)
     f.writelines(nout_lines)
@@ -885,6 +903,32 @@ ldd:
     subq.w  #1,a0
     subq.w  #1,a1
     subq.w    #1,d1
+    rts
+""")
+    if "lddr" in special_loop_instructions_met:
+        f.write(f"""
+{out_start_line_comment} < A0: source (HL)
+{out_start_line_comment} < A1: destination (DE)
+{out_start_line_comment} < D1: decremented (16 bit)
+lddr:
+    subq.w    #1,d1
+    addq.w  #1,a0
+    addq.w  #1,a1
+""")
+        if cli_args.output_mode == "mit":
+            f.write(f"""0:
+    move.b    -(a0),-(a1)
+    dbf        d1,0b
+""")
+        else:
+            f.write(f""".loop:
+    move.b    -(a0),-(a1)
+    dbf        d1,.loop
+""")
+        f.write("""
+    subq.w  #1,a0
+    subq.w  #1,a1
+    clr.w    d1
     rts
 """)
     if "ldi" in special_loop_instructions_met:

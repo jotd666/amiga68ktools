@@ -69,5 +69,13 @@ with open(args.output_file) as f:
         outlines.append(line)
         prev_line = orgline
 
-with open(args.output_file+".txt","w") as f:
+tf = args.output_file+".new"
+
+with open(tf,"w") as f:
     f.writelines(outlines)
+
+if os.path.getsize(tf) < os.path.getsize(args.output_file):
+    # small safety
+    raise Exception("New file is smaller than the original: not doing anything")
+os.remove(args.output_file)
+os.rename(tf,args.output_file)
