@@ -1,11 +1,11 @@
 
 # TODO:
-#add SET_XC_FLAGS/CLR_XC_FLAGS macro
 #add.b immediate + daa => abcd d7,xx + review
 #adc.b + daa => abcd d7,xx aussi!
 #ld  bc,imm => issue a "review pick one", issue D1/D2 AND D1.W
 #Label_ =  for  jump marks
 #Mem_ = memory addresses
+# HL referenced then add/sub L => use A0 instead of D6
 
 
 import re,itertools,os,collections,glob
@@ -79,12 +79,12 @@ special_loop_instructions_met = set()
 ##    except re.error as e:
 ##        raise Exception("{}: {}".format(s,e))
 
-address_re = re.compile("^([0-9A-F]{4}):")
+address_re = re.compile("^([0-9A-F]{4}):",flags=re.I)
 # doesn't capture all hex codes properly but we don't care
 if no_mame_prefixes:
     instruction_re = re.compile("\s+(\S.*)")
 else:
-    instruction_re = re.compile("([0-9A-F]{4}):( [0-9A-F]{2}){1,}\s+(\S.*)")
+    instruction_re = re.compile("([0-9A-F]{4}):( [0-9A-F]{2}){1,}\s+(\S.*)",flags=re.I)
 
 addresses_to_reference = set()
 
@@ -828,13 +828,19 @@ if cli_args.spaces:
 with open(cli_args.output_file,"w") as f:
     if cli_args.output_mode == "mit":
         f.write("""\t.macro CLEAR_XC_FLAGS
+\tmove.w\td7,-(a7)
 \tmoveq\t#0,d7
 \troxl.b\t#1,d7
+\tmovem.w\t(a7)+,d7
 \t.endm
+
 \t.macro SET_XC_FLAGS
+\tmove.w\td7,-(a7)
 \tst\td7
 \troxl.b\t#1,d7
+\tmovem.w\t(a7)+,d7
 \t.endm
+
 \t.macro\tINVERT_XC_FLAGS
 \tjcs\t0f
 \tSET_XC_FLAGS
@@ -843,6 +849,7 @@ with open(cli_args.output_file,"w") as f:
 \tCLEAR_XC_FLAGS
 1:
 \t.endm
+
 \t.macro\tSET_X_FROM_C
 \tjcc\t0f
 \tSET_XC_FLAGS
@@ -850,7 +857,13 @@ with open(cli_args.output_file,"w") as f:
 0:
 \tCLEAR_XC_FLAGS
 1:
-    .endm
+\t.endm
+\t.macro\tSET_C_FROM_X
+\tmove.w\td7,-(a7)
+\troxl.b\t#1,d7
+\troxr.b\t#1,d7
+\tmovem.w\t(a7)+,d7
+\t.endm
 
 """)
     else:

@@ -1,4 +1,4 @@
-
+# converts the output of dz80 to the output of MAME Z80 disassembly
 
 import re,itertools,os,collections
 import argparse

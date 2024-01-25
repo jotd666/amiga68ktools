@@ -110,6 +110,7 @@ def change_tst_to_btst(nout_lines,i):
     + "          ^^^^^^ TODO: check bit 6 of operand\n")
 
 address_re = re.compile("^([0-9A-F]{4}):")
+label_re = re.compile("^(\w+):")
 # doesn't capture all hex codes properly but we don't care
 if no_mame_prefixes:
     instruction_re = re.compile("\s+(\S.*)")
@@ -131,6 +132,7 @@ for input_file in input_files:
         for i,line in enumerate(f):
             is_inst = False
             address = None
+
             line = line.decode(errors="ignore")
             if line.lstrip().startswith((in_start_line_comment,in_comment)):
                 ls = line.lstrip()
@@ -138,6 +140,12 @@ for input_file in input_files:
                 ls = ls.lstrip(in_start_line_comment+in_comment)
                 txt = (" "*nb_spaces)+out_start_line_comment+ls.rstrip()
             else:
+                if no_mame_prefixes:
+                    if label_re.match(line) and not line.strip().endswith(":"):
+                        # label + instruction: split line
+                        loclines = line.split(":",maxsplit=1)
+                        lines.append((loclines[0]+":",False,i*0x10))
+                        line = loclines[1]   # rest of line
                 m = instruction_re.match(line)
                 if m:
                     if no_mame_prefixes:
@@ -172,6 +180,7 @@ inv_registers = {v:k.upper() for k,v in registers.items()}
 
 single_instructions = {"nop":"nop",
 "rts":"rts",
+"txs":"illegal   <-- TODO: unsupported transfer to stack register",
 "txa":f"move.b\t{registers['x']},{registers['a']}",
 "tya":f"move.b\t{registers['y']},{registers['a']}",
 "tax":f"move.b\t{registers['a']},{registers['x']}",
@@ -192,7 +201,7 @@ single_instructions = {"nop":"nop",
 "clc":"CLR_XC_FLAGS",
 "sei":"SET_I_FLAG",
 "cli":"CLR_I_FLAG",
-"sed":"   ^^^^ TODO: unsupported set decimal mode",
+"sed":"illegal   <-- TODO: unsupported set decimal mode",
 "cld":"nop",
 "clv":f"CLR_V_FLAG",
 }
@@ -214,6 +223,8 @@ def parse_hex(s,default=None):
     try:
         return int(s,16 if is_hex else 10)
     except ValueError as e:
+        if s.startswith("%"):
+            return int(s[1:],2)
         if default is None:
             raise
         else:
@@ -425,7 +436,7 @@ def generic_indexed_from(inst,dest,args,comment):
         if arg[0]=='#':
             # various optims for immediate mode
             if inst=="move.b":
-                val = parse_hex(arg[1:])
+                val = parse_hex(arg[1:],"WTF")
                 if val == 0:
                     # move 0 => clr
                     return f"\tclr.b\t{regdst}{comment}"
@@ -484,7 +495,7 @@ def generic_cmp(args,reg,comment):
 
     p = args[0]
     if p[0]=='#':
-        if parse_hex(p[1:])==0:
+        if parse_hex(p[1:],"WTF")==0:
             # optim
             out = f"\ttst.b\t{registers[reg]}{comment}"
         else:
@@ -553,8 +564,6 @@ def f_bcond(cond,args,comment):
     if target_address is not None:
         add_entrypoint(parse_hex(target_address))
     return out
-
-
 
 
 def is_immediate_value(p):
@@ -640,8 +649,12 @@ for i,(l,is_inst,address) in enumerate(lines):
                     print(f"Problem parsing: {l}, args={jargs}")
                     raise
             else:
-                out = f"{l}\n   ^^^^ TODO: unknown/unsupported instruction"
-                unknown_instructions.add(inst)
+                if inst.startswith("."):
+                    # as-is
+                    out = l
+                else:
+                    out = f"{l}\n   ^^^^ TODO: unknown/unsupported instruction {inst}"
+                    unknown_instructions.add(inst)
     else:
         out=address_re.sub(rf"{lab_prefix}\1:",l)
         if not re.search(r"\bdc.[bwl]",out,flags=re.I) and not out.strip().startswith((out_start_line_comment,out_comment)):
@@ -715,10 +728,18 @@ for line in out_lines:
         spaces = " "*(comment_col-len(fp))
         line = f'{fp}{spaces}\t|{sp}'
     if line.startswith(".db") and line[3].isspace():
-        line = line.replace(".db","\t.byte")
+        if cli_args.output_mode == "mit":
+            line = line.replace(".db","\t.byte")
+            line = line.replace("$","0x")
+        else:
+            line = line.replace(".db","\tdc.b")
         line = line.replace(in_comment,out_comment)
     elif line.startswith(".dw") and line[3].isspace():
-        line = line.replace(".dw","\t.long")
+        if cli_args.output_mode == "mit":
+            line = line.replace(".dw","\t.long")
+            line = line.replace("$","0x")
+        else:
+            line = line.replace(".dw","\tdc.w")
         line = line.replace(in_comment,out_comment)
 
     # also fix .byte,
@@ -913,7 +934,7 @@ if True:
         f.write(f"""
 \t.macro\tSBC_X\taddress
 \tINVERT_XC_FLAGS
-\tGET_ADDRESS\t\address
+\tGET_ADDRESS\t\\address
 \tmove.b\t({registers['awork1']},{X}.w),{W}
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
@@ -921,7 +942,7 @@ if True:
 \t
 \t.macro\tSBC_Y\taddress
 \tINVERT_XC_FLAGS
-\tGET_ADDRESS\t\address
+\tGET_ADDRESS\t\\address
 \tmove.b\t({registers['awork1']},{Y}.w),{W}
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
@@ -929,7 +950,7 @@ if True:
 \t
 \t.macro\tSBC\taddress
 \tINVERT_XC_FLAGS
-\tGET_ADDRESS\t\address
+\tGET_ADDRESS\t\\address
 \tmove.b\t({registers['awork1']}),{W}
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
