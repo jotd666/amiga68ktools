@@ -146,6 +146,7 @@ for input_file in input_files:
                         loclines = line.split(":",maxsplit=1)
                         lines.append((loclines[0]+":",False,i*0x10))
                         line = loclines[1]   # rest of line
+
                 m = instruction_re.match(line)
                 if m:
                     if no_mame_prefixes:
@@ -195,6 +196,10 @@ single_instructions = {"nop":"nop",
 "pla":f"movem.w\t(sp)+,{registers['a']}",  # it takes more cycles but who cares?
 "php":"PUSH_SR",
 "plp":"POP_SR",
+"lsr":f"lsr\t#1,{registers['a']}",   # for code that doesn't use "A" parameter for shift ops
+"asl":f"asl\t#1,{registers['a']}",
+"ror":f"roxr\t#1,{registers['a']}",
+"rol":f"roxl\t#1,{registers['a']}",
 "sec":"SET_XC_FLAGS",
 "clc":"CLR_XC_FLAGS",
 "sec":"SET_XC_FLAGS",
