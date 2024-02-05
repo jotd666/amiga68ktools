@@ -213,9 +213,6 @@ single_instructions = {"nop":"nop",
 
 m68_regs = set(registers.values())
 
-if cli_args.output_mode == "mot":
-    # change "j" by "b"
-    jr_cond_dict = {k:"b"+v[1:] for k,v in jr_cond_dict.items()}
 
 lab_prefix = "l_"
 
@@ -872,14 +869,14 @@ for line in nout_lines:
         tok = toks[0].split(".")[0]
         if tok == "eor" and "(" in toks[1]:
             # 68k can't handle such modes
-            comment = "\t|"+line.split("|")[1]
+            comment = "\t|"+line.split(in_comment)[1]
             first_param,second_param = split_params(toks[1])
             nout_lines_2.append(f"\tmove.b\t{first_param},{tmpreg}{comment}\n")
             nout_lines_2.append(line.replace(first_param,tmpreg)+"\n")
             continue
         if tok in {"roxr","roxl","ror","rol","lsr","asl"} and "(" in toks[1]:
             # 68k can't handle such modes
-            comment = "\t|"+line.split("|")[1]
+            comment = "\t|"+line.split(in_comment)[1]
             first_param,second_param = split_params(toks[1])
             nout_lines_2.append(f"\tmove.b\t{second_param},{tmpreg}{comment}\n")
             nout_lines_2.append(line.replace(second_param,tmpreg)+"\n")
@@ -888,7 +885,7 @@ for line in nout_lines:
             nout_lines_2.append("\tPOP_SR\n")
             continue
         elif tok in {"addx","subx"}:
-            comment = "\t|"+line.split("|")[1]
+            comment = "\t|"+line.split(in_comment)[1]
             first_param,second_param = split_params(toks[1])
             if "(" in first_param or '#' in first_param:
                 # 68k can't handle such modes
@@ -963,7 +960,7 @@ if True:
 \t
 \t.macro\tSBC_IMM\tparam
 \tINVERT_XC_FLAGS
-\tmove.b\t#\param,{W}
+\tmove.b\t#\\param,{W}
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \t.endm
@@ -1039,10 +1036,10 @@ if True:
 
 \t.macro READ_LE_WORD\tsrcreg
 \tPUSH_SR
-\tmove.b\t(1,\srcreg),{registers['dwork1']}
+\tmove.b\t(1,\\srcreg),{registers['dwork1']}
 \tlsl.w\t#8,{registers['dwork1']}
-\tmove.b\t(\srcreg),{registers['dwork1']}
-\tmove.w\t{registers['dwork1']},\srcreg
+\tmove.b\t(\\srcreg),{registers['dwork1']}
+\tmove.w\t{registers['dwork1']},\\srcreg
 \tPOP_SR
 \t.endm
 
@@ -1052,7 +1049,7 @@ if True:
 \t.endm
 
 \t.macro GET_ADDRESS_X\toffset
-\tlea\t\offset,{registers['awork1']}
+\tlea\t\\offset,{registers['awork1']}
 \tjbsr\tget_address
 \tlea\t({registers['awork1']},{registers['x']}.w),{registers['awork1']}
 \tREAD_LE_WORD\t{registers['awork1']}
@@ -1068,7 +1065,38 @@ if True:
 
 """)
     else:
-        f.write(f"""\tCLR_XC_FLAGS:MACRO
+        f.write(f"""SBC_X:MACRO
+\tINVERT_XC_FLAGS
+\tGET_ADDRESS\t\\1
+\tmove.b\t({registers['awork1']},{X}.w),{W}
+\tsubx.b\t{W},{A}
+\tINVERT_XC_FLAGS
+\tENDM
+\t
+SBC_Y:MACRO
+\tINVERT_XC_FLAGS
+\tGET_ADDRESS\t\\1
+\tmove.b\t({registers['awork1']},{Y}.w),{W}
+\tsubx.b\t{W},{A}
+\tINVERT_XC_FLAGS
+\tENDM
+\t
+SBC:MACRO
+\tINVERT_XC_FLAGS
+\tGET_ADDRESS\t\\1
+\tmove.b\t({registers['awork1']}),{W}
+\tsubx.b\t{W},{A}
+\tINVERT_XC_FLAGS
+\tENDM
+
+SBC_IMM:MACRO
+\tINVERT_XC_FLAGS
+\tmove.b\t#\\1,{W}
+\tsubx.b\t{W},{A}
+\tINVERT_XC_FLAGS
+\tENDM
+
+CLR_XC_FLAGS:MACRO
 \tmoveq\t#0,{C}
 \troxl.b\t#1,{C}
 \tENDM
@@ -1077,17 +1105,63 @@ if True:
 \troxl.b\t#1,{C}
 \tENDM
 
-\tCLR_V_FLAG:MACRO
+CLR_V_FLAG:MACRO
 \tmoveq\t#0,{V}
 \tadd.b\t{V},{V}
 \tENDM
 
-\tSET_I_FLAG:MACRO
+SET_I_FLAG:MACRO
 ^^^^ TODO: insert interrupt disable code here
 \tENDM
-\tCLR_I_FLAG:MACRO
+
+CLR_I_FLAG:MACRO
 ^^^^ TODO: insert interrupt enable code here
 \tENDM
+
+\tIFD\tMC68020
+\tPUSH_SR:MACRO
+\tmove.w\tccr,-(sp)
+\tENDM
+POP_SR:MACRO
+\tmove.w\t(sp)+,ccr
+\tENDM
+\t.else
+PUSH_SR:MACRO
+\tmove.w\tsr,-(sp)
+\tENDM
+POP_SR:MACRO
+\tmove.w\t(sp)+,sr
+\tENDM
+\tENDC
+
+READ_LE_WORD:MACRO
+\tPUSH_SR
+\tmove.b\t(1,\\1),{registers['dwork1']}
+\tlsl.w\t#8,{registers['dwork1']}
+\tmove.b\t(\\1),{registers['dwork1']}
+\tmove.w\t{registers['dwork1']},\\1
+\tPOP_SR
+\tENDM
+
+GET_ADDRESS:MACRO
+\tlea\t\\1,{registers['awork1']}
+\tjbsr\tget_address
+\tENDM
+
+GET_ADDRESS_X:MACRO
+\tlea\t\\1,{registers['awork1']}
+\tjbsr\tget_address
+\tlea\t({registers['awork1']},{registers['x']}.w),{registers['awork1']}
+\tREAD_LE_WORD\t{registers['awork1']}
+\tjbsr\tget_address
+\tENDM
+
+GET_ADDRESS_Y:MACRO
+\tGET_ADDRESS\t\\1
+\tREAD_LE_WORD\t{registers['awork1']}
+\tjbsr\tget_address
+\tENDM
+
 """)
 
     f.write("cpu_init:\n")

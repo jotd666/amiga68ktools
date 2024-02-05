@@ -507,15 +507,30 @@ def f_cp(args,comment):
 
 def f_dec(args,comment):
     p = args[0]
+    # increment relevant address register instead of low data register
+    # ex: INC L => addq.w #1,a0 instead of addq.b #1,d6
+    pn = data2addr_lsb.get(p)
+    if pn:
+        p = pn
+
     size = "w" if p[0]=="a" else "b"
     out = f"\tsubq.{size}\t#1,{p}{comment}"
-
+    if pn:
+        out += f"\n            ^^^^ TODO check dec register {args[0]} or {p}"
     return out
 
 def f_inc(args,comment):
     p = args[0]
+    # increment relevant address register instead of low data register
+    # ex: INC L => addq.w #1,a0 instead of addq.b #1,d6
+    pn = data2addr_lsb.get(p)
+    if pn:
+        p = pn
+
     size = "w" if p[0]=="a" else "b"
     out = f"\taddq.{size}\t#1,{p}{comment}"
+    if pn:
+        out += f"\n            ^^^^ TODO check inc register {args[0]} or {p}"
     return out
 
 def f_ld(args,comment):
