@@ -8,6 +8,29 @@ decl_label_re = re.compile("^(\w+):")
 class AsmException(Exception):
     pass
 
+def split_params(params):
+    """ split params taking account of parentheses
+    I'm sick of how many times I have coded this, I copied it
+    from my 6502268k.py converter, now it's here too
+    """
+    nb_paren = 0
+    rval = []
+    cur = []
+    for c in params:
+        if c=='(':
+            nb_paren += 1
+        elif c==')':
+            nb_paren -= 1
+        elif c==',' and nb_paren==0:
+            # new param
+            rval.append("".join(cur))
+            cur.clear()
+            continue
+        cur.append(c)
+
+    rval.append("".join(cur))
+    return rval
+
 def get_offset(line):
     """ try to extract offset from either offset comment or label
     """
@@ -155,7 +178,10 @@ class AsmFile:
                             self.label_addresses[label] = address
                             self.line_addresses[i] = address
                     except ValueError:
-                        print("warning: address of label {} can't be computed".format(label))
+                        if ":MACRO" in l:
+                            pass
+                        else:
+                            print("warning: address of label {} can't be computed".format(label))
 
             except Exception as e:
                 print("exception line {}: {}".format(i,l))

@@ -153,8 +153,15 @@ for input_file in input_files:
 
 # Galaxian compute_tangent function had to be adapted for this
 
+def allow_upper(d):
+    for k,v in tuple(d.items()):
+        d[k.upper()] = v
+
 registers = {
 "a":"d0","b":"d1","c":"d2","d":"d3","e":"d4","h":"d5","l":"d6","ix":"a2","iy":"a3","hl":"a0","de":"a1","bc":"a4"}  #,"d":"d3","e":"d4","h":"d5","l":"d6",
+
+allow_upper(registers)
+
 inv_registers = {v:k for k,v in registers.items()}
 
 
@@ -175,13 +182,18 @@ m68_data_regs = {x for x in m68_regs if x[0]=="d"}
 m68_address_regs = {x for x in m68_regs if x[0]=="a"}
 
 # inverted (note: C flag is already converted to 68k counterpart at that point hence the access to registers dict
-rts_cond_dict = {registers["c"]:"bcc","nc":"bcs","z":"bne","nz":"beq","p":"bmi","m":"bpl","po":"bvc","pe":"bvs"}
+rts_cond_dict = {"c":"bcc",registers["c"]:"bcc","nc":"bcs","z":"bne","nz":"beq","p":"bmi","m":"bpl","po":"bvc","pe":"bvs"}
 # d2 stands for c which has been replaced in a generic pass
-jr_cond_dict = {registers["c"]:"jcs","nc":"jcc","z":"jeq","nz":"jne","p":"jpl","m":"jmi","po":"jvs","pe":"jvc"}
+jr_cond_dict = {registers["c"]:"jcs","c":"jcs","nc":"jcc","z":"jeq","nz":"jne","p":"jpl","m":"jmi","po":"jvs","pe":"jvc"}
 
 if cli_args.output_mode == "mot":
     # change "j" by "b"
     jr_cond_dict = {k:"b"+v[1:] for k,v in jr_cond_dict.items()}
+
+
+
+allow_upper(rts_cond_dict)
+allow_upper(jr_cond_dict)
 
 lab_prefix = "l_"
 
@@ -189,7 +201,7 @@ def add_entrypoint(address):
     addresses_to_reference.add(address)
 
 def parse_hex(s,default=None):
-    is_hex = s.startswith(("$","0x"))
+    is_hex = s.startswith(("$","0x","0X"))
     s = s.strip("$")
     try:
         return int(s,16 if is_hex else 10)
@@ -235,14 +247,14 @@ def f_res(args,comment):
 
 def f_ex(args,comment):
     arg0,arg1 = args
-    if arg1 == "af'":
+    if arg1.lower() == "af'":
         arg1 = "d7"
-        if arg0 == "af":
+        if arg0.lower() == "af":
             arg0 = "d0"
 
     txt = f"\texg\t{arg0},{arg1}{comment}"
     if arg1 == "d7":
-        txt += "\n         ^^^ TODO review: wrong if carry is needed or D7 used in between!"
+        txt += "\n         ^^^ TODO review: carry flags used below? if so, adapt"
     return txt
 def f_push(args,comment):
     reg = args[0]
@@ -388,9 +400,38 @@ def f_and(args,comment):
 
     return out
 
+def f_adc(args,comment):
+    if len(args)==1:
+        # assume A
+        dest = registers["a"]
+        source = args[0]
+    else:
+        dest = args[0]
+        source = args[1]
+    out = None
+    if dest in m68_address_regs:
+        # supported but not sure, must be reviewed
+        source = addr2data_single.get(source,source)
+        out = f"\taddx.w\t{source},{dest}{comment}\n  ^^^^ TODO: review {source} computation above"
+        return out
+
+    if source in m68_regs:
+        out = f"\taddx.b\t{source},{dest}{comment}"
+    elif is_immediate_value(source):
+        out = f"\tmove.b\t#{source},d7{comment}\n\taddx.b\td7,{dest}{comment}"
+    else:
+        out = f"\taddx.b\t{source},{dest}{comment}"
+    return out
+
+
 def f_add(args,comment):
-    dest = args[0]
-    source = args[1]
+    if len(args)==1:
+        # assume A
+        dest = registers["a"]
+        source = args[0]
+    else:
+        dest = args[0]
+        source = args[1]
     out = None
     if dest in m68_address_regs:
         # supported but not sure, must be reviewed
@@ -410,8 +451,13 @@ def f_add(args,comment):
     return out
 
 def f_sbc(args,comment):
-    dest = args[0]
-    source = args[1]
+    if len(args)==1:
+        # assume A
+        dest = registers["a"]
+        source = args[0]
+    else:
+        dest = args[0]
+        source = args[1]
     out = None
     if dest in m68_address_regs:
         # probably comparison between 2 data registers
@@ -672,6 +718,7 @@ for i,(l,is_inst,address) in enumerate(lines):
         itoks = inst.split(maxsplit=1)
         if len(itoks)==1:
             # single instruction either towards a or without argument
+            inst = inst.lower()
             ai = a_instructions.get(inst)
             if ai:
                 out = f"\t{ai}d0{comment}"
@@ -684,7 +731,7 @@ for i,(l,is_inst,address) in enumerate(lines):
                     if si:
                         out = f"\t{si}{comment}"
 
-        else:
+        elif itoks:
             inst = itoks[0]
             args = itoks[1:]
             sole_arg = args[0].replace(" ","")
@@ -695,6 +742,7 @@ for i,(l,is_inst,address) in enumerate(lines):
             # also manual rework for 0x03(ix) => (ix+0x03)
             sole_arg = re.sub("(-?0x[A-F0-9]+)\((\w+)\)",r"(\2+\1)",sole_arg)
 
+            inst = inst.lower()
 
             # other instructions, not single, not implicit a
             conv_func = globals().get(f"f_{inst}")
@@ -716,7 +764,7 @@ for i,(l,is_inst,address) in enumerate(lines):
                 try:
                     out = conv_func(jargs,comment)
                 except Exception as e:
-                    print(f"Problem parsing: {l}, args={jargs}")
+                    print(f"Problem parsing: {l}, args={jargs} ({e})")
                     raise
     else:
         out=address_re.sub(rf"{lab_prefix}\1:",l)
@@ -989,6 +1037,33 @@ ldir:
             f.write(f""".loop:
     move.b    (a0)+,(a1)+
     dbf        d1,.loop
+    clr.w    d1
+    rts
+""")
+
+    if "lddr" in special_loop_instructions_met:
+        f.write(f"""
+{out_start_line_comment} < A0: source (HL)
+{out_start_line_comment} < A1: destination (DE)
+{out_start_line_comment} < D1: length (16 bit)
+ldir:
+    subq.w    #1,d1
+""")
+        if cli_args.output_mode == "mit":
+            f.write(f"""0:
+    move.b    (a0),(a1)
+    subq.w  #1,a0
+    subq.w  #1,a1
+    dbf        d1,0b
+    clr.w    d1
+    rts
+""")
+        else:
+            f.write(f""".loop:
+    move.b    (a0),(a1)
+    dbf        d1,.loop
+    subq.w  #1,a0
+    subq.w  #1,a1
     clr.w    d1
     rts
 """)

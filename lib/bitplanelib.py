@@ -262,15 +262,18 @@ def palette_to_image(palette,output):
                 img.putpixel((i+x,j),rgb)
         x += sqs
 
-    img.save(output)
+    if output:
+        img.save(output)
+    return img
 
 def palette_dump(palette,output,pformat=PALETTE_FORMAT_ASMMOT,high_precision=False):
     """
     output: string (filename to write into) or open file handle (in writing)
+            or image (from PIL.Image)
     """
     if pformat & PALETTE_FORMAT_PNG:
         # special case: png dump
-        palette_to_image(palette,output)
+        return palette_to_image(palette,output)
     else:
         as_binary = pformat & PALETTE_FORMAT_BINARY
         mode = "wb" if as_binary else "w"
@@ -290,6 +293,7 @@ def palette_dump(palette,output,pformat=PALETTE_FORMAT_ASMMOT,high_precision=Fal
             __palette_dump(palette,f,pformat,low_nibble=False)
         if isinstance(output,str):
             f.close()
+    return output
 
 def palette_extract(input_image,palette_precision_mask=0xFF):
     """
