@@ -354,7 +354,30 @@ def palette_fromjascpalette(infile,rgb_mask=0xFF):
         return [[int(x) & rgb_mask for x in next(f).split()] for _ in range(nb_colors)]
 
 
+def autocrop_y(input_image,mask_color=(0,0,0)):
+    """ crops & returns image, Y start
+    """
+    def blank_line(y):
+        return all(input_image.getpixel((x,y))==mask_color for x in range(input_image.size[0]))
 
+    for y in range(input_image.size[1]):
+        if not blank_line(y):
+            break
+            # all line is blank
+    y_start = y
+
+    for y in reversed(range(input_image.size[1])):
+        if not blank_line(y):
+            break
+    y_end = y+1
+
+    if y_end<=y_start:
+        y_end = 1
+        y_start = 0
+    rval = PIL.Image.new("RGB",(input_image.size[0],y_end-y_start))
+    rval.paste(input_image,(0,-y_start))
+
+    return y_start,rval
 def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,forced_nb_planes=None,
                     palette_precision_mask=0xFF,generate_mask=False,blit_pad=False,mask_color=(0,0,0)):
     """ rebuild raw bitplanes with palette (ordered) and any image which has
@@ -509,4 +532,10 @@ def palette_image2sprite(input_image,output_filename,palette,
 
 def print_long_hex_array(array):
     print( " ".join(["".join("{:02x}".format(array[i]) for i in range(j,j+4)) for j in range(0,len(array),4)]))
+
+
+if __name__ == "__main__":
+    img = PIL.Image.open(r"K:\jff\AmigaHD\PROJETS\arcade_remakes\mpatrol\assets\amiga\dumps\sprites\jeep_1_0.png")
+    y,img = autocrop_y(img,(60,100,200))
+    img.save(r"K:\jff\AmigaHD\PROJETS\arcade_remakes\mpatrol\assets\amiga\dumps\sprites\jeep_1_0_crop.png")
 
