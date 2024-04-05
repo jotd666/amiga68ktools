@@ -1,5 +1,7 @@
 import glob,os,subprocess,io,math,sys
 
+# requires path to netpbm tools and imagemagick (imconvert)
+
 temp_dir = os.getenv("TEMP","/tmp")
 temp_ppm = os.path.join(temp_dir,"temp.ppm")
 temp2_ppm = os.path.join(temp_dir,"temp2.ppm")

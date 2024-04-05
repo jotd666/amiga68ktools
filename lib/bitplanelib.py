@@ -401,9 +401,10 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
         if r:
             width += 16-r
         width += 16
-    img = PIL.Image.new('RGB', (width,height), mask_color if generate_mask else 0)
-    img.paste(imgorg, (0,0))
+    mask_color_rgb = "#{:02x}{:02x}{:02x}".format(*mask_color)
 
+    img = PIL.Image.new('RGB', (width,height), mask_color_rgb)
+    img.paste(imgorg, (0,0))
     if width % 8:
         raise BitplaneException("{} width must be a multiple of 8, found {}".format(input_image,width))
 

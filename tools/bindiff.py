@@ -10,8 +10,7 @@ parser.add_argument("-t","--third")
 parser.add_argument("-i","--ignore-size",action='store_true')
 parser.add_argument("-m","--mode",default="all",help="difference mode: all, third")
 parser.add_argument("-g","--group")
-
-# always use d68k DLO option (datalogic off) or RLO (rts logic off)
+parser.add_argument("-r","--range",help="range of values to consider (unsigned bytes) ex 6-7")
 
 args = parser.parse_args()
 
@@ -25,6 +24,18 @@ if not args.ignore_size and os.path.getsize(args.first) != os.path.getsize(args.
 if args.third and os.path.getsize(args.first) != os.path.getsize(args.third):
     error("first & third files don't have the same size")
 
+if args.range:
+    min_value,max_value = map(int,args.range.split("-"))
+
+
+def is_diff(c1,c2):
+    if not args.range:
+        return c1 != c2
+    else:
+        return c1 != c2 and (min_value <= c1 <= max_value) and (min_value <= c2 <= max_value)
+
+
+
 data = []
 for name in args.first,args.second,args.third:
     if name:
@@ -34,19 +45,19 @@ for name in args.first,args.second,args.third:
 diffs = []
 if not args.third:
     for i,(c1,c2) in enumerate(zip(*data)):
-        if c1 != c2:
+        if is_diff(c1,c2):
             diffs.append([i,c1,c2])
             if not args.group:
                 print("Diff_offset_12 = ${:04x}  ${:02x} vs ${:02x}".format(i,c1,c2))
 else:
     for i,(c1,c2,c3) in enumerate(zip(*data)):
         if args.mode == "all":
-            if c1 != c2:
+            if is_diff(c1,c2):
                 print("Diff_offset_12 = ${:04x}  ${:02x} vs ${:02x}".format(i,c1,c2))
-            if c1 != c3:
+            if is_diff(c1,c3):
                 print("Diff_offset_13 = ${:04x}  ${:02x} vs ${:02x}".format(i,c1,c3))
         elif args.mode == "third":
-            if c1 == c2 != c3:
+            if c1 == c2 and is_diff(c2,c3):
                 print("Diff_offset_3 = ${:04x}  ${:02x} vs ${:02x}".format(i,c1,c3))
 
 
