@@ -748,8 +748,9 @@ for i,(l,is_inst,address) in enumerate(lines):
             conv_func = globals().get(f"f_{inst}")
             if conv_func:
                 jargs = sole_arg.split(",")
-                # switch registers now
-                jargs = [re.sub(r"\b(\w+)\b",lambda m:registers.get(m.group(1),m.group(1)),a) for a in jargs]
+                # switch registers now: careful not to convert actual hex values to registers and produce hard to detect bugs
+                # so if starts by "$" don't change $DE by 0xA1 for instance!!
+                jargs = [re.sub(r"(?<!\$)\b(\w+)\b",lambda m:registers.get(m.group(1),m.group(1)),a) for a in jargs]
                 # replace "+" or "-" for address registers and swap params
                 jargs = [re.sub("\((a\d)\+([^)]+)\)",r"(\2,\1)",a,flags=re.I) for a in jargs]
                 jargs = [re.sub("\((a\d)-([^)]+)\)",r"(-\2,\1)",a,flags=re.I) for a in jargs]
@@ -949,6 +950,22 @@ inv1\@:
 """)
     f.writelines(nout_lines)
 
+
+    f.write(f"""{out_start_line_comment} < D0: byte possibly containing lowernibble > 9
+{out_start_line_comment} > D0: value corrected to full BCD
+daa:
+    move.w    d1,-(a7)
+    move.b    d0,d1
+    and.w    #{out_hex_sign}F,d1
+    sub.b    #10,d1
+    bcs.b    daa_out        | no need to do anything
+    * D1 = A-F: correct
+    add.b    #{out_hex_sign}16,d0
+daa_out:
+    move.w    (a7)+,d1
+    rts
+""")
+
     if "rld" in special_loop_instructions_met:
         f.write(f"""
 {out_start_line_comment} < A0 (HL)
@@ -958,12 +975,12 @@ rld:
     move.b    d0,d1        {out_comment} backup A
     clr.w    d2            {out_comment} make sure high bits of D2 are clear
     move.b    (a0),d2       {out_comment} read (HL)
-    and.b #0xF,d1        {out_comment} keep 4 lower bits of A
+    and.b #{out_hex_sign}F,d1        {out_comment} keep 4 lower bits of A
     lsl.w    #4,d2       {out_comment} make room for 4 lower bits
     or.b    d1,d2        {out_comment} insert bits
     move.b    d2,(a0)        {out_comment} update (HL)
     lsr.w    #8,d2        {out_comment} get 4 shifted bits of (HL)
-    and.b    #0xF0,d0    {out_comment} keep only the 4 highest bits of A
+    and.b    #{out_hex_sign}F0,d0    {out_comment} keep only the 4 highest bits of A
     or.b    d2,d0        {out_comment} insert high bits from (HL) into first bits of A
     movem.w    (a7)+,d1/d2
     rts
