@@ -47,7 +47,8 @@ def convert_ppm_to_iff(output,nb_colors,optimize_depth,verbose=False):
     with open(temp_ppm,"wb") as f:
         f.write(output)
     # convert image without any aspect ratio preservation & no antialias (preserves number of colors)
-    args = ["imconvert",temp_ppm,"-scale","{}x{}!".format(target_width,target_height),"-colors",str(nb_rounded_colors),temp2_ppm]
+    # previous exe was called "imconvert" but the new version renamed it. Works great too
+    args = ["magick",temp_ppm,"-scale","{}x{}!".format(target_width,target_height),"-colors",str(nb_rounded_colors),temp2_ppm]
     subprocess.check_call(args)
     return subprocess.check_output(["ppmtoilbm","-mp",str(nb_planes),temp2_ppm])
 

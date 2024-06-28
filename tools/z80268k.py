@@ -986,6 +986,29 @@ rld:
     rts
 
 """)
+
+    if "rrd" in special_loop_instructions_met:
+        f.write(f"""
+{out_start_line_comment} < A0 (HL)
+{out_start_line_comment} < D0 (A)
+rrd:
+    movem.w    d1/d2,-(a7)
+    move.b    d0,d1        {out_comment} backup A
+    clr.w    d2            {out_comment} make sure high bits of D2 are clear
+    move.b    (a0),d2        {out_comment} read (HL)
+    and.b    #{out_hex_sign}F,d1        {out_comment} keep 4 upper bits of A
+    lsl.b    #4,d1
+    ror.w    #4,d2        {out_comment} make room for 4 higher bits
+    or.b    d1,d2        {out_comment} insert bits
+    move.b    d2,(a0)        {out_comment} update (HL)
+    rol.w    #4,d2        {out_comment} get 4 shifted bits of (HL)
+    and.b    #{out_hex_sign}F,d2
+    and.b    #{out_hex_sign}F0,d0    {out_comment} keep only the 4 highest bits of A
+    or.b    d2,d0        {out_comment} insert lowest bits from (HL) into first bits of A
+    movem.w    (a7)+,d1/d2
+    rts
+
+""")
     if "ldd" in special_loop_instructions_met:
         f.write(f"""
 {out_start_line_comment} < A0: source (HL)

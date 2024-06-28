@@ -3,20 +3,21 @@ import os, winshell
 from win32com.client import Dispatch
 desktop = winshell.desktop()
 
-template = r"""#added by python script
+template = """#added by python script
+
+include ../../options.mk
 
 PROGNAME = {}
-HDBASE = K:\jff\AmigaHD
-WHDBASE = $(HDBASE)\PROJETS\HDInstall\DONE
+
+
 WHDLOADER = $(PROGNAME).slave
 SOURCE = $(PROGNAME)HD.s
-OPTS = -DDATETIME -I$(HDBASE)/amiga39_JFF_OS/include -I$(WHDBASE)\WHDLoad\Include -I$(WHDBASE) -devpac -nosym -Fhunkexe
 
 all :  $(WHDLOADER)
 
 $(WHDLOADER) : $(SOURCE)
-	wdate.py> datetime
-	vasmm68k_mot $(OPTS) -o $(WHDLOADER) $(SOURCE)
+\t$(WDATE)
+\t$(VASM) -o $(WHDLOADER) $(SOURCE)
 
 """
 
@@ -101,7 +102,7 @@ for root,dirs,files in os.walk(os.getcwd()): # r"K:\jff\AmigaHD\PROJETS\HDInstal
 
 
 
-        wm = os.path.join(root,"Makefile_windows.mak")
+        wm = os.path.join(root,"Makefile")
         if os.path.exists(wm) and os.path.getsize(wm):
             pass
 ##                with open(wm) as f:

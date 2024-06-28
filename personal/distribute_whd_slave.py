@@ -95,7 +95,8 @@ try:
                 contents = "".join(f)
                 if "blitz" in contents:
                     raise Exception("blitz macro found in {}".format(src))
-                if is_slave and contents.count("DECL_VERSION") < 3:
+                nb_ver_string = contents.count("DECL_VERSION")
+                if nb_ver_string and is_slave and nb_ver_string < 3:
                     # needs 3 occs: DECL_VERSION:MACRO + DECL_VERSION in whd info + DECL_VERSION
                     # for "version" tool
                     raise Exception("DECL_VERSION macro found {} times in {} should be 3 times".

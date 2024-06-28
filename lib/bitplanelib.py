@@ -202,6 +202,10 @@ def palette_regdump2palette(text):
         pass
     return [item for k,item in sorted(rval.items())]
 
+def round4(color):
+    # divides by 16 but rounds to nearest, limiting to F
+    return min(int(round(color/16)),0xF)
+
 def __palette_dump(palette,f,pformat,low_nibble):
     """
     dump a list of RGB triplets to an RGB4 binary output file
@@ -225,7 +229,7 @@ def __palette_dump(palette,f,pformat,low_nibble):
         if low_nibble:
             value = ((r & 0xF) << 8) + ((g & 0xF) << 4) + (b & 0xF)
         else:
-            value = ((r>>4) << 8) + ((g>>4) << 4) + (b>>4)
+            value = (round4(r) << 8) + (round4(g) << 4) + round4(b)
         if pformat & PALETTE_FORMAT_COPPERLIST:
             bank,colmod = divmod(colreg,32)
             if colmod == 0 and aga:
