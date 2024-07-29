@@ -7,12 +7,16 @@
 #Mem_ = memory addresses
 # HL referenced then add/sub L => use A0 instead of D6
 
+# solve 0x8.... !!
+# move.b    0x81D8,d0                           | [$30de
+
 
 import re,itertools,os,collections,glob
 import argparse
 import simpleeval # get it on pypi (pip install simpleeval)
 
 asm_styles = ("mit","mot")
+memory_models = ("large","small")
 parser = argparse.ArgumentParser()
 parser.add_argument("-i","--input-mode",help="input mode either mot style (comments: ;, hex: $)\n"
 "or mit style (comments *|, hex: 0x",choices=asm_styles,default=asm_styles[1])
@@ -20,16 +24,32 @@ parser.add_argument("-o","--output-mode",help="output mode either mot style or m
 ,default=asm_styles[0])
 parser.add_argument("-s","--spaces",help="replace tabs by x spaces",type=int)
 parser.add_argument("-n","--no-mame-prefixes",help="treat as real source, not MAME disassembly",action="store_true")
-parser.add_argument("--use-bc-as-pointer",help="bc will be saved/restored as address register as well")
+parser.add_argument("--use-bc-as-pointer",help="bc will be saved/restored as address register as well",action="store_true")
+parser.add_argument("-m","--memory-model",help="select memory model",choices=memory_models,default=memory_models[0])
+parser.add_argument("-c","--code-output",help="68000 source code output file",required=True)
+parser.add_argument("-d","--data-output",help="data output file")
+parser.add_argument("-r'","--ram-range",help="RAM address range in hex, required for small memory model mode. Ex: 8000-D000")
 parser.add_argument("input_file")
-parser.add_argument("output_file")
+
+data_names = dict()
 
 cli_args = parser.parse_args()
 
 no_mame_prefixes = cli_args.no_mame_prefixes
 
-if os.path.abspath(cli_args.input_file) == os.path.abspath(cli_args.output_file):
+if os.path.abspath(cli_args.input_file) == os.path.abspath(cli_args.code_output):
     raise Exception("Define an output file which isn't the input file")
+
+ram_range = cli_args.ram_range
+if ram_range:
+    ram_range = ram_range.split("-")
+    if len(ram_range)!=2:
+        raise Exception("Invalid ram range: {}".format(cli_args.ram_range))
+    ram_range = [int(x,16) for x in ram_range]
+
+memory_model = cli_args.memory_model
+if memory_model=="small" and not ram_range:
+    raise Exception("If memory model is set to small, ram range must be defined")
 
 if cli_args.input_mode == "mit":
     in_comment = "|"
@@ -67,6 +87,11 @@ def get_mot_local_label():
     rval = f".lb_{label_counter}"
     label_counter += 1
     return rval
+
+def is_conditional_68k_brandh_instruction(inst):
+    if inst.startswith("b"):
+        inst = "j"+inst[1:]
+    return inst.split(".")[0] in jr_cond_dict
 
 regexes = []
 
@@ -157,8 +182,28 @@ def allow_upper(d):
     for k,v in tuple(d.items()):
         d[k.upper()] = v
 
+# registers mapping
 registers = {
-"a":"d0","b":"d1","c":"d2","d":"d3","e":"d4","h":"d5","l":"d6","ix":"a2","iy":"a3","hl":"a0","de":"a1","bc":"a4"}  #,"d":"d3","e":"d4","h":"d5","l":"d6",
+"a":"d0",
+"b":"d1",
+"c":"d2",
+"d":"d3",
+"e":"d4",
+"h":"d5",
+"l":"d6",
+"ix":"a2",
+"iy":"a3",
+"hl":"a0",
+"de":"a1",
+"bc":"a4",
+"base":"a6"   # for small memory model
+# a5 is not mapped, can be used as scratch
+}
+
+# sanity check: check that all 68k registers are different!
+
+if len(set(registers.values())) != len(registers.values()):
+    raise Exception("68k registers must be unique")
 
 allow_upper(registers)
 
@@ -214,7 +259,10 @@ def parse_hex(s,default=None):
 def arg2label(s):
     try:
         address = parse_hex(s)
-        return f"{lab_prefix}{address:04x}"
+        rval = f"{lab_prefix}{address:04x}"
+        if memory_model=="small" and ram_range[0] <= address < ram_range[1]:
+            rval += f"({registers['base']})"
+        return rval
     except ValueError:
         # already resolved as a name
         return s
@@ -502,10 +550,15 @@ def gen_addsub(args,comment,inst):
     return out
 
 def address_to_label(s):
-    return s.strip("()").replace(in_hex_sign,lab_prefix)
+    rval = s.strip("()").replace(in_hex_sign,lab_prefix)
+    if memory_model =="small" and is_ram_label(rval):
+        rval += f"({registers['base']})"
+    return rval
 def address_to_label_out(s):
-    return s.strip("()").replace(out_hex_sign,lab_prefix)
-
+    rval = s.replace(out_hex_sign,lab_prefix)
+    if memory_model =="small" and is_ram_label(rval):
+        rval += f"({registers['base']})"
+    return rval
 
 
 def f_call(args,comment):
@@ -601,6 +654,8 @@ def f_ld(args,comment):
             direct = True
             prefix = ""
             srclab = source.strip("()")
+
+
             if all(d not in m68_address_regs for d in srclab.split(",")):
                 source = address_to_label(source)
         elif source in m68_regs:
@@ -616,7 +671,9 @@ def f_ld(args,comment):
 
             if direct:
                 source = address_to_label_out(source)
-                out = f"\tmove.w\t{source}(pc),{dest}{comment}"
+                # TODO: small memory model should do something smarter
+                out = f"\tmove.w\t{source},{dest}{comment}"
+
             else:
                 source_val = None
                 try:
@@ -625,10 +682,10 @@ def f_ld(args,comment):
                     pass
 
                 if not word_split and (source_val is None or source_val > 0x80):  # heuristic limit: address 0x80
-                    source = address_to_label_out(source)
+                    source = address_to_label_out(source.strip("()"))
 
 
-                    out = f"\tlea\t{source}(pc),{dest}{comment}"
+                    out = f"\tlea\t{source},{dest}{comment}"
                     if half_msb:
                         out += f"\n\tand.w\t#{out_hex_sign}FF,{lsb_data_reg}\n\tadd.w\t{lsb_data_reg},{dest}\n\t      ^^^^ TODO: review XX value"
                 else:
@@ -651,6 +708,9 @@ def f_ld(args,comment):
             elif src.lower()=="#"+out_hex_sign+"ff":
                 out = f"\tst.b\t{dest}{comment}"
             else:
+                if dest[0]=="d" and direct:
+                    source = address_to_label_out(source)
+
                 out = f"\tmove.b\t{prefix}{source},{dest}{comment}"
     elif dest.startswith("("):
         destlab = dest.strip("()")
@@ -662,7 +722,7 @@ def f_ld(args,comment):
         prefix = ""
         if is_immediate_value(source):
             prefix = "#"
-        src = f"{prefix}{source}".lstrip("0")
+
         if prefix == "#" and parse_hex(source) == 0:
             out = f"\tclr.b\t{dest}{comment}"
         else:
@@ -672,6 +732,17 @@ def f_ld(args,comment):
     return out
 
 f_jr = f_jp
+
+def is_ram_label(p):
+    rval = False
+    m = re.match("\w+_([0-9A-F]{4})$",p,flags=re.I)
+    if m:
+        v = int(m.group(1),16)
+        rval = ram_range[0] <= v < ram_range[1]
+        if rval:
+            data_names[v] = m.group(0)
+
+    return rval
 
 def is_immediate_value(p):
     srcval = parse_hex(p,"FAIL")
@@ -759,9 +830,11 @@ for i,(l,is_inst,address) in enumerate(lines):
                     # pre convert hex signs in arguments
                     jargs = [x.replace(in_hex_sign,out_hex_sign) for x in jargs]
 
+
                 # some source codes have immediate signs, not really needed as if not between ()
                 # it is immediate
                 jargs = [x.strip("#") for x in jargs]
+
                 try:
                     out = conv_func(jargs,comment)
                 except Exception as e:
@@ -871,12 +944,18 @@ for i,line in enumerate(nout_lines):
                 elif not prev_fp[0].startswith(("rox","add","sub","as","ls")):
                     nout_lines[i] += "      ^^^^^^ TODO: review cpu X flag\n"
 
+                if prev_fp[0] == "cmp":
+                    # check that branch instruction follows cmp!
+                    if is_conditional_68k_brandh_instruction(finst):
+                        pass
+                    else:
+                        nout_lines[i] += "      ^^^^^^ TODO: review stray cmp instruction\n"
         if len(fp)>1:
             args = fp[1].split(",")
             if len(args)==2:
-                if args[1].startswith("0x"):
+                if args[1].startswith(out_hex_sign):
                     nout_lines[i] += "          ^^^^^^ TODO: review absolute 16-bit address write\n"
-                elif args[0].startswith("0x"):
+                elif args[0].startswith(out_hex_sign):
                     nout_lines[i] += "       ^^^^^^ TODO: review absolute 16-bit address read\n"
                 elif ".w" in finst and "move" in finst and args[1].startswith("a"):
                     nout_lines[i] += "                  ^^^^^^ TODO: review move.w into address register\n"
@@ -889,7 +968,15 @@ for i,line in enumerate(nout_lines):
 if cli_args.spaces:
     nout_lines = [tab2space(n) for n in nout_lines]
 
-with open(cli_args.output_file,"w") as f:
+if cli_args.data_output:
+
+    if memory_model == "small":
+        with open(cli_args.data_output,"w") as f:
+            for k,v in sorted(data_names.items()):
+                k -= ram_range[0]
+                f.write(f"{v} = {out_hex_sign}{k:04x}\n")
+
+with open(cli_args.code_output,"w") as f:
     if cli_args.output_mode == "mit":
         f.write("""\t.macro CLEAR_XC_FLAGS
 \tmove.w\td7,-(a7)
