@@ -3,8 +3,6 @@
 #add.b immediate + daa => abcd d7,xx + review
 #adc.b + daa => abcd d7,xx aussi!
 #ld  bc,imm => issue a "review pick one", issue D1/D2 AND D1.W
-#Label_ =  for  jump marks
-#Mem_ = memory addresses
 # HL referenced then add/sub L => use A0 instead of D6
 
 # solve 0x8.... !!
@@ -550,7 +548,7 @@ def gen_addsub(args,comment,inst):
     return out
 
 def address_to_label(s):
-    rval = s.strip("()").replace(in_hex_sign,lab_prefix)
+    rval = s.strip("()").replace(in_hex_sign,lab_prefix).replace(out_hex_sign,lab_prefix)
     if memory_model =="small" and is_ram_label(rval):
         rval += f"({registers['base']})"
     return rval
@@ -718,7 +716,6 @@ def f_ld(args,comment):
         # convert only on the other cases
         if all(d not in m68_address_regs for d in destlab.split(",")):
             dest = address_to_label(dest)
-
         prefix = ""
         if is_immediate_value(source):
             prefix = "#"
@@ -727,7 +724,9 @@ def f_ld(args,comment):
             out = f"\tclr.b\t{dest}{comment}"
         else:
             out = f"\tmove.b\t{prefix}{source},{dest}{comment}"
-
+    else:
+        # ??? can't happen but...
+        raise Exception("illegal LD instruction {]"," ".join(args))
 
     return out
 
