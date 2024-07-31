@@ -45,8 +45,8 @@ if ram_range:
         raise Exception("Invalid ram range: {}".format(cli_args.ram_range))
     ram_range = [int(x,16) for x in ram_range]
 
-memory_model = cli_args.memory_model
-if memory_model=="small" and not ram_range:
+small_memory_model = cli_args.memory_model == "small"
+if small_memory_model and not ram_range:
     raise Exception("If memory model is set to small, ram range must be defined")
 
 if cli_args.input_mode == "mit":
@@ -258,7 +258,7 @@ def arg2label(s):
     try:
         address = parse_hex(s)
         rval = f"{lab_prefix}{address:04x}"
-        if memory_model=="small" and ram_range[0] <= address < ram_range[1]:
+        if small_memory_model and ram_range[0] <= address < ram_range[1]:
             rval += f"({registers['base']})"
         return rval
     except ValueError:
@@ -549,12 +549,12 @@ def gen_addsub(args,comment,inst):
 
 def address_to_label(s):
     rval = s.strip("()").replace(in_hex_sign,lab_prefix).replace(out_hex_sign,lab_prefix)
-    if memory_model =="small" and is_ram_label(rval):
+    if small_memory_model and is_ram_label(rval):
         rval += f"({registers['base']})"
     return rval
 def address_to_label_out(s):
     rval = s.replace(out_hex_sign,lab_prefix)
-    if memory_model =="small" and is_ram_label(rval):
+    if small_memory_model and is_ram_label(rval):
         rval += f"({registers['base']})"
     return rval
 
@@ -711,10 +711,12 @@ def f_ld(args,comment):
 
                 out = f"\tmove.b\t{prefix}{source},{dest}{comment}"
     elif dest.startswith("("):
+        # move register into memory location
         destlab = dest.strip("()")
         # don't convert to label if register somewhere (indexed or not)
         # convert only on the other cases
         if all(d not in m68_address_regs for d in destlab.split(",")):
+            # not address-register indexed: attempt to convert to label
             dest = address_to_label(dest)
         prefix = ""
         if is_immediate_value(source):
@@ -723,7 +725,24 @@ def f_ld(args,comment):
         if prefix == "#" and parse_hex(source) == 0:
             out = f"\tclr.b\t{dest}{comment}"
         else:
-            out = f"\tmove.b\t{prefix}{source},{dest}{comment}"
+            # default is move.b we don't want move.b a0,dest
+            # we can't allow move.w/l into odd address either
+            inst = "move.b"
+            review_msg = ""
+            if source in m68_address_regs:
+                if small_memory_model:
+                    # store pointer as word, but only works if in RAM
+                    # else manual rework is needed
+                    # also uses macro to preserve endianness & support odd addresses
+                    inst = "STORE_POINTER"
+                    review_msg = "check if source is in RAM"
+                else:
+                    inst = "move.l"
+                    review_msg = "longwrite: check odd/even dest & storage room"
+            out = f"\t{inst}\t{prefix}{source},{dest}{comment}"
+            if review_msg:
+                out += "\n    ^^^^ TODO: "+review_msg
+
     else:
         # ??? can't happen but...
         raise Exception("illegal LD instruction {]"," ".join(args))
@@ -969,7 +988,7 @@ if cli_args.spaces:
 
 if cli_args.data_output:
 
-    if memory_model == "small":
+    if small_memory_model:
         with open(cli_args.data_output,"w") as f:
             for k,v in sorted(data_names.items()):
                 k -= ram_range[0]
@@ -1014,7 +1033,18 @@ with open(cli_args.code_output,"w") as f:
 \troxr.b\t#1,d7
 \tmovem.w\t(a7)+,d7
 \t.endm
-
+""")
+        if small_memory_model:
+            f.write(f"""
+\t.macro\tSTORE_POINTER  src,dest
+\tmove.l\td7,-(a7)
+\tmove.l\t\\src,d7
+\tsub.l\t{registers['base']},d7
+\tmove.b\td7,1+\\dest
+\trol.w\t#8,d7
+\tmove.b\td7,\\dest
+\tmove.l\t(a7)+,d7
+\t.endm
 """)
     else:
         f.write("""\tCLEAR_XC_FLAGS:MACRO
@@ -1034,6 +1064,19 @@ inv0\@:
 inv1\@:
 \tENDM
 """)
+        if small_memory_model:
+            f.write(f"""
+\tSTORE_POINTER  MACRO
+\tmove.l\td7,-(a7)
+\tmove.l\t\\1,d7
+\tsub.l\t{registers['base']},d7
+\tmove.bd7,1+\\2
+\trol.w\t#8,d7
+\tmove.bd7,\\2
+\tmove.l\t(a7)+,d7
+\t.endm
+""")
+
     f.writelines(nout_lines)
 
 
