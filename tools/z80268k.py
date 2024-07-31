@@ -548,12 +548,16 @@ def gen_addsub(args,comment,inst):
     return out
 
 def address_to_label(s):
-    rval = s.strip("()").replace(in_hex_sign,lab_prefix).replace(out_hex_sign,lab_prefix)
+    rval = s.strip("()")
+    if "," not in rval:
+        rval = rval.replace(in_hex_sign,lab_prefix).replace(out_hex_sign,lab_prefix)
     if small_memory_model and is_ram_label(rval):
         rval += f"({registers['base']})"
     return rval
 def address_to_label_out(s):
-    rval = s.replace(out_hex_sign,lab_prefix)
+    rval = s
+    if "," not in rval:
+        rval = s.replace(out_hex_sign,lab_prefix)
     if small_memory_model and is_ram_label(rval):
         rval += f"({registers['base']})"
     return rval
@@ -599,6 +603,8 @@ def f_cp(args,comment):
             out = f"\ttst.b\td0{comment}"
         else:
             out = f"\tcmp.b\t#{p},d0{comment}"
+    else:
+        out = f"\tcmp.b\t#{p},d0{comment}"
 
     return out
 
@@ -669,9 +675,13 @@ def f_ld(args,comment):
 
             if direct:
                 source = address_to_label_out(source)
-                # TODO: small memory model should do something smarter
-                out = f"\tmove.w\t{source},{dest}{comment}"
-
+                if small_memory_model:
+                    out = f"\tLOAD_POINTER\t{source},{dest}{comment}"
+                    review = "check if pointed value is in RAM\n"
+                else:
+                    out = f"\tmove.l\t{source},{dest}{comment}"
+                    review = "review source size & alignment\n"
+                out += "\n    ^^^^ TODO:"+review
             else:
                 source_val = None
                 try:
@@ -722,7 +732,7 @@ def f_ld(args,comment):
         if is_immediate_value(source):
             prefix = "#"
 
-        if prefix == "#" and parse_hex(source) == 0:
+        if prefix == "#" and parse_hex(source,"ignore") == 0:
             out = f"\tclr.b\t{dest}{comment}"
         else:
             # default is move.b we don't want move.b a0,dest
@@ -744,8 +754,8 @@ def f_ld(args,comment):
                 out += "\n    ^^^^ TODO: "+review_msg
 
     else:
-        # ??? can't happen but...
-        raise Exception("illegal LD instruction {]"," ".join(args))
+        # illegal LD like load SP, still convert it, but will be wrong
+        out = f"\tmove\t{source},{dest}{comment}\n    ^^^^ TODO: probably wrong\n"
 
     return out
 
@@ -753,18 +763,37 @@ f_jr = f_jp
 
 def is_ram_label(p):
     rval = False
-    m = re.match("\w+_([0-9A-F]{4})$",p,flags=re.I)
+
+    m = re.match("(\w+)_([0-9A-F]{4})$",p,flags=re.I)
+    offset = 0
     if m:
-        v = int(m.group(1),16)
-        rval = ram_range[0] <= v < ram_range[1]
-        if rval:
-            data_names[v] = m.group(0)
+        v = int(m.group(2),16)
+    else:
+        m = re.match("(\w+)_([0-9A-F]{4})([\+\-])(\d+|\$[0-9A-F]+)$",p,flags=re.I)
+        if m:
+            v = int(m.group(2),16)
+            offset_str = m.group(4)
+            if offset_str.startswith("$"):
+                # this doesn't work/never matches, as some replacement adds "l_" label beforehand...
+                offset = int(offset_str[1:],16)
+            else:
+                offset = int(offset_str)
+            if m.group(3)=="-":
+                offset = -offset
+
+
+    if m:
+        rval = ram_range[0] <= (v+offset) < ram_range[1]
+
+    if rval:
+        data_names[v] = m.group(1)+"_"+m.group(2)
 
     return rval
 
 def is_immediate_value(p):
-    srcval = parse_hex(p,"FAIL")
-    return srcval != "FAIL"
+##    srcval = parse_hex(p,"FAIL")
+##    return srcval != "FAIL"
+    return not p.startswith("(") and not p in m68_regs
 
 def can_be_quick(source):
     return parse_hex(source,default=8)<8
@@ -1045,6 +1074,31 @@ with open(cli_args.code_output,"w") as f:
 \tmove.b\td7,\\dest
 \tmove.l\t(a7)+,d7
 \t.endm
+
+\t.macro\tLOAD_POINTER  src,dest
+\tmove.l\td7,-(a7)
+\tmoveq\t#0,d7
+\tmove.b\t1+\src,d7
+\trol.w\t#8,d7
+\tmove.b\t\\dest,d7
+\tadd.l\t{registers['base']},d7
+\tmove.l\td7,\\dest
+\tmove.l\t(a7)+,d7
+\t.endm
+
+\t.macro\tSTORE_WORD  src,dest
+\tmove.b\t\\src,1+\\dest
+\trol.w\t#8,\\src
+\tmove.b\t\\src,\\dest
+\trol.w\t#8,\\src
+\t.endm
+
+\t.macro\tLOAD_WORD  src,dest
+\tmove.b\t1+\\src,\\dest
+\trol.w\t#8,\\dest
+\tmove.b\t\\src,\\dest
+\t.endm
+
 """)
     else:
         f.write("""\tCLEAR_XC_FLAGS:MACRO
