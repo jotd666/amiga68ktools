@@ -893,7 +893,19 @@ for i,(l,is_inst,address) in enumerate(lines):
             # convert tables like xx yy aa bb with .byte
             out = re.sub(r"\s+([0-9A-F][0-9A-F])\b",r",{}\1".format(out_hex_sign),out,flags=re.I)
             out = out.replace(":,",f":\n\t{out_byte_decl}\t")
-        if "dc.w" in out or ".word" in out:
+        if "dc.b" in out.lower() or ".byte" in out.lower():
+            # see if we need to rework out string
+            # we accept dc.b  xx yy aa bb cc  (with values as hex) as MAME disassembler produces those
+            toks = out.split()
+            dc = toks[0]
+            if dc.lower() in ["dc.b",".byte"]:
+                # protect against commented dc directives
+                # reunite rest of arguments, add out prefix
+
+                dc_params = ",".join(f"{out_hex_sign}{x}" for x in toks[1:])
+                out = f"\t{out_byte_decl}\t{dc_params}"
+
+        elif "dc.w" in out or ".word" in out:
             # those are tables referencing other addresses
             # convert them to long
             outcom = out.split(in_comment)
