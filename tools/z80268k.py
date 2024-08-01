@@ -82,7 +82,7 @@ else:
 label_counter = 0
 
 def issue_warning(msg,newline=False):
-    rval =  f'\t.warning\t"review {msg}"'
+    rval =  f'\t.error\t"review {msg}"'
     if newline:
         rval += "\n"
     return rval
@@ -422,7 +422,7 @@ def f_xor(args,comment):
     p = args[0]
     if p=="d0":
         # optim, as xor a is a way to zero a/clear carry
-        out = f"\tclr.b\td0{comment}"
+        out = f"\tCLEAR_XC_FLAGS{comment}\n\tclr.b\td0{comment}"
     elif is_immediate_value(p):
         out = f"\teor.b\t#{p},d0{comment}"
     elif p in m68_data_regs:
@@ -640,7 +640,7 @@ def f_inc(args,comment):
     size = "w" if p[0]=="a" else "b"
     out = f"\taddq.{size}\t#1,{p}{comment}"
     if pn:
-        out += f"\n"+issue_warning("inc register {args[0]} or {p}")
+        out += f"\n"+issue_warning(f"inc register {args[0]} or {p}")
     return out
 
 def f_ld(args,comment):
