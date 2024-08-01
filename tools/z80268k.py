@@ -80,6 +80,13 @@ else:
 # what we do with it)
 
 label_counter = 0
+
+def issue_warning(msg,newline=False):
+    rval =  f'\t.warning\t"review {msg}"'
+    if newline:
+        rval += "\n"
+    return rval
+
 def get_mot_local_label():
     global label_counter
     rval = f".lb_{label_counter}"
@@ -300,7 +307,7 @@ def f_ex(args,comment):
 
     txt = f"\texg\t{arg0},{arg1}{comment}"
     if arg1 == "d7":
-        txt += "\n         ^^^ TODO review: carry flags used below? if so, adapt"
+        txt += "\n"+issue_warning("carry flags used below? if so, adapt")
     return txt
 def f_push(args,comment):
     reg = args[0]
@@ -458,7 +465,7 @@ def f_adc(args,comment):
     if dest in m68_address_regs:
         # supported but not sure, must be reviewed
         source = addr2data_single.get(source,source)
-        out = f"\taddx.w\t{source},{dest}{comment}\n  ^^^^ TODO: review {source} computation above"
+        out = f"\taddx.w\t{source},{dest}{comment}\n"+issue_warning("{source} computation above")
         return out
 
     if source in m68_regs:
@@ -482,7 +489,7 @@ def f_add(args,comment):
     if dest in m68_address_regs:
         # supported but not sure, must be reviewed
         source = addr2data_single.get(source,source)
-        out = f"\tadd.w\t{source},{dest}{comment}\n  ^^^^ TODO: review {source} computation above"
+        out = f"\tadd.w\t{source},{dest}{comment}\n"+issue_warning(f"{source} computation above")
         return out
 
     if source in m68_regs:
@@ -509,7 +516,7 @@ def f_sbc(args,comment):
         # probably comparison between 2 data registers
         source = addr2data_single.get(source,source)
         dest = addr2data_single.get(dest,dest)
-        out = f"\tsub.w\t{source},{dest}{comment}\n     ^^^^ TODO: review compared/subbed registers"
+        out = f"\tsub.w\t{source},{dest}{comment}\n"+issue_warning("compared/subbed registers")
 
     elif source in m68_regs:
         out = f"\tsubx.b\t{source},{dest}{comment}"
@@ -619,7 +626,7 @@ def f_dec(args,comment):
     size = "w" if p[0]=="a" else "b"
     out = f"\tsubq.{size}\t#1,{p}{comment}"
     if pn:
-        out += f"\n            ^^^^ TODO check dec register {args[0]} or {p}"
+        out += f"\n"+issue_warning(f"dec register {args[0]} or {p}")
     return out
 
 def f_inc(args,comment):
@@ -633,7 +640,7 @@ def f_inc(args,comment):
     size = "w" if p[0]=="a" else "b"
     out = f"\taddq.{size}\t#1,{p}{comment}"
     if pn:
-        out += f"\n            ^^^^ TODO check inc register {args[0]} or {p}"
+        out += f"\n"+issue_warning("inc register {args[0]} or {p}")
     return out
 
 def f_ld(args,comment):
@@ -680,8 +687,8 @@ def f_ld(args,comment):
                     review = "check if pointed value is in RAM\n"
                 else:
                     out = f"\tmove.l\t{source},{dest}{comment}"
-                    review = "review source size & alignment\n"
-                out += "\n    ^^^^ TODO:"+review
+                    review = "source size & alignment\n"
+                out += "\n"+issue_warning(review)
             else:
                 source_val = None
                 try:
@@ -695,7 +702,7 @@ def f_ld(args,comment):
 
                     out = f"\tlea\t{source},{dest}{comment}"
                     if half_msb:
-                        out += f"\n\tand.w\t#{out_hex_sign}FF,{lsb_data_reg}\n\tadd.w\t{lsb_data_reg},{dest}\n\t      ^^^^ TODO: review XX value"
+                        out += f"\n\tand.w\t#{out_hex_sign}FF,{lsb_data_reg}\n\tadd.w\t{lsb_data_reg},{dest}\n"+issue_warning("XX value above")
                 else:
                     if word_split:
                         dest = addr2data[dest].split("/")
@@ -751,11 +758,11 @@ def f_ld(args,comment):
                     review_msg = "longwrite: check odd/even dest & storage room"
             out = f"\t{inst}\t{prefix}{source},{dest}{comment}"
             if review_msg:
-                out += "\n    ^^^^ TODO: "+review_msg
+                out += "\n"+issue_warning(review_msg)
 
     else:
         # illegal LD like load SP, still convert it, but will be wrong
-        out = f"\tmove\t{source},{dest}{comment}\n    ^^^^ TODO: probably wrong\n"
+        out = f"\tmove\t{source},{dest}{comment}\n"+issue_warning("probably wrong")
 
     return out
 
@@ -843,7 +850,7 @@ for i,(l,is_inst,address) in enumerate(lines):
             else:
                 if inst in special_loop_instructions:
                     special_loop_instructions_met.add(inst)  # note down that it's used
-                    out = f"\t{jsr_instruction}\t{inst}{comment}\n     ^^^^ TODO: review special instruction inputs"
+                    out = f"\t{jsr_instruction}\t{inst}{comment}\n"+issue_warning("special instruction inputs")
                 else:
                     si = single_instructions.get(inst)
                     if si:
@@ -987,7 +994,7 @@ for i,line in enumerate(nout_lines):
         if finst.startswith(("j","b")) and not finst[1:].startswith(("set","clr","tst","sr","bsr","ra")):
             # conditional branch, examine previous instruction
             if prev_fp and prev_fp[0].startswith(("move.","clr.")):
-                nout_lines[i] += f"      ^^^^^^ TODO: review cpu flags ({prev_fp[0]},{finst})\n"
+                nout_lines[i] += issue_warning(f"cpu flags ({prev_fp[0]},{finst})",newline=True)
         elif finst == "tst.b" and fp[1] == "d0":
             if prev_fp[-1].endswith(",d0") and not prev_fp[0].startswith("movem"):
                 # previous instruction targets d0 but not movem, so no need to test it
@@ -999,27 +1006,27 @@ for i,line in enumerate(nout_lines):
                     # clear carry
                     nout_lines[i] = f"\tCLEAR_XC_FLAGS\t{out_comment} clear carry is not enough\n"+nout_lines[i]
                 elif prev_fp[0].startswith("cmp"):
-                    nout_lines[i] += "      ^^^^^^ TODO: review cpu X flag, cmp doesn't affect it!\n"
+                    nout_lines[i] += issue_warning("cpu X flag, cmp doesn't affect it!",newline=True)
                 elif not prev_fp[0].startswith(("rox","add","sub","as","ls")):
-                    nout_lines[i] += "      ^^^^^^ TODO: review cpu X flag\n"
+                    nout_lines[i] += issue_warning("cpu X flag",newline=True)
 
                 if prev_fp[0] == "cmp":
                     # check that branch instruction follows cmp!
                     if is_conditional_68k_brandh_instruction(finst):
                         pass
                     else:
-                        nout_lines[i] += "      ^^^^^^ TODO: review stray cmp instruction\n"
+                        nout_lines[i] += issue_warning("stray cmp instruction",newline=True)
         if len(fp)>1:
             args = fp[1].split(",")
             if len(args)==2:
                 if args[1].startswith(out_hex_sign):
-                    nout_lines[i] += "          ^^^^^^ TODO: review absolute 16-bit address write\n"
+                    nout_lines[i] += issue_warning("absolute 16-bit address write",newline=True)
                 elif args[0].startswith(out_hex_sign):
-                    nout_lines[i] += "       ^^^^^^ TODO: review absolute 16-bit address read\n"
+                    nout_lines[i] += issue_warning("absolute 16-bit address read",newline=True)
                 elif ".w" in finst and "move" in finst and args[1].startswith("a"):
-                    nout_lines[i] += "                  ^^^^^^ TODO: review move.w into address register\n"
+                    nout_lines[i] += issue_warning("move.w into address register",newline=True)
                 elif ".w" in finst and args[0].startswith("a") and args[0][1].isdigit():
-                    nout_lines[i] += "                  ^^^^^^ TODO: review move.w from address register\n"
+                    nout_lines[i] += issue_warning("move.w from address register",newline=True)
 
         prev_fp = fp
 # post-processing
@@ -1092,7 +1099,7 @@ with open(cli_args.code_output,"w") as f:
 \tmoveq\t#0,d7
 \tmove.b\t1+\src,d7
 \trol.w\t#8,d7
-\tmove.b\t\\dest,d7
+\tmove.b\t\\src,d7
 \tadd.l\t{registers['base']},d7
 \tmove.l\td7,\\dest
 \tmove.l\t(a7)+,d7
@@ -1276,32 +1283,7 @@ ldir:
     rts
 """)
 
-    if "lddr" in special_loop_instructions_met:
-        f.write(f"""
-{out_start_line_comment} < A0: source (HL)
-{out_start_line_comment} < A1: destination (DE)
-{out_start_line_comment} < D1: length (16 bit)
-ldir:
-    subq.w    #1,d1
-""")
-        if cli_args.output_mode == "mit":
-            f.write(f"""0:
-    move.b    (a0),(a1)
-    subq.w  #1,a0
-    subq.w  #1,a1
-    dbf        d1,0b
-    clr.w    d1
-    rts
-""")
-        else:
-            f.write(f""".loop:
-    move.b    (a0),(a1)
-    dbf        d1,.loop
-    subq.w  #1,a0
-    subq.w  #1,a1
-    clr.w    d1
-    rts
-""")
+
 
     if "cpir" in special_loop_instructions_met:
         f.write(f"""
@@ -1423,7 +1405,7 @@ cpdr:
 print(f"Converted {converted} lines on {len(lines)} total, {instructions} instruction lines")
 print(f"Converted instruction ratio {converted}/{instructions} {int(100*converted/instructions)}%")
 print("\nPLEASE REVIEW THE CONVERTED CODE CAREFULLY AS IT MAY CONTAIN ERRORS!\n")
-print("(some TODO: review lines may have been added, and the code won't build on purpose)")
+print("(some warning review lines may have been added")
 
 
 
