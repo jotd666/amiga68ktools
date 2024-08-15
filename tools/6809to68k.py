@@ -1,7 +1,8 @@
-#TODO: optimize beq (not .b) etc... by jxx if mit syntax
-# also if mit jmp => jra
-#
-
+# TODO:
+#  ldd    a,x
+#  std  $2A
+#  std  ,X++
+#  stxxx  ,x+  should use get_address
 #
 # you'll have to implement the macro GET_ADDRESS_BASE to return pointer on memory layout
 # to replace lea/move/... in memory
@@ -172,34 +173,35 @@ def issue_warning(msg,newline=False):
 registers = {
 "a":"d0","b":"d1","x":"d2","y":"d3","p":"sr","c":"d7","v":"d3",
 "dwork1":"d4","dwork2":"d5",
-"awork1":"a0"}
+"awork1":"a0",
+"base":"a6"}
 inv_registers = {v:k.upper() for k,v in registers.items()}
 
 
 
 single_instructions = {"nop":"nop",
 "rts":"rts",
-"txs":"illegal\n"+issue_warning("unsupported X to stack"),
-"txa":f"move.b\t{registers['x']},{registers['a']}",
-"tya":f"move.b\t{registers['y']},{registers['a']}",
-"tax":f"move.b\t{registers['a']},{registers['x']}",
-"tay":f"move.b\t{registers['a']},{registers['y']}",
-"dex":f"subq.b\t#1,{registers['x']}",
-"dey":f"subq.b\t#1,{registers['y']}",
-"dec":f"subq.b\t#1,{registers['a']}",
-"inx":f"addq.b\t#1,{registers['x']}",
-"iny":f"addq.b\t#1,{registers['y']}",
-"inc":f"addq.b\t#1,{registers['a']}",
-"pha":f"movem.w\t{registers['a']},-(sp)",  # movem preserves CCR like original 6502 inst.
-"pla":f"movem.w\t(sp)+,{registers['a']}",  # it takes more cycles but who cares?
+"clra":f"moveq\t#0,{registers['a']}",
+"clrb":f"moveq\t#0,{registers['b']}",
+"deca":f"subq.b\t#1,{registers['a']}",
+"decb":f"subq.b\t#1,{registers['b']}",
+"inca":f"addq.b\t#1,{registers['a']}",
+"incb":f"addq.b\t#1,{registers['b']}",
+"lsra":f"lsr.b\t#1,{registers['a']}",   # for code that doesn't use "A" parameter for shift ops
+"lsrb":f"lsr.b\t#1,{registers['b']}",   # for code that doesn't use "A" parameter for shift ops
+"asla":f"asl.b\t#1,{registers['a']}",
+"aslb":f"asl.b\t#1,{registers['b']}",
+"tsta":f"tst.b\t{registers['a']}",
+"tstb":f"tst.b\t{registers['b']}",
+"rora":f"roxr\t#1,{registers['a']}",
+"rola":f"roxl\t#1,{registers['a']}",
+"rorb":f"roxr\t#1,{registers['b']}",
+"rolb":f"roxl\t#1,{registers['b']}",
+
+
 "php":"PUSH_SR",
 "plp":"POP_SR",
-"lsr":f"lsr\t#1,{registers['a']}",   # for code that doesn't use "A" parameter for shift ops
-"asl":f"asl\t#1,{registers['a']}",
-"ror":f"roxr\t#1,{registers['a']}",
-"rol":f"roxl\t#1,{registers['a']}",
-"sec":"SET_XC_FLAGS",
-"clc":"CLR_XC_FLAGS",
+
 "sec":"SET_XC_FLAGS",
 "clc":"CLR_XC_FLAGS",
 "sei":"SET_I_FLAG",
@@ -216,6 +218,9 @@ lab_prefix = "l_"
 
 def add_entrypoint(address):
     addresses_to_reference.add(address)
+
+def clear_reg(reg):
+    return f"\tmoveq\t#0,{registers[reg]}\n"
 
 def parse_hex(s,default=None):
     is_hex = s.startswith(("$","0x"))
@@ -261,31 +266,69 @@ this is way too complex for a very marginal use for overflow
 
 def f_lda(args,comment):
     return generic_load('a',args,comment)
+
+def f_ldd(args,comment):
+    src = args[0]
+    if src.startswith("#"):
+        # immediate
+        tok = src[1:]
+        v = parse_hex(tok,tok)
+        if v == tok:
+            msb = f"(({v})>>8)"
+            lsb = f"(({v})&0xFF)"
+        else:
+            msb = f"{out_hex_sign}{v>>8:02x}"
+            lsb = f"{out_hex_sign}{v&0xFF:02x}"
+
+        out = f"\tmove.b\t#{msb},{registers['a']}{out_comment}{comment}\n"
+        out += f"\tmove.b\t#{lsb},{registers['b']}{out_comment}{comment}\n"
+    else:
+        out = f_lda(args,comment)
+        out += f"\n\tmove.b\t(1,{registers['awork1']}),{registers['b']}{out_comment}{comment}\n"
+    return out
+
+def f_ldb(args,comment):
+    return generic_load('b',args,comment)
 def f_sta(args,comment):
     return generic_store('a',args,comment)
+def f_stb(args,comment):
+    return generic_store('b',args,comment)
 def f_stx(args,comment):
     return generic_store('x',args,comment)
 def f_sty(args,comment):
     return generic_store('y',args,comment)
 def f_ldx(args,comment):
-    return generic_load('x',args,comment)
+    return clear_reg('x') + generic_load('x',args,comment, word=True)
 def f_ldy(args,comment):
-    return generic_load('y',args,comment)
+    return clear_reg('x') + generic_load('y',args,comment, word=True)
 
 def f_inc(args,comment):
     return generic_indexed_to("addq","#1",args,comment)
 def f_dec(args,comment):
     return generic_indexed_to("subq","#1",args,comment)
+def f_tfr(args,comment):
+    srcreg = args[0]
+    dstreg = args[1]
+    if dstreg == "dp":
+        # special case!
+        out = None
+    else:
+        out = f"\tmove.b\t{srcreg},{dstreg}{comment}"
 
-def generic_load(dest,args,comment):
-    return generic_indexed_from("move",dest,args,comment)
+    return out
+
+def f_clr(args,comment):
+    return generic_store('#0',args,comment)
+
+def generic_load(dest,args,comment,word=False):
+    return generic_indexed_from("move",dest,args,comment,word)
 def generic_store(src,args,comment):
-    return "\tPUSH_SR\n{}\n\tPOP_SR".format(generic_indexed_to("move",src,args,comment))
+    return generic_indexed_to("move",src,args,comment)
 
-def generic_shift_op(inst,args,comment):
+def generic_shift_op(inst,reg,args,comment):
     arg = args[0]
     inst += ".b"
-    if arg==registers['a']:
+    if arg==registers[reg]:
         return f"\t{inst}\t#1,{arg}{comment}"
     else:
         y_indexed = False
@@ -318,56 +361,55 @@ def generic_shift_op(inst,args,comment):
         return f"""\tGET_ADDRESS\t{arg}{comment}
 \t{inst}\t#1,({registers['awork1']}){out_comment} [...]"""
 
-def generic_logical_op(inst,args,comment):
-    return generic_indexed_from(inst,'a',args,comment)
+def generic_logical_op(inst,reg,args,comment):
+    return generic_indexed_from(inst,reg,args,comment,word=False)
 
 def f_lsra(args,comment):
-    return generic_shift_op("lsr",args,comment)
-def f_asl(args,comment):
-    return generic_shift_op("asl",args,comment)
-def f_ror(args,comment):
-    return generic_shift_op("roxr",args,comment)
-def f_rol(args,comment):
-    return generic_shift_op("roxl",args,comment)
+    return generic_shift_op("lsr","a",args,comment)
+def f_lsrb(args,comment):
+    return generic_shift_op("lsr","b",args,comment)
+def f_asla(args,comment):
+    return generic_shift_op("asl","a",args,comment)
+def f_aslb(args,comment):
+    return generic_shift_op("asl","b",args,comment)
+def f_rora(args,comment):
+    return generic_shift_op("roxr","a",args,comment)
+def f_rolb(args,comment):
+    return generic_shift_op("roxl","b",args,comment)
+def f_rorb(args,comment):
+    return generic_shift_op("roxr","b",args,comment)
+def f_rola(args,comment):
+    return generic_shift_op("roxl","a",args,comment)
 def f_ora(args,comment):
-    return generic_logical_op("or",args,comment)
-def f_and(args,comment):
-    return generic_logical_op("and",args,comment)
+    return generic_logical_op("or","a",args,comment)
+def f_orb(args,comment):
+    return generic_logical_op("or","b",args,comment)
+def f_anda(args,comment):
+    return generic_logical_op("and","a",args,comment)
+def f_andb(args,comment):
+    return generic_logical_op("and","b",args,comment)
 def f_eora(args,comment):
-    return generic_logical_op("eor",args,comment)
+    return generic_logical_op("eor","a",args,comment)
+def f_eorb(args,comment):
+    return generic_logical_op("eor","b",args,comment)
 
-def f_adc(args,comment):
+def f_adca(args,comment):
     return generic_indexed_from("addx",'a',args,comment)
-def f_sbc(args,comment):
-    dest = 'a'
-    arg = args[0]
-    y_indexed = False
-    regdst = registers[dest]
-    if len(args)>1:
-        # register indexed. There are many modes!
-        index_reg = args[1].strip(")")
-        if arg.startswith("("):
-            if arg.endswith(")"):
-                # Y indirect indexed
-                arg = arg.strip("()")
-                return f"""\tSBC_IND_Y\t{arg}{comment}"""
-            else:
-                # X indirect indexed
-                arg = arg.strip("(")
-                arg2 = index_reg
+def f_adcb(args,comment):
+    return generic_indexed_from("addx",'b',args,comment)
+def f_adda(args,comment):
+    return generic_indexed_from("add",'a',args,comment)
+def f_addb(args,comment):
+    return generic_indexed_from("add",'b',args,comment)
+def f_suba(args,comment):
+    return generic_indexed_from("sub",'a',args,comment)
+def f_subb(args,comment):
+    return generic_indexed_from("sub",'b',args,comment)
+def f_sbca(args,comment):
+    return generic_indexed_from("subx",'a',args,comment)
+def f_sbcb(args,comment):
+    return generic_indexed_from("subx",'b',args,comment)
 
-                return f"""\tSBC_X_IND\t{arg}{comment}"""
-        else:
-            # X/Y indexed direct
-            return f"""\tSBC_{inv_registers[index_reg]}\t{arg}{comment}"""
-       # various optims
-    else:
-        if arg[0]=='#':
-            # immediate mode
-            return f"\tSBC_IMM\t{arg[1:]}{comment}"
-
-    return f"""\tGET_ADDRESS\t{arg}{comment}
-\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
 def generic_indexed_to(inst,src,args,comment):
     arg = args[0]
     if inst.islower():
@@ -377,36 +419,47 @@ def generic_indexed_to(inst,src,args,comment):
     if len(args)>1:
         # register indexed. There are many modes!
         index_reg = args[1].strip(")")
-        if arg.startswith("("):
-            if arg.endswith(")"):
-                # Y indirect indexed
-                arg = arg.strip("()")
-                return f"""\tGET_ADDRESS_Y\t{arg}{comment}
-\t{inst}\t{regsrc},({registers['awork1']},{index_reg}.w){out_comment} [...]"""
+        empty_first_arg = not args[0]
+        if empty_first_arg:
+            # 6809 mode that is not on 6502: ,X or ,X+...
+            post_increment = index_reg.endswith("+")
+            stripped_reg = index_reg.rstrip("+")
+            # pre-increment, to preserve operation flags
+            return f"\taddq.w\t#1,{stripped_reg}\n\t{inst}\t{regsrc},(-1,{registers['base']},{stripped_reg}.l){out_comment}{comment}"
 
-            else:
-                # X indirect indexed
-                arg = arg.strip("(")
-                arg2 = index_reg
-                if arg2.lower() != 'd1':
-                    # can't happen
-                    raise Exception("Unsupported indexed mode {}!=d1: {} {}".format(arg2,inst," ".join(args)))
-
-                return f"""\tGET_ADDRESS_X\t{arg}{comment}
-    {inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
         else:
-            # X/Y indexed direct
-            return f"""\tGET_ADDRESS\t{arg}{comment}
-    {inst}\t{regsrc},({registers['awork1']},{index_reg}.w){out_comment} [...]"""
+            if arg.startswith("("):
+                if arg.endswith(")"):
+                    # Y indirect indexed
+                    arg = arg.strip("()")
+                    return f"""\tGET_ADDRESS_Y\t{arg}{comment}
+    \t{inst}\t{regsrc},({registers['awork1']},{index_reg}.w){out_comment} [...]"""
+
+                else:
+                    # X indirect indexed
+                    arg = arg.strip("(")
+                    arg2 = index_reg
+                    if arg2.lower() != 'd1':
+                        # can't happen
+                        raise Exception("Unsupported indexed mode {}!=d1: {} {}".format(arg2,inst," ".join(args)))
+
+                    return f"""\tGET_ADDRESS_X\t{arg}{comment}
+        {inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
+            else:
+                # X/Y indexed direct
+                return f"""\tGET_ADDRESS\t{arg}{comment}
+        {inst}\t{regsrc},({registers['awork1']},{index_reg}.w){out_comment} [...]"""
 
     return f"""\tGET_ADDRESS\t{arg}{comment}
 \t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
 
-def generic_indexed_from(inst,dest,args,comment):
+def generic_indexed_from(inst,dest,args,comment,word):
     arg = args[0]
+
     if inst.islower():
         inst += ".b"
     y_indexed = False
+
     regdst = registers[dest]
     if len(args)>1:
         # register indexed. There are many modes!
@@ -415,7 +468,7 @@ def generic_indexed_from(inst,dest,args,comment):
             if arg.endswith(")"):
                 # Y indirect indexed
                 arg = arg.strip("()")
-                return f"""\tGET_ADDRESS_Y\t{arg}{comment}
+                out = f"""\tGET_ADDRESS_Y\t{arg}{comment}
 \t{inst}\t({registers['awork1']},{index_reg}.w),{regdst}{out_comment} [...]"""
             else:
                 # X indirect indexed
@@ -435,17 +488,20 @@ def generic_indexed_from(inst,dest,args,comment):
     else:
         if arg[0]=='#':
             # various optims for immediate mode
+            size = "w" if word else "b"
             if inst=="move.b":
+                if word:
+                    inst = "move.w"
                 val = parse_hex(arg[1:],"WTF")
                 if val == 0:
                     # move 0 => clr
-                    return f"\tclr.b\t{regdst}{comment}"
+                    return f"\tclr.{size}\t{regdst}{comment}"
                 elif val == 0xff:
                     # move ff => st
-                    return f"\tst.b\t{regdst}{comment}"
+                    return f"\tst.{size}\t{regdst}{comment}"
             elif inst=="eor.b" and parse_hex(arg[1:])==0xff:
                 # eor ff => not
-                return f"\tnot.b\t{regdst}{comment}"
+                return f"\tnot.{size}\t{regdst}{comment}"
 
             return f"\t{inst}\t{arg},{regdst}{comment}"
 
@@ -490,8 +546,7 @@ def address_to_label_out(s):
 
 
 def generic_cmp(args,reg,comment):
-    # bcc/bmi/etc work the other way round but if we just invert there"s a problem
-    # when operands are equal... So better convert as is and then post process
+
 
     p = args[0]
     if p[0]=='#':
@@ -505,13 +560,16 @@ def generic_cmp(args,reg,comment):
     return out
 
 
-def f_cmp(args,comment):
+def f_cmpa(args,comment):
     return generic_cmp(args,'a',comment)
 
-def f_cpx(args,comment):
+def f_cmpb(args,comment):
+    return generic_cmp(args,'b',comment)
+
+def f_cmpx(args,comment):
     return generic_cmp(args,'x',comment)
 
-def f_cpy(args,comment):
+def f_cmpy(args,comment):
     return generic_cmp(args,'y',comment)
 
 
@@ -536,6 +594,12 @@ def f_bcc(args,comment):
     return f_bcond("cc",args,comment)
 def f_bhi(args,comment):
     return f_bcond("hi",args,comment)
+def f_blo(args,comment):
+    return f_bcond("lo",args,comment)
+def f_ble(args,comment):
+    return f_bcond("le",args,comment)
+def f_bgt(args,comment):
+    return f_bcond("gt",args,comment)
 def f_bra(args,comment):
     return f_bcond("ra",args,comment)
 def f_bcs(args,comment):
@@ -600,7 +664,7 @@ for i,(l,is_inst,address) in enumerate(lines):
         # try to convert
         toks = l.split(in_comment,maxsplit=1)
         # add original z80 instruction
-        inst = toks[0].strip()
+        inst = toks[0].strip().lower()
 
         if no_mame_prefixes:
             comment = f"\t\t{out_comment} [{inst}]"
@@ -620,7 +684,7 @@ for i,(l,is_inst,address) in enumerate(lines):
                 out = f"\t{si}{comment}"
 
         else:
-            inst = itoks[0].lower()
+            inst = itoks[0]
             args = itoks[1:]
             sole_arg = args[0].replace(" ","")
             # pre-process instruction to remove spaces
@@ -630,7 +694,8 @@ for i,(l,is_inst,address) in enumerate(lines):
             # also manual rework for 0x03(ix) => (ix+0x03)
             sole_arg = re.sub("(-?0x[A-F0-9]+)\((\w+)\)",r"(\2+\1)",sole_arg)
 
-
+            if inst.startswith("lb"):
+                inst = inst[1:]   # merge long and short branches
             # other instructions, not single, not implicit a
             conv_func = globals().get(f"f_{inst}")
             if conv_func:
@@ -657,7 +722,7 @@ for i,(l,is_inst,address) in enumerate(lines):
                     # as-is
                     out = l
                 else:
-                    out = f"{l}\n"+issue_warning("unknown/unsupported instruction {inst}")
+                    out = f"{l}\n"+issue_warning(f"unknown/unsupported instruction {inst}")
                     unknown_instructions.add(inst)
     else:
         out=address_re.sub(rf"{lab_prefix}\1:",l)
@@ -810,31 +875,13 @@ for i,line in enumerate(nout_lines):
             else:
                 nout_lines[i] += issue_warning("stray bvs test",newline=True)
 
-        elif finst == "bcc":
+        elif finst in ("bcc","bcs"):
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
-                if prev_fp == clrxcflags_inst:
-                    nout_lines[i-1] = f"{out_start_line_comment} clc+bcc => bra\n"
-                    nout_lines[i] = nout_lines[i].replace("\t"+finst,"\tbra.b")
-                elif prev_fp[0] == "cmp.b":
-                    # we KNOW we generated it wrong as in 6502 conditions are opposed. Change to bcs
-                    nout_lines[i] = f"\t{out_start_line_comment} bcc=>bcs\n"+nout_lines[i].replace("\tbcc","\tbcs")
-                elif prev_fp[0] not in carry_generating_instructions:
+                if prev_fp[0] not in carry_generating_instructions:
                     if not follows_sr_protected_block(nout_lines,i):
-                        nout_lines[i] += issue_warning("stray bcc test",newline=True)
+                        nout_lines[i] += issue_warning("stray bcc/bcs test",newline=True)
 
-        elif finst == "bcs":
-            # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
-            if prev_fp:
-                if prev_fp == setxcflags_inst:
-                    nout_lines[i-1] = f"{out_start_line_comment} sec+bcs => bra\n"
-                    nout_lines[i] = nout_lines[i].replace(finst,"bra.b")
-                elif prev_fp[0] == "cmp.b":
-                    # we KNOW we generated it wrong as in 6502 conditions are opposed. Change to bcs
-                    nout_lines[i] = f"\t{out_start_line_comment} bcs=>bcc\n"+nout_lines[i].replace("\tbcs","\tbcc")
-                elif prev_fp[0] not in carry_generating_instructions:
-                   if not follows_sr_protected_block(nout_lines,i):
-                        nout_lines[i] += issue_warning("stray bcs test",newline=True)
         elif finst == "rts":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
@@ -878,7 +925,6 @@ for line in nout_lines:
             continue
         if tok in {"roxr","roxl","ror","rol","lsr","asl"} and "(" in toks[1]:
             # 68k can't handle such modes
-            print(toks,line)
             comment = "\t"+out_comment+line.split(out_comment)[1]
             first_param,second_param = split_params(toks[1])
             nout_lines_2.append(f"\tmove.b\t{second_param},{tmpreg}{comment}\n")
@@ -937,35 +983,20 @@ if True:
 
     if cli_args.output_mode == "mit":
         f.write(f"""
-\t.macro\tSBC_X\taddress
-\tINVERT_XC_FLAGS
-\tGET_ADDRESS\t\\address
-\tmove.b\t({registers['awork1']},{X}.w),{W}
-\tsubx.b\t{W},{A}
-\tINVERT_XC_FLAGS
+\t.macro\tMAKED
+\trol.w\t#8,{registers['a']}
+\tmove.b\t{registers['b']},{registers['a']}
+\trol.w\t#8,{registers['a']}
 \t.endm
-\t
-\t.macro\tSBC_Y\taddress
-\tINVERT_XC_FLAGS
-\tGET_ADDRESS\t\\address
-\tmove.b\t({registers['awork1']},{Y}.w),{W}
-\tsubx.b\t{W},{A}
-\tINVERT_XC_FLAGS
+
+\t.macro\tSTD\targ
+\tmove.b\t{registers['a']},\\arg
+\tmove.b\t{registers['b']},1+\\arg
 \t.endm
-\t
-\t.macro\tSBC\taddress
-\tINVERT_XC_FLAGS
-\tGET_ADDRESS\t\\address
-\tmove.b\t({registers['awork1']}),{W}
-\tsubx.b\t{W},{A}
-\tINVERT_XC_FLAGS
-\t.endm
-\t
-\t.macro\tSBC_IMM\tparam
-\tINVERT_XC_FLAGS
-\tmove.b\t#\\param,{W}
-\tsubx.b\t{W},{A}
-\tINVERT_XC_FLAGS
+
+\t.macro\tMAKE_B
+\tmove.w\t{registers['a']},{registers['b']}
+\trol.w\t#8,{registers['b']}
 \t.endm
 
 \t.macro INVERT_XC_FLAGS
@@ -1038,12 +1069,10 @@ if True:
 \t.endif
 
 \t.macro READ_LE_WORD\tsrcreg
-\tPUSH_SR
 \tmove.b\t(1,\\srcreg),{registers['dwork1']}
 \tlsl.w\t#8,{registers['dwork1']}
 \tmove.b\t(\\srcreg),{registers['dwork1']}
 \tmove.w\t{registers['dwork1']},\\srcreg
-\tPOP_SR
 \t.endm
 
 \t.macro GET_ADDRESS\toffset
@@ -1138,12 +1167,10 @@ POP_SR:MACRO
 \tENDC
 
 READ_LE_WORD:MACRO
-\tPUSH_SR
 \tmove.b\t(1,\\1),{registers['dwork1']}
 \tlsl.w\t#8,{registers['dwork1']}
 \tmove.b\t(\\1),{registers['dwork1']}
 \tmove.w\t{registers['dwork1']},\\1
-\tPOP_SR
 \tENDM
 
 GET_ADDRESS:MACRO

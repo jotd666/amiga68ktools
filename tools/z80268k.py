@@ -1088,9 +1088,10 @@ with open(cli_args.code_output,"w") as f:
 \tmove.l\td7,-(a7)
 \tmove.l\t\\src,d7
 \tsub.l\t{registers['base']},d7
-\tmove.b\td7,1+\\dest
-\trol.w\t#8,d7
+\tadd.l\t#{ram_range[0]:04x},d7
 \tmove.b\td7,\\dest
+\trol.w\t#8,d7
+\tmove.b\td7,1+\\dest
 \tmove.l\t(a7)+,d7
 \t.endm
 
@@ -1101,14 +1102,15 @@ with open(cli_args.code_output,"w") as f:
 \trol.w\t#8,d7
 \tmove.b\t\\src,d7
 \tadd.l\t{registers['base']},d7
+\tsub.l\t#{ram_range[0]:04x},d7
 \tmove.l\td7,\\dest
 \tmove.l\t(a7)+,d7
 \t.endm
 
 \t.macro\tSTORE_WORD  src,dest
-\tmove.b\t\\src,1+\\dest
-\trol.w\t#8,\\src
 \tmove.b\t\\src,\\dest
+\trol.w\t#8,\\src
+\tmove.b\t\\src,1+\\dest
 \trol.w\t#8,\\src
 \t.endm
 
