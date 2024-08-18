@@ -1355,6 +1355,7 @@ cpi:
 {out_start_line_comment}: note regscopy must be defined somewhere in RAM
 {out_start_line_comment}: with a size of {regs_size*2}
 exx:
+\tmove.l\ta6,-(a7)
     lea     regscopy+28,a6
     {out_start_line_comment} save current regs in region 1
     movem.l {regs},-(a6)
@@ -1367,6 +1368,7 @@ exx:
     movem.l (a6)+,{regs}
     movem.l {regs},(a6)
     movem.l (a7)+,{regs}
+\tmove.l\t(a7)+,a6
     rts
 """)
     if "cpdr" in special_loop_instructions_met:
