@@ -9,6 +9,16 @@ PALETTE_FORMAT_PNG = 1<<4
 class BitplaneException(Exception):
     pass
 
+def replace_color(img,colorset,replacement_color):
+    """
+    remove colors of img if belongs to colorset (set of RGB tuples)
+    """
+    for x in range(img.size[0]):
+        for y in range(img.size[1]):
+            c = img.getpixel((x,y))
+            if c in colorset:
+                c = replacement_color
+                img.putpixel((x,y),replacement_color)
 def closest_color(c1,colorlist):
     """
     c1: rgb of color to approach
@@ -180,9 +190,10 @@ def round_color(rgb,mask):
     return tuple(p & mask for p in rgb)
 
 def to_rgb4_color(rgb):
-    return ((rgb[0]>>4)<<8) + ((rgb[1] >>4)<<4) +(rgb[2]>>4)
+    return (round4(rgb[0])<<8) + (round4(rgb[1])<<4) + round4(rgb[2])
 
 def rgb4_to_rgb_triplet(rgb4):
+    raise Exception("accuracy issue on that method, should use round4")
     return tuple((x<<4) for x in ((rgb4&0xF00)>>8,(rgb4&0xF0)>>4,rgb4&0xF))
 
 def palette_regdump2palette(text):
