@@ -193,7 +193,6 @@ def to_rgb4_color(rgb):
     return (round4(rgb[0])<<8) + (round4(rgb[1])<<4) + round4(rgb[2])
 
 def rgb4_to_rgb_triplet(rgb4):
-    raise Exception("accuracy issue on that method, should use round4")
     return tuple((x<<4) for x in ((rgb4&0xF00)>>8,(rgb4&0xF0)>>4,rgb4&0xF))
 
 def palette_regdump2palette(text):
@@ -215,7 +214,7 @@ def palette_regdump2palette(text):
 
 def round4(color):
     # divides by 16 but rounds to nearest, limiting to F
-    return min(int(round(color/16)),0xF)
+    return min(int(round(color>>4)),0xF)
 
 def __palette_dump(palette,f,pformat,low_nibble):
     """
