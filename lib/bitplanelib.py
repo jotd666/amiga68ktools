@@ -9,6 +9,16 @@ PALETTE_FORMAT_PNG = 1<<4
 class BitplaneException(Exception):
     pass
 
+
+def replace_color_from_dict(img,color_replacement_dict):
+    """
+    remove colors of img if belongs to colorset (set of RGB tuples)
+    """
+    for x in range(img.size[0]):
+        for y in range(img.size[1]):
+            c = img.getpixel((x,y))
+            img.putpixel((x,y),color_replacement_dict.get(c,c))
+
 def replace_color(img,colorset,replacement_color):
     """
     remove colors of img if belongs to colorset (set of RGB tuples)
@@ -19,6 +29,7 @@ def replace_color(img,colorset,replacement_color):
             if c in colorset:
                 c = replacement_color
                 img.putpixel((x,y),replacement_color)
+
 def closest_color(c1,colorlist):
     """
     c1: rgb of color to approach
@@ -480,6 +491,84 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
             f.write(out)
 
     return out
+
+
+def palette_image2attached_sprites(input_image,output_filename,palette,
+                        palette_precision_mask=0xFF,sprite_fmode=0,with_control_words=True):
+    """ rebuild raw bitplanes with palette (ordered) and any image which has
+    the proper number of colors and color match
+    pass None as output_filename to avoid writing to file
+    returns image raw data
+    palette_precision_mask: 0xFF: no mask, full precision when looking up the colors, 0xF0: ECS palette mask, or custom
+    sprite_fmode = 0 for OCS/ECS (16-bit wide), 1 & 2 (32-bit wide, unsupported), 3 (64-bit wide)
+    """
+    if len(palette) != 16:
+        raise BitplaneException("Palette size must be 16")
+    # quick palette index lookup, with a privilege of the lowest color numbers
+    # where there are duplicates (example: EHB emulated palette)
+    palette_dict = {p:i for i,p in reversed(list(enumerate(palette)))}
+    if isinstance(input_image,str):
+        imgorg = PIL.Image.open(input_image)
+    else:
+        imgorg = input_image
+    # image could be paletted already. But we cannot trust palette order anyway
+    img_width,height = imgorg.size
+    width = {0:16,1:32,2:32,3:64}[sprite_fmode]
+    if img_width > width:
+        raise BitplaneException("{} width must be <= {}, found {}".format(input_image,width,img_width))
+    # convert to RGB and pad width if needed (16 bit wide sprite will be 64 bit wide in fmode=3)
+    img = PIL.Image.new('RGB', (width,height),palette[0])
+    img.paste(imgorg, (0,0))
+    nb_planes = 4
+
+    plane_size = height*width//8
+    out = [0]*(nb_planes*plane_size)
+    for y in range(height):
+        for x in range(0,width,8):
+            for i in range(8):
+                porg = img.getpixel((x+i,y))
+
+                p = tuple(x & palette_precision_mask for x in porg)
+                try:
+                    color_index = palette_dict[p]
+                except KeyError:
+                    # try to suggest close colors
+                    approx = tuple(x&0xFE for x in p)
+                    close_colors = [c for c in palette_dict if tuple(x&0xFE for x in c)==approx]
+
+                    msg = "{}: (x={},y={}) rounded color {} not found, orig color {}, maybe try adjusting precision mask (current: 0x{:x})".format(
+                input_image,x+i,y,p,porg,palette_precision_mask)
+                    msg += " {} close colors: {}".format(len(close_colors),close_colors)
+                    raise BitplaneException(msg)
+
+                for pindex in range(nb_planes):
+                    if color_index & (1<<pindex):
+                        out[(((y*nb_planes)+pindex)*width + x)//8] |= (1<<(7-i))
+
+    # now "out" is a big 4-bitplane combined sprite. We'll split it in 2 2-plane sprites by separating 32 bits by 32 bits
+    out1 = []
+    out2 = []
+
+    period = [8,8,16,32][sprite_fmode]
+    half_period = period//2
+
+    for i,c in enumerate(out):
+        target = out1 if i%period < half_period else out2
+        target.append(c)
+
+    if with_control_words:
+        cwl = 8 if sprite_fmode > 0 else 4
+        out1 = [0]*cwl + out1 + [0]*cwl
+        out2 = [0]*cwl + out2 + [0]*cwl
+    out1 = bytes(out1)
+    out2 = bytes(out2)
+
+    if output_filename:
+        with open(output_filename,"wb") as f:
+            f.write(out1)
+            f.write(out2)
+
+    return out1,out2
 
 
 def palette_image2sprite(input_image,output_filename,palette,
