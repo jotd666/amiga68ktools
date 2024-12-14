@@ -51,16 +51,20 @@ def closest_color(c1,colorlist):
 def dump_asm_bytes(block,f,mit_format=False,nb_elements_per_row=8,size=1):
     c = 0
     hs = "0x" if mit_format else "$"
-    for d in block:
+    offset = 0
+    f.write("\n")
+    for i,d in enumerate(block):
         if c==0:
+            offset = i
             array = ({1:".byte",2:".word",4:".long"} if mit_format else
             {1:"dc.b",2:"dc.w",4:"dc.l"})
-            f.write("\n\t{}\t".format(array[size]))
+            f.write("\t{}\t".format(array[size]))
         else:
             f.write(",")
         f.write("{}{:0{}x}".format(hs,d,size*2))
         c += 1
         if c == nb_elements_per_row:
+            f.write("\t{} 0x{:04x}\n".format("|" if mit_format else ";",offset))
             c = 0
     f.write("\n")
 

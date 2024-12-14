@@ -20,6 +20,7 @@ tmparc = []
 progdir = os.path.abspath(os.path.dirname(__file__))
 
 full_chain_mode = False
+send_mail = False # doesn"t work anyway
 temp = r"K:\jff\AmigaHD\Download\whdload"
 # if full_chain_mode else os.getenv("TEMP")
 
@@ -128,7 +129,7 @@ try:
             subprocess.check_output(["squirt_exec","localhost","execute","T:"+shell_name])
             if os.path.exists(arcfile):
                 print("{} created on the amiga side!!".format(arcfile))
-    if not full_chain_mode:
+    if send_mail:
         # send by e-mail
 
         from email.mime.multipart import MIMEMultipart
@@ -178,5 +179,5 @@ except OSError as e:
     c = colorama.Fore.LIGHTRED_EX
     print("Error: {}{}{}".format(c,e,colorama.Fore.RESET))
 
-print("{}Press a key to exit{}".format(c,colorama.Fore.RESET))
-input()
+#print("{}Press a key to exit{}".format(c,colorama.Fore.RESET))
+#input()

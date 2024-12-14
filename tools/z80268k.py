@@ -3,6 +3,8 @@
 #add.b immediate + daa => abcd d7,xx + review
 #adc.b + daa => abcd d7,xx aussi!
 #ld  bc,imm => issue a "review pick one", issue D1/D2 AND D1.W
+# postproc:     move.b    d0,(ax) and addq.w #1,ax => (ax)+
+# postproc:     subq.w #1,ax and move.b d0,(ax) => -(ax)
 # HL referenced then add/sub L => use A0 instead of D6
 
 # solve 0x8.... !!
@@ -230,6 +232,7 @@ single_instructions = {"nop":"nop","ret":"rts",
 m68_regs = set(registers.values())
 m68_data_regs = {x for x in m68_regs if x[0]=="d"}
 m68_address_regs = {x for x in m68_regs if x[0]=="a"}
+extra_z80_regs = {"i","r","ixl","ixh","iyl","iyh"}
 
 # inverted (note: C flag is already converted to 68k counterpart at that point hence the access to registers dict
 rts_cond_dict = {"c":"bcc",registers["c"]:"bcc","nc":"bcs","z":"bne","nz":"beq","p":"bmi","m":"bpl","po":"bvc","pe":"bvs"}
@@ -669,7 +672,7 @@ def f_ld(args,comment):
 
             if all(d not in m68_address_regs for d in srclab.split(",")):
                 source = address_to_label(source)
-        elif source in m68_regs:
+        elif source in m68_regs or source in extra_z80_regs:
             prefix = ""
         else:
             prefix = "#"
@@ -683,7 +686,7 @@ def f_ld(args,comment):
             if direct:
                 source = address_to_label_out(source)
                 if small_memory_model:
-                    out = f"\tLOAD_POINTER\t{source},{dest}{comment}"
+                    out = f"\tLOAD_RAM_POINTER\t{source},{dest}{comment}"
                     review = "check if pointed value is in RAM\n"
                 else:
                     out = f"\tmove.l\t{source},{dest}{comment}"
@@ -696,7 +699,7 @@ def f_ld(args,comment):
                 except ValueError:
                     pass
 
-                if not word_split and (source_val is None or source_val > 0x80):  # heuristic limit: address 0x80
+                if not word_split and (source_val is None or 0xFC00 > source_val > 0x80):  # heuristic limit: address 0x80
                     source = address_to_label_out(source.strip("()"))
 
 
@@ -715,7 +718,10 @@ def f_ld(args,comment):
                     else:
                         # maybe not lea but 16 bit immediate value load
                         dest = addr2data_single.get(dest,dest)
-                        out = f"\tmove.w\t#{source},{dest}{comment} {source_val}"
+                        if source_val >= 0xF000:
+                            # change sign as probably means negative number
+                            source = f"-{out_hex_sign}{0X10000-source_val:02x}"
+                        out = f"\tmove.w\t#{source},{dest}{comment}"
         else:
             src = f"{prefix}{source}".strip("0")
             if src=="#"+out_hex_sign or src == "#":
@@ -751,7 +757,7 @@ def f_ld(args,comment):
                     # store pointer as word, but only works if in RAM
                     # else manual rework is needed
                     # also uses macro to preserve endianness & support odd addresses
-                    inst = "STORE_POINTER"
+                    inst = "STORE_RAM_POINTER"
                     review_msg = "check if source is in RAM"
                 else:
                     inst = "move.l"
@@ -762,7 +768,10 @@ def f_ld(args,comment):
 
     else:
         # illegal LD like load SP, still convert it, but will be wrong
-        out = f"\tmove\t{source},{dest}{comment}\n"+issue_warning("probably wrong")
+
+        out = f"\tmove.b\t{source},{dest}{comment}"
+        if dest not in extra_z80_regs:
+            out +="\n"+issue_warning(f"probably wrong ({dest})")
 
     return out
 
@@ -994,10 +1003,13 @@ for i,line in enumerate(nout_lines):
         if finst.startswith(("j","b")) and not finst[1:].startswith(("set","clr","tst","sr","bsr","ra")):
             # conditional branch, examine previous instruction
             if prev_fp and prev_fp[0].startswith(("move.","clr.")):
-                nout_lines[i] += issue_warning(f"cpu flags ({prev_fp[0]},{finst})",newline=True)
+                src = prev_fp[1].split(",")[0]
+                if src not in ["i","r"]:  # unlike other registers, loading i and r actually DOES change flags!!
+                    nout_lines[i] += issue_warning(f"cpu flags ({prev_fp[0]},{finst})",newline=True)
         elif finst == "tst.b" and fp[1] == "d0":
             if prev_fp[-1].endswith(",d0") and not prev_fp[0].startswith("movem"):
                 # previous instruction targets d0 but not movem, so no need to test it
+                #src = prev_fp[1].split(",")[0]
                 nout_lines[i] = nout_lines[i].replace("tst.b\td0","")
         elif finst.startswith(("rox","addx","subx")):
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
@@ -1081,28 +1093,58 @@ with open(cli_args.code_output,"w") as f:
 \troxr.b\t#1,d7
 \tmovem.w\t(a7)+,d7
 \t.endm
+
+\t.macro\tLOAD_D1_16_FROM_D1D2
+\tand.l\t#0xFFFF,d1
+\tlsl.w\t#8,d1
+\tmove.b\d2,d1
+\t.endm
+\t
+\t.macro\tLOAD_D3_16_FROM_D3D4
+\tand.l\t#0xFFFF,d3
+\tlsl.w\t#8,d3
+\tmove.b\td4,d3
+\t.endm
+\t.macro\tLOAD_D5_16_FROM_D5D6
+\tand.l\t#0xFFFF,d5
+\tlsl.w\t#8,d5
+\tmove.b\td6,d5
+\t.endm
+\t.macro\tLOAD_D1D2_FROM_D1_16
+\tmove.b\td1,d2
+\tlsr.w\t#8,d1
+\t.endm
+\t.macro\tLOAD_D5D6_FROM_D5_16
+\tmove.b\td5,d6
+\tlsr.w\t#8,d5
+\t.endm
+\t.macro\tLOAD_D3D4_FROM_D3_16
+\tmove.b\td3,d4
+\tlsr.w\t#8,d3
+\t.endm
+
 """)
         if small_memory_model:
             f.write(f"""
-\t.macro\tSTORE_POINTER  src,dest
+\t.macro\tSTORE_RAM_POINTER  src,dest
 \tmove.l\td7,-(a7)
 \tmove.l\t\\src,d7
 \tsub.l\t{registers['base']},d7
-\tadd.l\t#{ram_range[0]:04x},d7
+\tadd.l\t#0x{ram_range[0]:04x},d7
 \tmove.b\td7,\\dest
 \trol.w\t#8,d7
 \tmove.b\td7,1+\\dest
 \tmove.l\t(a7)+,d7
 \t.endm
 
-\t.macro\tLOAD_POINTER  src,dest
+\t.macro\tLOAD_RAM_POINTER  src,dest
 \tmove.l\td7,-(a7)
 \tmoveq\t#0,d7
 \tmove.b\t1+\src,d7
 \trol.w\t#8,d7
 \tmove.b\t\\src,d7
 \tadd.l\t{registers['base']},d7
-\tsub.l\t#{ram_range[0]:04x},d7
+\tsub.l\t#0x{ram_range[0]:04x},d7
 \tmove.l\td7,\\dest
 \tmove.l\t(a7)+,d7
 \t.endm
@@ -1141,18 +1183,22 @@ inv1\@:
 """)
         if small_memory_model:
             f.write(f"""
-\tSTORE_POINTER  MACRO
+\tSTORE_RAM_POINTER  MACRO
 \tmove.l\td7,-(a7)
 \tmove.l\t\\1,d7
 \tsub.l\t{registers['base']},d7
+\tadd.l\t#${ram_range[0]:04x},d7
 \tmove.bd7,1+\\2
 \trol.w\t#8,d7
 \tmove.bd7,\\2
 \tmove.l\t(a7)+,d7
 \t.endm
 """)
-
-    f.writelines(nout_lines)
+    for i,line in enumerate(nout_lines):
+        try:
+            f.write(line)
+        except UnicodeEncodeError as e:
+            print("UnicodeDecodeError on "+line,end="")
 
 
     f.write(f"""{out_start_line_comment} < D0: byte possibly containing lowernibble > 9
