@@ -1,9 +1,10 @@
 import re,os,subprocess,shutil
 
 
-general_instruction_re = re.compile(r"^\s+\b([^\s]*)\b\s*([^\s]*)\s*;([a-f0-9]{2,}): (\w{2,})")
+general_instruction_re = re.compile(r"^\s+\b([^\s]*)\b\s*([^\s]*)\s*;([a-f0-9]{2,}): (\w{2,})",flags=re.I)
 dc_instruction_re = re.compile(r"^\s+\b(DC\..)\b\s*([^\s]*|[\"'].*[\"'])\s*;([a-f0-9]{2,})",flags=re.I)
 decl_label_re = re.compile("^(\w+):")
+ext_re_values_re = re.compile(r"\b(EXT_\w+)\s*(=|EQU)\s*\$(\w+)")
 
 class AsmException(Exception):
     pass
@@ -96,6 +97,31 @@ def repl_function(m):
         s = "LAB_"+s
     return s
 
+def parse_instruction_line(line):
+    m = general_instruction_re.match(line)
+    if m:
+        offset = m.group(3)
+        size = len(m.group(4))//2
+        instruction = re.sub("\s*;.*","",line)
+        toks = instruction.split()
+        args = []
+        if len(toks)>1:
+            args = split_params(toks[1])
+
+        return {"address":int(offset,16),"size":size,"instruction":toks[0],"arguments":args}
+
+    m = dc_instruction_re.match(line)
+    if m:
+        last_char = m.group(1).lower()[-1]
+        size = {"b":1,"w":2,"l":4}[last_char]
+        address = int(m.group(3),16)
+        instruction = m.group(1)
+        args = [m.group(2)]
+
+        return {"address":address,"size":size,"instruction":instruction,"arguments":args}
+
+
+
 def get_line_address(l):
     # get the ;xxxxx part with or without following colon
     # also accepts manual following comments even without ":"
@@ -157,6 +183,7 @@ class AsmFile:
         self.binpath = binary_filepath
         self.label_addresses = {}
         self.line_addresses = {}
+        self.ext_addresses = {}
 
         for i,l in enumerate(self.lines):
             try:
@@ -165,6 +192,10 @@ class AsmFile:
                     self.line_addresses[i] = address
                 except ValueError:
                     pass
+
+                m = ext_re_values_re.match(l)
+                if m:
+                    self.ext_addresses[m.group(1)] = int(m.group(3),16)
 
                 m = decl_label_re.match(l)
                 if m:
