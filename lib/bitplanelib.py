@@ -13,6 +13,7 @@ class BitplaneException(Exception):
 def replace_color_from_dict(img,color_replacement_dict):
     """
     remove colors of img if belongs to colorset (set of RGB tuples)
+    works in-place
     """
     for x in range(img.size[0]):
         for y in range(img.size[1]):
@@ -407,6 +408,39 @@ def autocrop_y(input_image,mask_color=(0,0,0)):
     rval.paste(input_image,(0,-y_start))
 
     return y_start,rval
+
+def autocrop_x(input_image,mask_color=(0,0,0),align=1):
+    """ crops & returns image, Y start
+    """
+    def blank_col(x):
+        return all(input_image.getpixel((x,y))==mask_color for y in range(input_image.size[1]))
+
+    for x in range(input_image.size[0]):
+        if not blank_col(x):
+            break
+            # all line is blank
+    x_start = x
+
+    for x in reversed(range(input_image.size[0])):
+        if not blank_col(x):
+            break
+    x_end = x+1
+
+    if x_end<=x_start:
+        x_end = 1
+        x_start = 0
+
+    if align!=1:
+        x_start = (x_start//align)*align
+        new_x_end = (x_end//align)*align
+        if new_x_end != x_end:
+            x_end = new_x_end + align
+
+    rval = PIL.Image.new("RGB",(x_end-x_start,input_image.size[1]))
+    rval.paste(input_image,(-x_start,0))
+
+    return x_start,rval
+
 def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,forced_nb_planes=None,
                     palette_precision_mask=0xFF,generate_mask=False,blit_pad=False,mask_color=(0,0,0)):
     """ rebuild raw bitplanes with palette (ordered) and any image which has
