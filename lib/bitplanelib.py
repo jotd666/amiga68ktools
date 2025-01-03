@@ -28,7 +28,6 @@ def replace_color(img,colorset,replacement_color):
         for y in range(img.size[1]):
             c = img.getpixel((x,y))
             if c in colorset:
-                c = replacement_color
                 img.putpixel((x,y),replacement_color)
 
 def closest_color(c1,colorlist):
@@ -325,7 +324,7 @@ def palette_dump(palette,output,pformat=PALETTE_FORMAT_ASMMOT,high_precision=Fal
             f.close()
     return output
 
-def palette_extract(input_image,palette_precision_mask=0xFF):
+def palette_extract(input_image,palette_precision_mask=0xFF,pad_count=0,pad_value=(0,0,0)):
     """
     extract the palette of an image
     palette_precision_mask: 0xFF: full RGB range, 0xF0: amiga ECS palette
@@ -348,7 +347,10 @@ def palette_extract(input_image,palette_precision_mask=0xFF):
             p = img.getpixel((x,y))
             p = tuple(x & palette_precision_mask for x in p)
             rval.add(p)
-    return sorted(rval)
+    rval = sorted(rval)
+    if len(rval)<pad_count:
+        rval += [pad_value]*(pad_count-len(rval))
+    return rval
 
 def palette_round(palette,mask=0xF0):
     """
@@ -441,8 +443,12 @@ def autocrop_x(input_image,mask_color=(0,0,0),align=1):
 
     return x_start,rval
 
+MASK_NONE = 0
+MASK_ON = 1
+MASK_INVERTED = 2
+
 def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,forced_nb_planes=None,
-                    palette_precision_mask=0xFF,generate_mask=False,blit_pad=False,mask_color=(0,0,0)):
+                    palette_precision_mask=0xFF,generate_mask=MASK_NONE,blit_pad=False,mask_color=(0,0,0)):
     """ rebuild raw bitplanes with palette (ordered) and any image which has
     the proper number of colors and color match
     pass None as output_filename to avoid writing to file
@@ -519,6 +525,9 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
                         if color_index & (1<<pindex):
                             out[pindex*plane_size + offset] |= bitset
 
+    if generate_mask == MASK_INVERTED:
+        for offset in range(nb_planes*plane_size,len(out)):
+            out[offset] = (~out[offset])%0x100
 
     out = bytes(out)
 
