@@ -1,13 +1,14 @@
 import subprocess,sys
 import argparse
 
+
 parser = argparse.ArgumentParser()
 parser.add_argument("makefile_params", nargs='*')
 parser.add_argument("-n","--noretry", help="no retry",action="store_true")
 parser.add_argument("-m","--makefile", help="makefile name",default="makefile")
 args = parser.parse_args()
 
-print("building...")
+print("building from {}...".format(args.makefile))
 rc = 0
 while True:
     try:
