@@ -48,6 +48,15 @@ def closest_color(c1,colorlist):
             closest = c
     return closest
 
+def closest_colors_replacement_dict(sublist,colorlist):
+    """
+    sublist: list rgb of color to approach
+    colorlist: list of rgb tuples of the palette
+    returns: one of the colors of colorlist
+
+    """
+    return {x:closest_color(x,colorlist) for x in sublist}
+
 def dump_asm_bytes(block,f,mit_format=False,nb_elements_per_row=8,size=1):
     c = 0
     hs = "0x" if mit_format else "$"
@@ -514,6 +523,7 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
                     except KeyError:
                         # try to suggest close colors
                         approx = tuple(x&0xFE for x in p)
+
                         close_colors = [c for c in palette_dict if tuple(x&0xFE for x in c)==approx]
 
                         msg = "{}: (x={},y={}) rounded color {} (#{}) not found, orig color {} (#{}), maybe try adjusting precision mask".format(
@@ -550,7 +560,7 @@ def palette_image2attached_sprites(input_image,output_filename,palette,
     sprite_fmode = 0 for OCS/ECS (16-bit wide), 1 & 2 (32-bit wide, unsupported), 3 (64-bit wide)
     """
     if len(palette) != 16:
-        raise BitplaneException("Palette size must be 16")
+        raise BitplaneException(f"Palette size must be 16, found {len(palette)}")
     # quick palette index lookup, with a privilege of the lowest color numbers
     # where there are duplicates (example: EHB emulated palette)
     palette_dict = {p:i for i,p in reversed(list(enumerate(palette)))}
@@ -604,7 +614,7 @@ def palette_image2attached_sprites(input_image,output_filename,palette,
         target.append(c)
 
     if with_control_words:
-        cwl = 8 if sprite_fmode > 0 else 4
+        cwl = {0:4,1:8,2:8,3:16}[sprite_fmode]
         out1 = [0]*cwl + out1 + [0]*cwl
         out2 = [0]*cwl + out2 + [0]*cwl
     out1 = bytes(out1)
