@@ -681,7 +681,7 @@ def palette_image2sprite(input_image,output_filename,palette,
                         out[(((y*nb_planes)+pindex)*width + x)//8] |= (1<<(7-i))
 
     if with_control_words:
-        cwl = 8 if sprite_fmode > 0 else 4
+        cwl = {0:4,1:8,2:8,3:16}[sprite_fmode]
         out = [0]*cwl + out + [0]*cwl
     out = bytes(out)
 

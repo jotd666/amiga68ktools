@@ -79,3 +79,5 @@ if os.path.getsize(tf) < os.path.getsize(args.output_file):
     raise Exception("New file is smaller than the original: not doing anything")
 os.remove(args.output_file)
 os.rename(tf,args.output_file)
+
+print(all_addresses)

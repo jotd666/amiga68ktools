@@ -179,9 +179,9 @@ inv_registers = {v:k.upper() for k,v in registers.items()}
 
 
 
-single_instructions = {"nop":"nop",
+single_instructions = {"nop":"nop",  # no need to convert to no-operation
 "rts":"rts",
-"txs":"illegal   <-- TODO: unsupported transfer to stack register",
+"txs":'.error   "unsupported transfer to stack register"',
 "txa":f"move.b\t{registers['x']},{registers['a']}",
 "tya":f"move.b\t{registers['y']},{registers['a']}",
 "tax":f"move.b\t{registers['a']},{registers['x']}",
@@ -200,13 +200,14 @@ single_instructions = {"nop":"nop",
 "asl":f"asl\t#1,{registers['a']}",
 "ror":f"roxr\t#1,{registers['a']}",
 "rol":f"roxl\t#1,{registers['a']}",
+"rti":'.error  "unsupported return from interrupt!"',
 "sec":"SET_XC_FLAGS",
 "clc":"CLR_XC_FLAGS",
 "sec":"SET_XC_FLAGS",
 "clc":"CLR_XC_FLAGS",
 "sei":"SET_I_FLAG",
 "cli":"CLR_I_FLAG",
-"sed":"illegal   <-- TODO: unsupported set decimal mode",
+"sed":'.error  "TODO: unsupported set decimal mode"',
 "cld":"nop",
 "clv":f"CLR_V_FLAG",
 }
@@ -819,7 +820,7 @@ for i,line in enumerate(nout_lines):
                     nout_lines[i] = f"\t{out_start_line_comment} bcc=>bcs\n"+nout_lines[i].replace("\tbcc","\tbcs")
                 elif prev_fp[0] not in carry_generating_instructions:
                     if not follows_sr_protected_block(nout_lines,i):
-                        nout_lines[i] += f"         ^^^^^^ TODO: warning: stray bcc test\n"
+                        nout_lines[i] += '  .error  "warning: stray bcc test"\n'
 
         elif finst == "bcs":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
@@ -832,14 +833,14 @@ for i,line in enumerate(nout_lines):
                     nout_lines[i] = f"\t{out_start_line_comment} bcs=>bcc\n"+nout_lines[i].replace("\tbcs","\tbcc")
                 elif prev_fp[0] not in carry_generating_instructions:
                    if not follows_sr_protected_block(nout_lines,i):
-                        nout_lines[i] += f"         ^^^^^^ TODO: warning: review stray bcs test\n"
+                        nout_lines[i] += '     .error "warning: review stray bcs test"\n'
         elif finst == "rts":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
                 if prev_fp == ["movem.w","d0,-(sp)"]:
-                    nout_lines[i] += "          ^^^^^^ TODO: review push to stack+return\n"
+                    nout_lines[i] += '          .error  "review push to stack+return"\n'
                 elif prev_fp[0] == "cmp.b":
-                    nout_lines[i] += "          ^^^^^^ TODO: review stray cmp (check caller)\n"
+                    nout_lines[i] += '          .error  "review stray cmp (check caller)"\n'
 
         elif finst == "addx.b":
             if prev_fp == clrxcflags_inst:
@@ -852,7 +853,7 @@ for i,line in enumerate(nout_lines):
                 nout_lines[i-1] = nout_lines[i-1].replace(setxcflags_inst[0],"")
                 nout_lines[i] = nout_lines[i].replace("subx.b","sub.b")
         elif finst not in ["bne","beq"] and prev_fp and prev_fp[0] == "cmp.b":
-                nout_lines[i] = "          ^^^^^^ TODO: review stray cmp (insert SET_X_FROM_CLEARED_C)\n"+nout_lines[i]
+                nout_lines[i] = '      .error  "review stray cmp (insert SET_X_FROM_CLEARED_C)"\n'+nout_lines[i]
 
         prev_fp = fp
 # post-processing
@@ -869,14 +870,14 @@ for line in nout_lines:
         tok = toks[0].split(".")[0]
         if tok == "eor" and "(" in toks[1]:
             # 68k can't handle such modes
-            comment = "\t|"+line.split(in_comment)[1]
+            comment = "\t|"+line.split(out_comment)[1]
             first_param,second_param = split_params(toks[1])
             nout_lines_2.append(f"\tmove.b\t{first_param},{tmpreg}{comment}\n")
             nout_lines_2.append(line.replace(first_param,tmpreg)+"\n")
             continue
         if tok in {"roxr","roxl","ror","rol","lsr","asl"} and "(" in toks[1]:
             # 68k can't handle such modes
-            comment = "\t|"+line.split(in_comment)[1]
+            comment = "\t|"+line.split(out_comment)[1]
             first_param,second_param = split_params(toks[1])
             nout_lines_2.append(f"\tmove.b\t{second_param},{tmpreg}{comment}\n")
             nout_lines_2.append(line.replace(second_param,tmpreg)+"\n")
@@ -885,7 +886,7 @@ for line in nout_lines:
             nout_lines_2.append("\tPOP_SR\n")
             continue
         elif tok in {"addx","subx"}:
-            comment = "\t|"+line.split(in_comment)[1]
+            comment = "\t|"+line.split(out_comment)[1]
             first_param,second_param = split_params(toks[1])
             if "(" in first_param or '#' in first_param:
                 # 68k can't handle such modes
@@ -964,6 +965,12 @@ if True:
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \t.endm
+\t.macro\tSBCD_IMM\tparam
+\tINVERT_XC_FLAGS
+\tmove.b\t#\\param,{W}
+\tsbcd.b\t{W},{A}
+\tINVERT_XC_FLAGS
+\t.endm
 
 \t.macro INVERT_XC_FLAGS
 \tPUSH_SR
@@ -1013,10 +1020,10 @@ if True:
 \t.endm
 
 \t.macro SET_I_FLAG
-^^^^ TODO: insert interrupt disable code here
+.error "TODO: insert interrupt disable code here"
 \t.endm
 \t.macro CLR_I_FLAG
-^^^^ TODO: insert interrupt enable code here
+.error  "TODO: insert interrupt enable code here"
 \t.endm
 \t.ifdef\tMC68020
 \t.macro PUSH_SR
@@ -1111,11 +1118,11 @@ CLR_V_FLAG:MACRO
 \tENDM
 
 SET_I_FLAG:MACRO
-^^^^ TODO: insert interrupt disable code here
+\t.error  "TODO: insert interrupt disable code here"
 \tENDM
 
 CLR_I_FLAG:MACRO
-^^^^ TODO: insert interrupt enable code here
+\t.error  "TODO: insert interrupt enable code here"
 \tENDM
 
 \tIFD\tMC68020
@@ -1170,7 +1177,7 @@ GET_ADDRESS_Y:MACRO
     f.write("\trts\n\n")
 
     f.write(f"""get_address:
-        ^^^^ TODO: implement this by adding memory base to {registers['awork1']}
+\t.error    "TODO: implement this by adding memory base to {registers['awork1']}"
 \trts
 
 """)
@@ -1180,7 +1187,7 @@ buffer = f.getvalue()+"".join(nout_lines)
 
 # remove review flags if requested (not recommended!!)
 if cli_args.no_review:
-    nout_lines = [line for line in buffer.splitlines(True) if "^ TODO" not in line]
+    nout_lines = [line for line in buffer.splitlines(True) if ".error" not in line]
 else:
     nout_lines = [line for line in buffer.splitlines(True)]
 
@@ -1201,7 +1208,7 @@ else:
     print("No unknown instructions")
 
 print("\nPLEASE REVIEW THE CONVERTED CODE CAREFULLY AS IT MAY CONTAIN ERRORS!\n")
-print("(some TODO: review lines may have been added, and the code won't build on purpose)")
+print("(some .error: review lines may have been added, and the code won't build on purpose)")
 
 
 
