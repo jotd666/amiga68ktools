@@ -22,6 +22,9 @@
 ##- review: sec/clc + dex/dec + adc/sbc sandwich
 ##- review: php+sei
 ##- optim: grouping of simple shifts from 68k code
+##- check cmp followed by roxr or addx/subx
+##- review: jmp/jsr ($xxx) (indirect)
+##- review: sbc/adc after cmp without prior sec/clc/add/sub
 
 import re,itertools,os,collections,glob,io
 import argparse
@@ -50,10 +53,12 @@ if cli_args.input_mode == "mit":
     in_comment = "|"
     in_start_line_comment = "*"
     in_hex_sign = "0x"
+    branch_letter = "j"
 else:
     in_comment = ";"
     in_start_line_comment = in_comment
     in_hex_sign = "$"
+    branch_letter = "b"
 
 if cli_args.output_mode == "mit":
     out_comment = "|"
@@ -182,6 +187,7 @@ inv_registers = {v:k.upper() for k,v in registers.items()}
 single_instructions = {"nop":"nop",  # no need to convert to no-operation
 "rts":"rts",
 "txs":'.error   "unsupported transfer to stack register"',
+"tsx":'.error   "unsupported transfer from stack register"',
 "txa":f"move.b\t{registers['x']},{registers['a']}",
 "tya":f"move.b\t{registers['y']},{registers['a']}",
 "tax":f"move.b\t{registers['a']},{registers['x']}",
@@ -300,7 +306,7 @@ def generic_shift_op(inst,args,comment):
                 if arg.endswith(")"):
                     # Y indirect indexed
                     arg = arg.strip("()")
-                    return f"""\tGET_ADDRESS_Y\t{arg}{comment}
+                    return f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
 \t{inst}\t#1,({registers['awork1']},{index_reg}.w){out_comment} [...]"""
                 else:
                     # X indirect indexed
@@ -369,8 +375,9 @@ def f_sbc(args,comment):
             # immediate mode
             return f"\tSBC_IMM\t{arg[1:]}{comment}"
 
-    return f"""\tGET_ADDRESS\t{arg}{comment}
-\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
+    return f"\tSBC\t{arg}{comment}"
+
+
 def generic_indexed_to(inst,src,args,comment):
     arg = args[0]
     if inst.islower():
@@ -384,7 +391,7 @@ def generic_indexed_to(inst,src,args,comment):
             if arg.endswith(")"):
                 # Y indirect indexed
                 arg = arg.strip("()")
-                return f"""\tGET_ADDRESS_Y\t{arg}{comment}
+                return f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
 \t{inst}\t{regsrc},({registers['awork1']},{index_reg}.w){out_comment} [...]"""
 
             else:
@@ -418,7 +425,7 @@ def generic_indexed_from(inst,dest,args,comment):
             if arg.endswith(")"):
                 # Y indirect indexed
                 arg = arg.strip("()")
-                return f"""\tGET_ADDRESS_Y\t{arg}{comment}
+                return f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
 \t{inst}\t({registers['awork1']},{index_reg}.w),{regdst}{out_comment} [...]"""
             else:
                 # X indirect indexed
@@ -443,9 +450,10 @@ def generic_indexed_from(inst,dest,args,comment):
                 if val == 0:
                     # move 0 => clr
                     return f"\tclr.b\t{regdst}{comment}"
-                elif val == 0xff:
-                    # move ff => st
-                    return f"\tst.b\t{regdst}{comment}"
+# replacing lda #0xFF by st.b d0 usually works except that Z,N flags aren't set!
+##                elif val == 0xff:
+##                    # move ff => st
+##                    return f"\tst.b\t{regdst}{comment}"
             elif inst=="eor.b" and parse_hex(arg[1:])==0xff:
                 # eor ff => not
                 return f"\tnot.b\t{regdst}{comment}"
@@ -562,7 +570,7 @@ def f_bcond(cond,args,comment):
         target_address = func
     func = funcc
 
-    out += f"\tb{cond}\t{func}{comment}"
+    out += f"\t{branch_letter}{cond}\t{func}{comment}"
 
     if target_address is not None:
         add_entrypoint(parse_hex(target_address))
@@ -958,6 +966,14 @@ if True:
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \t.endm
+
+\t.macro\tSBCD_DIRECT\taddress
+\tINVERT_XC_FLAGS
+\tGET_ADDRESS\t\\address
+\tmove.b\t({registers['awork1']}),{W}
+\tscbd\t{W},{A}
+\tINVERT_XC_FLAGS
+\t.endm
 \t
 \t.macro\tSBC_IMM\tparam
 \tINVERT_XC_FLAGS
@@ -965,10 +981,11 @@ if True:
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \t.endm
+
 \t.macro\tSBCD_IMM\tparam
 \tINVERT_XC_FLAGS
 \tmove.b\t#\\param,{W}
-\tsbcd.b\t{W},{A}
+\tsbcd\t{W},{A}
 \tINVERT_XC_FLAGS
 \t.endm
 
@@ -1041,14 +1058,17 @@ if True:
 \t.endm
 \t.endif
 
-\t.macro READ_LE_WORD\tsrcreg
-\tPUSH_SR
-\tmove.b\t(1,\\srcreg),{registers['dwork1']}
-\tlsl.w\t#8,{registers['dwork1']}
-\tmove.b\t(\\srcreg),{registers['dwork1']}
-\tmove.w\t{registers['dwork1']},\\srcreg
-\tPOP_SR
-\t.endm
+.macro READ_LE_WORD    srcreg
+PUSH_SR
+moveq    #0,d4
+move.b    (1,\srcreg),d4
+lsl.w    #8,d4
+move.b    (\srcreg),d4
+* we have to use long else it will
+* extend sign for > 0x7FFF and will compute wrong offset
+move.l    d4,\srcreg
+POP_SR
+.endm
 
 \t.macro GET_ADDRESS\toffset
 \tlea\t\offset,{registers['awork1']}
@@ -1056,14 +1076,18 @@ if True:
 \t.endm
 
 \t.macro GET_ADDRESS_X\toffset
+\t.ifgt\t\\offset-0x8000
 \tlea\t\\offset,{registers['awork1']}
+\t.else
+\tlea\t\\offset\\().w,a0
+\t.endif
 \tjbsr\tget_address
 \tlea\t({registers['awork1']},{registers['x']}.w),{registers['awork1']}
 \tREAD_LE_WORD\t{registers['awork1']}
 \tjbsr\tget_address
 \t.endm
 
-\t.macro GET_ADDRESS_Y\toffset
+\t.macro GET_INDIRECT_ADDRESS\toffset
 \tGET_ADDRESS\t\\offset
 \tREAD_LE_WORD\t{registers['awork1']}
 \tjbsr\tget_address
@@ -1095,11 +1119,25 @@ SBC:MACRO
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \tENDM
+SBCD:MACRO
+\tINVERT_XC_FLAGS
+\tGET_ADDRESS\t\\1
+\tmove.b\t({registers['awork1']}),{W}
+\tsbcd\t{W},{A}
+\tINVERT_XC_FLAGS
+\tENDM
 
 SBC_IMM:MACRO
 \tINVERT_XC_FLAGS
 \tmove.b\t#\\1,{W}
 \tsubx.b\t{W},{A}
+\tINVERT_XC_FLAGS
+\tENDM
+
+SBCD_IMM:MACRO
+\tINVERT_XC_FLAGS
+\tmove.b\t#\\1,{W}
+\tsbcd\t{W},{A}
 \tINVERT_XC_FLAGS
 \tENDM
 
@@ -1143,10 +1181,11 @@ POP_SR:MACRO
 
 READ_LE_WORD:MACRO
 \tPUSH_SR
+\tmoveq\t#0,{registers['dwork1']}
 \tmove.b\t(1,\\1),{registers['dwork1']}
 \tlsl.w\t#8,{registers['dwork1']}
 \tmove.b\t(\\1),{registers['dwork1']}
-\tmove.w\t{registers['dwork1']},\\1
+\tmove.l\t{registers['dwork1']},\\1
 \tPOP_SR
 \tENDM
 
@@ -1163,7 +1202,7 @@ GET_ADDRESS_X:MACRO
 \tjbsr\tget_address
 \tENDM
 
-GET_ADDRESS_Y:MACRO
+GET_INDIRECT_ADDRESS:MACRO
 \tGET_ADDRESS\t\\1
 \tREAD_LE_WORD\t{registers['awork1']}
 \tjbsr\tget_address
