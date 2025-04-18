@@ -943,6 +943,20 @@ if True:
 
     if cli_args.output_mode == "mit":
         f.write(f"""
+\t.ifdef\tMC68020
+\t.macro PUSH_SR
+\tmove.w\tccr,-(sp)
+\t.endm
+\t.else
+\t.macro PUSH_SR
+\tmove.w\tsr,-(sp)
+\t.endm
+\t.endif
+
+\t.macro POP_SR
+\tmove.w\t(sp)+,ccr
+\t.endm
+
 \t.macro\tSBC_X\taddress
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\address
@@ -1042,21 +1056,7 @@ if True:
 \t.macro CLR_I_FLAG
 .error  "TODO: insert interrupt enable code here"
 \t.endm
-\t.ifdef\tMC68020
-\t.macro PUSH_SR
-\tmove.w\tccr,-(sp)
-\t.endm
-\t.macro POP_SR
-\tmove.w\t(sp)+,ccr
-\t.endm
-\t.else
-\t.macro PUSH_SR
-\tmove.w\tsr,-(sp)
-\t.endm
-\t.macro POP_SR
-\tmove.w\t(sp)+,sr
-\t.endm
-\t.endif
+
 
 .macro READ_LE_WORD    srcreg
 PUSH_SR
@@ -1167,17 +1167,14 @@ CLR_I_FLAG:MACRO
 \tPUSH_SR:MACRO
 \tmove.w\tccr,-(sp)
 \tENDM
-POP_SR:MACRO
-\tmove.w\t(sp)+,ccr
-\tENDM
 \t.else
 PUSH_SR:MACRO
 \tmove.w\tsr,-(sp)
 \tENDM
-POP_SR:MACRO
-\tmove.w\t(sp)+,sr
-\tENDM
 \tENDC
+POP_SR:MACRO
+\tmove.w\t(sp)+,ccr
+\tENDM
 
 READ_LE_WORD:MACRO
 \tPUSH_SR
