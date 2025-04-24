@@ -687,10 +687,10 @@ def f_ld(args,comment):
                 source = address_to_label_out(source)
                 if small_memory_model:
                     out = f"\tLOAD_RAM_POINTER\t{source},{dest}{comment}"
-                    review = "check if pointed value is in RAM\n"
+                    review = "check if pointed value is in RAM"
                 else:
                     out = f"\tmove.l\t{source},{dest}{comment}"
-                    review = "source size & alignment\n"
+                    review = "source size & alignment"
                 out += "\n"+issue_warning(review)
             else:
                 source_val = None
@@ -1053,6 +1053,8 @@ if cli_args.data_output:
             for k,v in sorted(data_names.items()):
                 k -= ram_range[0]
                 f.write(f"{v} = {out_hex_sign}{k:04x}\n")
+    else:
+        print("use small memory model to get data output")
 
 with open(cli_args.code_output,"w") as f:
     if cli_args.output_mode == "mit":
@@ -1097,7 +1099,7 @@ with open(cli_args.code_output,"w") as f:
 \t.macro\tLOAD_D1_16_FROM_D1D2
 \tand.l\t#0xFFFF,d1
 \tlsl.w\t#8,d1
-\tmove.b\d2,d1
+\tmove.b\td2,d1
 \t.endm
 \t
 \t.macro\tLOAD_D3_16_FROM_D3D4
