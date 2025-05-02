@@ -13,12 +13,14 @@
 #  leax
 #  std
 #
+# $f01b: addb   ,u+ wrong (no need for get address)
 # $f6fb: lda    >$0000
 # $f6dd: [0x4200] mode ???
 # $f70b: LEAU   $4,U ??
 # $f71b: tfr    d,x
 # $f71d: ldd    ,x++ fully wrong
 # ++ should add 2 not 1 (F723 std)
+# macro MOVE_W for alignment (68000/68020)
 
 # you'll have to implement the macro GET_ADDRESS_BASE to return pointer on memory layout
 # to replace lea/move/... in memory
@@ -120,6 +122,8 @@ def change_tst_to_btst(nout_lines,i):
 
 address_re = re.compile("^([0-9A-F]{4}):")
 label_re = re.compile("^(\w+):")
+error = ".error"
+
 # doesn't capture all hex codes properly but we don't care
 if no_mame_prefixes:
     instruction_re = re.compile("\s+(\S.*)")
@@ -197,6 +201,9 @@ inv_registers = {v:k.upper() for k,v in registers.items()}
 
 single_instructions = {"nop":"nop",
 "rts":"rts",
+"mul":"jbsr\tmultiply_ab",
+"nega":f"neg.b\t{registers['a']}",
+"negb":f"neg.b\t{registers['b']}",
 "clra":f"moveq\t#0,{registers['a']}",
 "clrb":f"moveq\t#0,{registers['b']}",
 "deca":f"subq.b\t#1,{registers['a']}",
@@ -693,7 +700,9 @@ for i,(l,is_inst,address) in enumerate(lines):
             si = single_instructions.get(inst)
             if si:
                 out = f"\t{si}{comment}"
-
+            else:
+                unknown_instructions.add(inst)
+                out = f'\t{error}\tunknown instruction {inst}"{comment}'
         else:
             inst = itoks[0]
             args = itoks[1:]
@@ -709,6 +718,7 @@ for i,(l,is_inst,address) in enumerate(lines):
                 inst = inst[1:]   # merge long and short branches
             # other instructions, not single, not implicit a
             conv_func = globals().get(f"f_{inst}")
+
             if conv_func:
                 jargs = sole_arg.split(",")
                 # switch registers now
@@ -996,6 +1006,8 @@ if True:
 
     if cli_args.output_mode == "mit":
         f.write(f"""
+
+
 \t.macro\tMAKE_D
 \trol.w\t#8,{registers['a']}
 \tmove.b\t{registers['b']},{registers['a']}
@@ -1056,10 +1068,10 @@ if True:
 \t.endm
 
 \t.macro SET_I_FLAG
-    .error   "TODO: insert interrupt disable code here"
+    {error}   "TODO: insert interrupt disable code here"
 \t.endm
 \t.macro CLR_I_FLAG
-    .error   "TODO: insert interrupt enable code here"
+    {error}   "TODO: insert interrupt enable code here"
 \t.endm
 \t.ifdef\tMC68020
 \t.macro PUSH_SR
@@ -1226,6 +1238,13 @@ else:
 with open(cli_args.code_output,"w") as f:
     f.writelines(nout_lines)
 
+    f.write(f"""
+multiply_ab:
+\tand.w\t#{out_hex_sign}FF,{registers['a']}
+\tand.w\t#{out_hex_sign}FF,{registers['b']}
+\tmulu\t{registers['b']},{registers['a']}
+\trts
+""")
 
 print(f"Converted {converted} lines on {len(lines)} total, {instructions} instruction lines")
 print(f"Converted instruction ratio {converted}/{instructions} {int(100*converted/instructions)}%")
