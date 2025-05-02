@@ -2,8 +2,24 @@
 #  ldd    a,x
 #  std  $2A
 #  std  ,X++
+#  std  ,U++
 #  stxxx  ,x+  should use get_address
 #
+#  direct mode with page, debug a lot of instructions
+#
+#  andcc
+#  lds
+#  leau
+#  leax
+#  std
+#
+# $f6fb: lda    >$0000
+# $f6dd: [0x4200] mode ???
+# $f70b: LEAU   $4,U ??
+# $f71b: tfr    d,x
+# $f71d: ldd    ,x++ fully wrong
+# ++ should add 2 not 1 (F723 std)
+
 # you'll have to implement the macro GET_ADDRESS_BASE to return pointer on memory layout
 # to replace lea/move/... in memory
 # extract RAM memory constants as defines, not variables
@@ -278,6 +294,8 @@ def f_sta(args,comment):
     return generic_store('a',args,comment)
 def f_stu(args,comment):
     return generic_store('u',args,comment)
+def f_std(args,comment):
+    return "\tMAKE_D\n"+generic_store('a',args,comment)
 def f_stb(args,comment):
     return generic_store('b',args,comment)
 def f_stx(args,comment):
@@ -389,7 +407,7 @@ def f_adda(args,comment):
 def f_addb(args,comment):
     return generic_indexed_from("add",'b',args,comment)
 def f_addd(args,comment):
-    return "\tMAKED\n"+generic_indexed_from("add",'a',args,comment,word=True)
+    return "\tMAKE_D\n"+generic_indexed_from("add",'a',args,comment,word=True)
 def f_suba(args,comment):
     return generic_indexed_from("sub",'a',args,comment)
 def f_subb(args,comment):
@@ -978,16 +996,12 @@ if True:
 
     if cli_args.output_mode == "mit":
         f.write(f"""
-\t.macro\tMAKED
+\t.macro\tMAKE_D
 \trol.w\t#8,{registers['a']}
 \tmove.b\t{registers['b']},{registers['a']}
 \trol.w\t#8,{registers['a']}
 \t.endm
 
-\t.macro\tSTD\targ
-\tmove.b\t{registers['a']},\\arg
-\tmove.b\t{registers['b']},1+\\arg
-\t.endm
 
 \t.macro\tMAKE_B
 \tmove.w\t{registers['a']},{registers['b']}
