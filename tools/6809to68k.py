@@ -166,14 +166,14 @@ def issue_warning(msg,newline=False):
 # a => d0
 # x => d1
 # y => d2
-
-# C (carry) => d7 trashed to set carry properly (d7 isn't used anywhere else)
-# X (extended bit) => same as C but 6502 doesn't have it, and relies on CMP to set carry
+# u => d3
 
 registers = {
-"a":"d0","b":"d1","x":"d2","y":"d3","p":"sr","c":"d7","v":"d3",
-"dwork1":"d4","dwork2":"d5",
+"a":"d0","b":"d1","x":"d2","y":"d3","u":"d3","c":"d4",
+"dwork2":"d5",
+"dwork1":"d6",
 "awork1":"a0",
+#"p":"sr",
 "base":"a6"}
 inv_registers = {v:k.upper() for k,v in registers.items()}
 
@@ -244,25 +244,10 @@ def arg2label(s):
         return s
 
 
-def f_bit_6502(args,comment):
-    """bits 7 and 6 of operand are transfered to bit 7 and 6 of SR (N,V);
-the zero-flag is set according to the result of the operand AND
-the accumulator (set, if the result is zero, unset otherwise).
-This allows a quick check of a few bits at once without affecting
-any of the registers, other than the status register (SR).
 
-A AND M, M7 -> N, M6 -> V
-N    Z    C    I    D    V
-M7   +    -    -    -    M6
-addressing    assembler    opc    bytes    cycles
-zeropage    BIT oper    24    2    3
-absolute    BIT oper    2C    3    4
 
-this is way too complex for a very marginal use for overflow
-"""
-    # hack
-    return generic_logical_op("tst",args,comment).replace(f",{registers['a']}","")
-
+def f_ldu(args,comment):
+    return generic_load('u',args,comment,word=True)
 
 def f_lda(args,comment):
     return generic_load('a',args,comment)
@@ -291,6 +276,8 @@ def f_ldb(args,comment):
     return generic_load('b',args,comment)
 def f_sta(args,comment):
     return generic_store('a',args,comment)
+def f_stu(args,comment):
+    return generic_store('u',args,comment)
 def f_stb(args,comment):
     return generic_store('b',args,comment)
 def f_stx(args,comment):
@@ -401,6 +388,8 @@ def f_adda(args,comment):
     return generic_indexed_from("add",'a',args,comment)
 def f_addb(args,comment):
     return generic_indexed_from("add",'b',args,comment)
+def f_addd(args,comment):
+    return "\tMAKED\n"+generic_indexed_from("add",'a',args,comment,word=True)
 def f_suba(args,comment):
     return generic_indexed_from("sub",'a',args,comment)
 def f_subb(args,comment):
@@ -453,11 +442,12 @@ def generic_indexed_to(inst,src,args,comment):
     return f"""\tGET_ADDRESS\t{arg}{comment}
 \t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
 
-def generic_indexed_from(inst,dest,args,comment,word):
+def generic_indexed_from(inst,dest,args,comment,word=False):
     arg = args[0]
 
+    size = "w" if word else "b"
     if inst.islower():
-        inst += ".b"
+        inst += f".{size}"
     y_indexed = False
 
     regdst = registers[dest]
@@ -488,7 +478,6 @@ def generic_indexed_from(inst,dest,args,comment,word):
     else:
         if arg[0]=='#':
             # various optims for immediate mode
-            size = "w" if word else "b"
             if inst=="move.b":
                 if word:
                     inst = "move.w"
@@ -545,20 +534,24 @@ def address_to_label_out(s):
     return s.strip("()").replace(out_hex_sign,lab_prefix)
 
 
-def generic_cmp(args,reg,comment):
+def generic_cmp(args,reg,comment,word=False):
 
 
     p = args[0]
     if p[0]=='#':
+        size = "bw"[word]
         if parse_hex(p[1:],"WTF")==0:
             # optim
-            out = f"\ttst.b\t{registers[reg]}{comment}"
+            out = f"\ttst.{size}\t{registers[reg]}{comment}"
         else:
-            out = f"\tcmp.b\t{p},{registers[reg]}{comment}"
+            out = f"\tcmp.{size}\t{p},{registers[reg]}{comment}"
     else:
-        out = generic_indexed_from("cmp",reg,args,comment)
+        out = generic_indexed_from("cmp",reg,args,comment,word)
     return out
 
+
+def f_cmpu(args,comment):
+    return generic_cmp(args,'u',comment,word=True)
 
 def f_cmpa(args,comment):
     return generic_cmp(args,'a',comment)
@@ -846,7 +839,7 @@ clrxcflags_inst = ["CLR_XC_FLAGS"]
 setxcflags_inst = ["SET_XC_FLAGS"]
 
 # sub/add aren't included as they're the translation of dec/inc which don't affect C
-carry_generating_instructions = {"lsr.b","asl.b","roxr.b","roxl.b","subx.b","addx.b"}
+carry_generating_instructions = {"add","sub","cmp","lsr","asl","roxr","roxl","subx","addx"}
 
 # post-processing phase is crucial here, as the converted code is guaranteed to be WRONG
 # as opposed to Z80 conversion where it could be optimizations or warnings about well-known
@@ -878,7 +871,8 @@ for i,line in enumerate(nout_lines):
         elif finst in ("bcc","bcs"):
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
-                if prev_fp[0] not in carry_generating_instructions:
+                inst_no_size = prev_fp[0].split(".")[0]
+                if inst_no_size not in carry_generating_instructions:
                     if not follows_sr_protected_block(nout_lines,i):
                         nout_lines[i] += issue_warning("stray bcc/bcs test",newline=True)
 
@@ -964,9 +958,10 @@ f = io.StringIO()
 if True:
     X = registers['x']
     Y = registers['y']
-    C = registers['c']
-    V = registers['v']
+    U = registers['u']
     A = registers['a']
+    C = registers['c']
+    V = "WTF"
     W = registers['dwork1']
     f.write(f"""{out_start_line_comment} Converted with 6502to68k by JOTD
 {out_start_line_comment}
@@ -1047,10 +1042,10 @@ if True:
 \t.endm
 
 \t.macro SET_I_FLAG
-^^^^ TODO: insert interrupt disable code here
+    .error   "TODO: insert interrupt disable code here"
 \t.endm
 \t.macro CLR_I_FLAG
-^^^^ TODO: insert interrupt enable code here
+    .error   "TODO: insert interrupt enable code here"
 \t.endm
 \t.ifdef\tMC68020
 \t.macro PUSH_SR
