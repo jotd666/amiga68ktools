@@ -533,8 +533,19 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
                 return f"""\tGET_ADDRESS_X\t{arg}{comment}
 \t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
         else:
-            # X/Y indexed direct
-            return f"""\tGET_ADDRESS\t{arg}{comment}
+            if arg=="":
+                increment = args[1].count("+")
+                sa = args[1].strip("+")
+
+                rval = f"\tGET_{sa.upper()}_ADDRESS{comment}\n"
+                if increment:
+                    rval += f"\taddq.w\t#{increment},{sa}\n"
+
+                rval += f"\t{inst}.b\t(a0),{regdst}{out_comment} [...]"
+                return rval
+            else:
+                # X/Y indexed direct
+                return f"""\tGET_ADDRESS\t{arg}{comment}
 \t{inst}\t({registers['awork1']},{index_reg}.w),{regdst}{out_comment} [...]"""
        # various optims
     else:
