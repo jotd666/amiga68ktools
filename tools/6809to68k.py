@@ -1,21 +1,15 @@
 # TODO:
-#  ldd    a,x/y/u... F289: EC 01 8A 28 LDD    $0200,X rempliment
-#  std  $2A
-#  std  ,X++
-#  std  ,U++
-#  stxxx  ,x+  should use get_address
 #
 #  direct mode with page, debug a lot of instructions
+# $f6fb: lda    >$0000 ????
 #
+# generic_shift_op: remainders of 6502: crash if not a register ATM
 #  andcc
 #  lds
-#  std
 #
-# $f01b: addb   ,u+ wrong (no need for get address)
-# $f6fb: lda    >$0000
-# $f6dd: [0x4200] mode: get address at $4200 and use it to read/write
-# $f71d: ldd    ,x++ fully wrong
 
+
+# post_proc: tst.w + GET_.*ADDRESS => remove tst.w
 # set macro MOVE_W for alignment (68000/68020) in post processing if source or dest
 # is not a register, detect others .w operands in that case
 
@@ -46,6 +40,9 @@ parser.add_argument("-c","--code-output",help="68000 source code output file",re
 parser.add_argument("-d","--data-output",help="data output file")
 parser.add_argument("input_file")
 
+
+OPENING_BRACKET = ('(','[')
+BRACKETS = "[]()"
 
 cli_args = parser.parse_args()
 
@@ -209,8 +206,12 @@ single_instructions = {"nop":"nop",
 "incb":f"addq.b\t#1,{registers['b']}",
 "lsra":f"lsr.b\t#1,{registers['a']}",   # for code that doesn't use "A" parameter for shift ops
 "lsrb":f"lsr.b\t#1,{registers['b']}",   # for code that doesn't use "A" parameter for shift ops
+"lsla":f"lsl.b\t#1,{registers['a']}",   # for code that doesn't use "A" parameter for shift ops
+"lslb":f"lsl.b\t#1,{registers['b']}",   # for code that doesn't use "A" parameter for shift ops
 "asla":f"asl.b\t#1,{registers['a']}",
 "aslb":f"asl.b\t#1,{registers['b']}",
+"asra":f"asr.b\t#1,{registers['a']}",
+"asrb":f"asr.b\t#1,{registers['b']}",
 "tsta":f"tst.b\t{registers['a']}",
 "tstb":f"tst.b\t{registers['b']}",
 "rora":f"roxr\t#1,{registers['a']}",
@@ -285,11 +286,12 @@ def f_ldd(args,comment):
             msb = f"{out_hex_sign}{v>>8:02x}"
             lsb = f"{out_hex_sign}{v&0xFF:02x}"
 
-        out = f"\tmove.b\t#{msb},{registers['a']}{out_comment}{comment}\n"
-        out += f"\tmove.b\t#{lsb},{registers['b']}{out_comment}{comment}"
+        out = f"\tmove.b\t#{msb},{registers['a']}{comment}\n"
+        out += f"\tmove.b\t#{lsb},{registers['b']}{comment}"
     else:
         out = f_lda(args,comment)
-        out += f"\n\tmove.b\t(1,{registers['awork1']}),{registers['b']}{out_comment}{comment}"
+        out += f"\n\tmove.b\t(1,{registers['awork1']}),{registers['b']}{comment}"
+    out += f"\n\tMAKE_D{comment}\n\ttst.w\t{registers['a']}{comment}"
     return out
 
 def f_ldb(args,comment):
@@ -328,8 +330,13 @@ def f_tfr(args,comment):
     double_size = ["x","y","u","d"]
     ext = "w" if srcreg in double_size or dstreg in double_size else "b"
     if dstreg == "dp":
+        invreg = inv_registers[srcreg]
         # special case!
-        dstreg = "direct_page"
+        if invreg == "A":
+            out = f"\tSET_DP_FROM_A{comment}"
+        else:
+            out = f"\tSET_DP_FROM\t{srcreg}{comment}"
+        return out
 
     if srcreg=="d":
         srcreg=registers['a']
@@ -469,7 +476,7 @@ def generic_indexed_to(inst,src,args,comment,word=False):
     regsrc = registers.get(src,src)
     if len(args)>1:
         # register indexed. There are many modes!
-        index_reg = args[1].strip(")")
+        index_reg = args[1]
         empty_first_arg = not args[0]
         if empty_first_arg:
             # 6809 mode that is not on 6502: ,X or ,X+...
@@ -484,31 +491,18 @@ def generic_indexed_to(inst,src,args,comment,word=False):
             return rval
 
         else:
-            if arg.startswith("("):
-                if arg.endswith(")"):
-                    # Y indirect indexed
-                    raise Exception("6502 remainder")
-                    arg = arg.strip("()")
-                    return f"""\tGET_ADDRESS_Y\t{arg}{comment}
-    \t{inst}\t{regsrc},({registers['awork1']},{index_reg}.w){out_comment} [...]"""
+            sa = index_reg
+            invsa = inv_registers.get(sa)
+            rval = f"\tGET_{invsa.upper()}_ADDRESS\t{arg}{comment}\n"
 
-                else:
-                    # X indirect indexed
-                    arg = arg.strip("(")
-                    arg2 = index_reg
-                    if arg2.lower() != 'd1':
-                        # can't happen
-                        raise Exception("Unsupported indexed mode {}!=d1: {} {}".format(arg2,inst," ".join(args)))
-                    raise Exception("6502 remainder")
-                    return f"""\tGET_ADDRESS_X\t{arg}{comment}
-        {inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
-            else:
-                sa = index_reg
-                invsa = inv_registers.get(sa)
-                rval = f"\tGET_{invsa.upper()}_ADDRESS\t{arg}{comment}\n"
-
-                rval += f"\t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"
-                return rval
+            rval += f"\t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"
+            return rval
+    else:
+        if arg.startswith(OPENING_BRACKET):
+            # indirect
+            arg = arg.strip(BRACKETS)
+            return f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
+\t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
 
     return f"""\tGET_ADDRESS\t{arg}{comment}
 \t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
@@ -524,44 +518,33 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
     regdst = registers[dest]
     if len(args)>1:
         # register indexed. There are many modes!
-        index_reg = args[1].strip(")")
-        if arg.startswith("("):
-            if arg.endswith(")"):
-                # Y indirect indexed untested
-                raise Exception("6502 remainder")
-                arg = arg.strip("()")
-                out = f"""\tGET_ADDRESS_Y\t{arg}{comment}
-\t{inst}\t({registers['awork1']},{index_reg}.w),{regdst}{out_comment} [...]"""
-            else:
-                # X indirect indexed untested comes from 6502
-                arg = arg.strip("(")
-                arg2 = index_reg
-                if arg2.lower() != registers['x']:
-                    # can't happen
-                    raise Exception("Unsupported indexed mode {}!=d1: {} {}".format(arg2,inst," ".join(args)))
-                raise Exception("6502 remainder")
-                return f"""\tGET_ADDRESS_X\t{arg}{comment}
-\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
-        else:
-            if arg=="":
-                # direct without offset with possible increment: (6809 tested: ldd    ,x++)
-                increment = args[1].count("+")
-                sa = args[1].strip("+")
-                invsa = inv_registers.get(sa)
-                rval = f"\tGET_{invsa.upper()}_ADDRESS\t0{comment}\n"
-                if increment:
-                    rval += f"\taddq.w\t#{increment},{sa}\n"
+        index_reg = args[1]
 
-                rval += f"\t{inst}\t(a0),{regdst}{out_comment} [...]"
-                return rval
-            else:
-                # X/Y indexed direct (6809 tested: ldd    $0200,x)
-                invsa = inv_registers.get(index_reg)
-                return f"""\tGET_{invsa.upper()}_ADDRESS\t{arg}{comment}
+        if arg=="":
+            # direct without offset with possible increment: (6809 tested: ldd    ,x++)
+            increment = args[1].count("+")
+            sa = args[1].strip("+")
+            invsa = inv_registers.get(sa)
+            rval = f"\tGET_{invsa.upper()}_ADDRESS\t0{comment}\n"
+            if increment:
+                rval += f"\taddq.w\t#{increment},{sa}\n"
+
+            rval += f"\t{inst}\t(a0),{regdst}{out_comment} [...]"
+            return rval
+        else:
+            # X/Y indexed direct (6809 tested: ldd    $0200,x)
+            invsa = inv_registers.get(index_reg)
+            return f"""\tGET_{invsa.upper()}_ADDRESS\t{arg}{comment}
 \t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
        # various optims
     else:
-        if arg[0]=='#':
+        if arg.startswith(OPENING_BRACKET):
+            # Y indirect indexed untested
+            arg = arg.strip(BRACKETS)
+            out = f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
+\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
+            return out
+        elif arg[0]=='#':
             # various optims for immediate mode
             if inst=="move.b":
                 if word:
@@ -1146,10 +1129,10 @@ if True:
 \t.endm
 \t.endif
 
-\t.macro READ_LE_WORD\tsrcreg
-\tmove.b\t(1,\\srcreg),{registers['dwork1']}
-\tlsl.w\t#8,{registers['dwork1']}
+\t.macro READ_BE_WORD\tsrcreg
 \tmove.b\t(\\srcreg),{registers['dwork1']}
+\tlsl.w\t#8,{registers['dwork1']}
+\tmove.b\t(1,\\srcreg),{registers['dwork1']}
 \tmove.w\t{registers['dwork1']},\\srcreg
 \t.endm
 
@@ -1158,23 +1141,35 @@ if True:
 \tjbsr\tget_address
 \t.endm
 
-\t.macro GET_ADDRESS_X\toffset
-\tlea\t\\offset,{registers['awork1']}
-\tjbsr\tget_address
-\tlea\t({registers['awork1']},{registers['x']}.w),{registers['awork1']}
-\tREAD_LE_WORD\t{registers['awork1']}
-\tjbsr\tget_address
-\t.endm
 
-\t.macro GET_ADDRESS_Y\toffset
+\t.macro GET_INDIRECT_ADDRESS\toffset
 \tGET_ADDRESS\t\\offset
-\tREAD_LE_WORD\t{registers['awork1']}
+\tREAD_BE_WORD\t{registers['awork1']}
 \tjbsr\tget_address
 \t.endm
 
+\t.macro SET_DP_FROM_A
+\t{error}  "implement this!!"
+\t.endm
+
+\t.macro SET_DP_FROM    \\reg
+\texg\t{registers['a']},\\reg
+\tSET_DP_FROM_A
+
+\texg\t{registers['a']},\\reg
+\t.endm
+
+""")
+        for reg in "xyu":
+            f.write(f"""\t.macro GET_{reg.upper()}_ADDRESS\toffset
+\tlea\t\\offset,{registers['awork1']}
+\tadd.l\t{registers[reg]},{registers['awork1']}
+\tjbsr\tget_address
+\t.endm
 
 """)
     else:
+        # MOT macros are not up to date for now
         f.write(f"""SBC_X:MACRO
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\1
@@ -1256,19 +1251,6 @@ GET_ADDRESS:MACRO
 \tjbsr\tget_address
 \tENDM
 
-GET_ADDRESS_X:MACRO
-\tlea\t\\1,{registers['awork1']}
-\tjbsr\tget_address
-\tlea\t({registers['awork1']},{registers['x']}.w),{registers['awork1']}
-\tREAD_LE_WORD\t{registers['awork1']}
-\tjbsr\tget_address
-\tENDM
-
-GET_ADDRESS_Y:MACRO
-\tGET_ADDRESS\t\\1
-\tREAD_LE_WORD\t{registers['awork1']}
-\tjbsr\tget_address
-\tENDM
 
 """)
 
@@ -1278,7 +1260,7 @@ GET_ADDRESS_Y:MACRO
     f.write("\trts\n\n")
 
     f.write(f"""get_address:
-        ^^^^ TODO: implement this by adding memory base to {registers['awork1']}
+\t{error}: "`TODO: implement this by adding memory base to {registers['awork1']}"
 \trts
 
 """)
