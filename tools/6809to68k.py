@@ -1,5 +1,5 @@
 # TODO:
-#  ldd    a,x
+#  ldd    a,x/y/u... F289: EC 01 8A 28 LDD    $0200,X rempliment
 #  std  $2A
 #  std  ,X++
 #  std  ,U++
@@ -13,7 +13,7 @@
 #
 # $f01b: addb   ,u+ wrong (no need for get address)
 # $f6fb: lda    >$0000
-# $f6dd: [0x4200] mode ???
+# $f6dd: [0x4200] mode: get address at $4200 and use it to read/write
 # $f71d: ldd    ,x++ fully wrong
 
 # set macro MOVE_W for alignment (68000/68020) in post processing if source or dest
@@ -186,9 +186,9 @@ def issue_warning(msg,newline=False):
 # u => d3
 
 registers = {
-"a":"d0","b":"d1","x":"d2","y":"d3","u":"d3","c":"d4",
-"dwork2":"d5",
+"a":"d0","b":"d1","x":"d2","y":"d3","u":"d4","c":"d5",
 "dwork1":"d6",
+"dwork2":"d7",
 "awork1":"a0",
 #"p":"sr",
 "base":"a6"}
@@ -286,10 +286,10 @@ def f_ldd(args,comment):
             lsb = f"{out_hex_sign}{v&0xFF:02x}"
 
         out = f"\tmove.b\t#{msb},{registers['a']}{out_comment}{comment}\n"
-        out += f"\tmove.b\t#{lsb},{registers['b']}{out_comment}{comment}\n"
+        out += f"\tmove.b\t#{lsb},{registers['b']}{out_comment}{comment}"
     else:
         out = f_lda(args,comment)
-        out += f"\n\tmove.b\t(1,{registers['awork1']}),{registers['b']}{out_comment}{comment}\n"
+        out += f"\n\tmove.b\t(1,{registers['awork1']}),{registers['b']}{out_comment}{comment}"
     return out
 
 def f_ldb(args,comment):
@@ -473,15 +473,21 @@ def generic_indexed_to(inst,src,args,comment,word=False):
         empty_first_arg = not args[0]
         if empty_first_arg:
             # 6809 mode that is not on 6502: ,X or ,X+...
-            post_increment = index_reg.endswith("+")
-            stripped_reg = index_reg.rstrip("+")
-            # pre-increment, to preserve operation flags
-            return f"\taddq.w\t#{size},{stripped_reg}\n\t{inst}\t{regsrc},({-size},{registers['base']},{stripped_reg}.l){out_comment}{comment}"
+            increment = args[1].count("+")
+            sa = index_reg.strip("+")
+            invsa = inv_registers.get(sa)
+            rval = f"\tGET_{invsa.upper()}_ADDRESS\t0{comment}\n"
+            if increment:
+                rval += f"\taddq.w\t#{increment},{sa}\n"
+
+            rval += f"\t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"
+            return rval
 
         else:
             if arg.startswith("("):
                 if arg.endswith(")"):
                     # Y indirect indexed
+                    raise Exception("6502 remainder")
                     arg = arg.strip("()")
                     return f"""\tGET_ADDRESS_Y\t{arg}{comment}
     \t{inst}\t{regsrc},({registers['awork1']},{index_reg}.w){out_comment} [...]"""
@@ -493,13 +499,16 @@ def generic_indexed_to(inst,src,args,comment,word=False):
                     if arg2.lower() != 'd1':
                         # can't happen
                         raise Exception("Unsupported indexed mode {}!=d1: {} {}".format(arg2,inst," ".join(args)))
-
+                    raise Exception("6502 remainder")
                     return f"""\tGET_ADDRESS_X\t{arg}{comment}
         {inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
             else:
-                # X/Y indexed direct
-                return f"""\tGET_ADDRESS\t{arg}{comment}
-        {inst}\t{regsrc},({registers['awork1']},{index_reg}.w){out_comment} [...]"""
+                sa = index_reg
+                invsa = inv_registers.get(sa)
+                rval = f"\tGET_{invsa.upper()}_ADDRESS\t{arg}{comment}\n"
+
+                rval += f"\t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"
+                return rval
 
     return f"""\tGET_ADDRESS\t{arg}{comment}
 \t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
@@ -518,35 +527,38 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
         index_reg = args[1].strip(")")
         if arg.startswith("("):
             if arg.endswith(")"):
-                # Y indirect indexed
+                # Y indirect indexed untested
+                raise Exception("6502 remainder")
                 arg = arg.strip("()")
                 out = f"""\tGET_ADDRESS_Y\t{arg}{comment}
 \t{inst}\t({registers['awork1']},{index_reg}.w),{regdst}{out_comment} [...]"""
             else:
-                # X indirect indexed
+                # X indirect indexed untested comes from 6502
                 arg = arg.strip("(")
                 arg2 = index_reg
-                if arg2.lower() != 'd1':
+                if arg2.lower() != registers['x']:
                     # can't happen
                     raise Exception("Unsupported indexed mode {}!=d1: {} {}".format(arg2,inst," ".join(args)))
-
+                raise Exception("6502 remainder")
                 return f"""\tGET_ADDRESS_X\t{arg}{comment}
 \t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
         else:
             if arg=="":
+                # direct without offset with possible increment: (6809 tested: ldd    ,x++)
                 increment = args[1].count("+")
                 sa = args[1].strip("+")
-
-                rval = f"\tGET_{sa.upper()}_ADDRESS{comment}\n"
+                invsa = inv_registers.get(sa)
+                rval = f"\tGET_{invsa.upper()}_ADDRESS\t0{comment}\n"
                 if increment:
                     rval += f"\taddq.w\t#{increment},{sa}\n"
 
-                rval += f"\t{inst}.b\t(a0),{regdst}{out_comment} [...]"
+                rval += f"\t{inst}\t(a0),{regdst}{out_comment} [...]"
                 return rval
             else:
-                # X/Y indexed direct
-                return f"""\tGET_ADDRESS\t{arg}{comment}
-\t{inst}\t({registers['awork1']},{index_reg}.w),{regdst}{out_comment} [...]"""
+                # X/Y indexed direct (6809 tested: ldd    $0200,x)
+                invsa = inv_registers.get(index_reg)
+                return f"""\tGET_{invsa.upper()}_ADDRESS\t{arg}{comment}
+\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
        # various optims
     else:
         if arg[0]=='#':
@@ -558,9 +570,6 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
                 if val == 0:
                     # move 0 => clr
                     return f"\tclr.{size}\t{regdst}{comment}"
-                elif val == 0xff:
-                    # move ff => st
-                    return f"\tst.{size}\t{regdst}{comment}"
             elif inst=="eor.b" and parse_hex(arg[1:])==0xff:
                 # eor ff => not
                 return f"\tnot.{size}\t{regdst}{comment}"
