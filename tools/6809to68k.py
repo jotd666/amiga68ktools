@@ -9,18 +9,15 @@
 #
 #  andcc
 #  lds
-#  leau
-#  leax
 #  std
 #
 # $f01b: addb   ,u+ wrong (no need for get address)
 # $f6fb: lda    >$0000
 # $f6dd: [0x4200] mode ???
-# $f70b: LEAU   $4,U ??
-# $f71b: tfr    d,x
 # $f71d: ldd    ,x++ fully wrong
-# ++ should add 2 not 1 (F723 std)
-# macro MOVE_W for alignment (68000/68020)
+
+# set macro MOVE_W for alignment (68000/68020) in post processing if source or dest
+# is not a register, detect others .w operands in that case
 
 # you'll have to implement the macro GET_ADDRESS_BASE to return pointer on memory layout
 # to replace lea/move/... in memory
@@ -302,7 +299,7 @@ def f_sta(args,comment):
 def f_stu(args,comment):
     return generic_store('u',args,comment)
 def f_std(args,comment):
-    return "\tMAKE_D\n"+generic_store('a',args,comment)
+    return "\tMAKE_D\n"+generic_store('a',args,comment,word=True)
 def f_stb(args,comment):
     return generic_store('b',args,comment)
 def f_stx(args,comment):
@@ -311,6 +308,13 @@ def f_sty(args,comment):
     return generic_store('y',args,comment)
 def f_ldx(args,comment):
     return clear_reg('x') + generic_load('x',args,comment, word=True)
+def f_leax(args,comment):
+    return generic_lea('x',args,comment)
+def f_leay(args,comment):
+    return generic_lea('y',args,comment)
+def f_leau(args,comment):
+    return generic_lea('u',args,comment)
+
 def f_ldy(args,comment):
     return clear_reg('x') + generic_load('y',args,comment, word=True)
 
@@ -321,21 +325,52 @@ def f_dec(args,comment):
 def f_tfr(args,comment):
     srcreg = args[0]
     dstreg = args[1]
+    double_size = ["x","y","u","d"]
+    ext = "w" if srcreg in double_size or dstreg in double_size else "b"
     if dstreg == "dp":
         # special case!
-        out = None
-    else:
-        out = f"\tmove.b\t{srcreg},{dstreg}{comment}"
+        dstreg = "direct_page"
+
+    if srcreg=="d":
+        srcreg=registers['a']
+    if dstreg=="d":
+        dstreg=registers['a']
+
+    # condition flags not affected!
+    out = f"\tPUSH_SR\n\tmove.{ext}\t{srcreg},{dstreg}{comment}\n\tPOP_SR"
 
     return out
 
 def f_clr(args,comment):
     return generic_store('#0',args,comment)
 
+def generic_lea(dest,args,comment):
+    rval = ""
+    quick = ""
+    if args[1]==registers[dest]:
+        # add or sub
+        first_arg = args[0]
+        inst = "add"
+        if first_arg[0]=="-":
+            first_arg = first_arg[1:]
+            inst = "sub"
+        elif first_arg=="d":
+            first_arg=registers['a']
+            rval = "\tMAKE_D\n"
+        if is_immediate_value(first_arg):
+            quick = "q" if parse_hex(first_arg) < 0x10 else ""
+            first_arg = f'#{first_arg}'
+        rval += f"\t{inst}{quick}.w\t{first_arg},{args[1]}{comment}"
+
+    else:
+        rval = f'\t{error} "unsupported lea {dest} {args}"'
+
+    return rval
+
 def generic_load(dest,args,comment,word=False):
     return generic_indexed_from("move",dest,args,comment,word)
-def generic_store(src,args,comment):
-    return generic_indexed_to("move",src,args,comment)
+def generic_store(src,args,comment,word=False):
+    return generic_indexed_to("move",src,args,comment,word)
 
 def generic_shift_op(inst,reg,args,comment):
     arg = args[0]
@@ -424,10 +459,12 @@ def f_sbca(args,comment):
 def f_sbcb(args,comment):
     return generic_indexed_from("subx",'b',args,comment)
 
-def generic_indexed_to(inst,src,args,comment):
+def generic_indexed_to(inst,src,args,comment,word=False):
     arg = args[0]
+    size = 2 if word else 1
+    suffix = ".w" if word else ".b"
     if inst.islower():
-        inst += ".b"
+        inst += suffix
     y_indexed = False
     regsrc = registers.get(src,src)
     if len(args)>1:
@@ -439,7 +476,7 @@ def generic_indexed_to(inst,src,args,comment):
             post_increment = index_reg.endswith("+")
             stripped_reg = index_reg.rstrip("+")
             # pre-increment, to preserve operation flags
-            return f"\taddq.w\t#1,{stripped_reg}\n\t{inst}\t{regsrc},(-1,{registers['base']},{stripped_reg}.l){out_comment}{comment}"
+            return f"\taddq.w\t#{size},{stripped_reg}\n\t{inst}\t{regsrc},({-size},{registers['base']},{stripped_reg}.l){out_comment}{comment}"
 
         else:
             if arg.startswith("("):
@@ -1053,7 +1090,7 @@ if True:
 \tPOP_SR
 \t.endm
 
-.macro CLR_XC_FLAGS
+\t.macro CLR_XC_FLAGS
 \tmoveq\t#0,{C}
 \troxl.b\t#1,{C}
 \t.endm
