@@ -190,7 +190,8 @@ registers = {
 }
 inv_registers = {v:k.upper() for k,v in registers.items()}
 
-
+# do NOT define this!!
+#registers["d"] = registers["a"]
 
 single_instructions = {"nop":"nop",
 "rts":"rts",
@@ -533,9 +534,18 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
             rval += f"\t{inst}\t(a0),{regdst}{out_comment} [...]"
             return rval
         else:
-            # X/Y indexed direct (6809 tested: ldd    $0200,x)
+            # X/Y indexed direct (6809 tested: ldd    $0200,x or ldx d,x)
             invsa = inv_registers.get(index_reg)
-            return f"""\tGET_{invsa.upper()}_ADDRESS\t{arg}{comment}
+            fromreg = ""
+            prefix = ""
+            if arg in registers or arg=='d':
+                fromreg = "_FROM_REG"
+                if arg=='d':
+                    prefix = "\tMAKE_D\n"
+                    arg = registers['a']
+                else:
+                    arg = registers[arg]
+            return prefix+f"""\tGET_{invsa.upper()}_ADDRESS{fromreg}\t{arg}{comment}
 \t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
        # various optims
     else:
@@ -1157,7 +1167,7 @@ if True:
 \t.endm
 
 \t.macro GET_DP_ADDRESS\toffset
-\tlea\t({registers['dp_base']},\offset.W),{registers['awork1']}
+\tlea\t({registers['dp_base']},\\offset\\().W),{registers['awork1']}
 \t.endm
 
 
@@ -1175,7 +1185,7 @@ if True:
 \tlsr.w    #8,{registers['a']}
 \t.endm
 
-\t.macro SET_DP_FROM    \\reg
+\t.macro SET_DP_FROM    reg
 \texg\t{registers['a']},\\reg
 \tSET_DP_FROM_A
 
@@ -1186,6 +1196,12 @@ if True:
         for reg in "xyu":
             f.write(f"""\t.macro GET_{reg.upper()}_ADDRESS\toffset
 \tlea\t\\offset,{registers['awork1']}
+\tadd.l\t{registers[reg]},{registers['awork1']}
+\tjbsr\tget_address
+\t.endm
+
+\t.macro GET_{reg.upper()}_ADDRESS_FROM_REG\treg
+\tmove.l\t\\reg,{registers['awork1']}
 \tadd.l\t{registers[reg]},{registers['awork1']}
 \tjbsr\tget_address
 \t.endm
