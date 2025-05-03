@@ -1,8 +1,5 @@
 # TODO:
 #
-#  direct mode with page, debug a lot of instructions
-# $f6fb: lda    >$0000 ????
-#
 # generic_shift_op: remainders of 6502: crash if not a register ATM
 #  andcc
 #  lds
@@ -38,6 +35,7 @@ parser.add_argument("-s","--spaces",help="replace tabs by x spaces",type=int)
 parser.add_argument("-n","--no-mame-prefixes",help="treat as real source, not MAME disassembly",action="store_true")
 parser.add_argument("-c","--code-output",help="68000 source code output file",required=True)
 parser.add_argument("-d","--data-output",help="data output file")
+parser.add_argument("-I","--include-output",help="include output file",required=True)
 parser.add_argument("input_file")
 
 
@@ -188,7 +186,8 @@ registers = {
 "dwork2":"d7",
 "awork1":"a0",
 #"p":"sr",
-"base":"a6"}
+"dp_base":"a4"
+}
 inv_registers = {v:k.upper() for k,v in registers.items()}
 
 
@@ -504,7 +503,9 @@ def generic_indexed_to(inst,src,args,comment,word=False):
             return f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
 \t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
 
-    return f"""\tGET_ADDRESS\t{arg}{comment}
+    gaf,arg = get_get_address_function(arg)
+
+    return f"""\t{gaf}\t{arg}{comment}
 \t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
 
 def generic_indexed_from(inst,dest,args,comment,word=False):
@@ -539,7 +540,6 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
        # various optims
     else:
         if arg.startswith(OPENING_BRACKET):
-            # Y indirect indexed untested
             arg = arg.strip(BRACKETS)
             out = f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
 \t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
@@ -559,10 +559,24 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
 
             return f"\t{inst}\t{arg},{regdst}{comment}"
 
-    return f"""\tGET_ADDRESS\t{arg}{comment}
+    # we have to choose between GET_ADDRESS and GET_DP_ADDRESS
+    # depending on the value of the argument
+    gaf,arg = get_get_address_function(arg)
+    return f"""\t{gaf}\t{arg}{comment}
 \t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
 
 
+def get_get_address_function(arg):
+    if arg[0] == ">":
+        # not direct mode, forced
+        arg = arg[1:]
+        return "GET_ADDRESS",arg
+    try:
+        value = parse_hex(arg)
+    except ValueError:
+        # identifier has been renamed: split and get the value
+        value = int(arg.rsplit("_",1)[-1],16)
+    return ("GET_ADDRESS" if value >= 0x100 else "GET_DP_ADDRESS"),arg
 
 
 def f_jmp(args,comment):
@@ -742,7 +756,7 @@ for i,(l,is_inst,address) in enumerate(lines):
                 out = f"\t{si}{comment}"
             else:
                 unknown_instructions.add(inst)
-                out = f'\t{error}\tunknown instruction {inst}"{comment}'
+                out = f'\t{error}\t"unknown instruction {inst}"{comment}'
         else:
             inst = itoks[0]
             args = itoks[1:]
@@ -1031,23 +1045,24 @@ if True:
     C = registers['c']
     V = "WTF"
     W = registers['dwork1']
-    f.write(f"""{out_start_line_comment} Converted with 6502to68k by JOTD
+    f.write(f"""{out_start_line_comment} Converted with 6809to68k by JOTD
 {out_start_line_comment}
-{out_start_line_comment} make sure you call "cpu_init" first so bits 8-15 of data registers
-{out_start_line_comment} are zeroed out so we can use (ax,dy.w) addressing mode
+{out_start_line_comment} make sure you call "cpu_init" first so all bits of data registers
+{out_start_line_comment} are zeroed out so we can use add.l dy,ax with dy > 0x7FFF
 {out_start_line_comment} without systematic masking
 {out_start_line_comment}
-{out_start_line_comment} WARNING: you also have to add clr.w {registers['x']} and clr.w {registers['y']}
+{out_start_line_comment} WARNING: you also have to call "cpu_init"
 {out_start_line_comment} at start of any interrupt you could hook
-{out_start_line_comment} we don't want to mask those at each X,Y indexed instruction
-{out_start_line_comment} for performance reasons
+{out_start_line_comment}
+{out_start_line_comment} the GET_ADDRESS macro can just call get_address or it can also use
+{out_start_line_comment} conditional compilation to select the proper memory banks at compile time
+{out_start_line_comment} (see my burger time 6502 conversion which does that in RELEASE mode)
+
 
 """)
 
     if cli_args.output_mode == "mit":
         f.write(f"""
-
-
 \t.macro\tMAKE_D
 \trol.w\t#8,{registers['a']}
 \tmove.b\t{registers['b']},{registers['a']}
@@ -1141,6 +1156,10 @@ if True:
 \tjbsr\tget_address
 \t.endm
 
+\t.macro GET_DP_ADDRESS\toffset
+\tlea\t({registers['dp_base']},\offset.W),{registers['awork1']}
+\t.endm
+
 
 \t.macro GET_INDIRECT_ADDRESS\toffset
 \tGET_ADDRESS\t\\offset
@@ -1149,7 +1168,11 @@ if True:
 \t.endm
 
 \t.macro SET_DP_FROM_A
-\t{error}  "implement this!!"
+\tlsl.w    #8,{registers['a']}
+\tmove.l    {registers['a']},{registers['awork1']}
+\tjbsr    get_address
+\tmove.l\t{registers['awork1']},{registers['dp_base']}
+\tlsr.w    #8,{registers['a']}
 \t.endm
 
 \t.macro SET_DP_FROM    \\reg
@@ -1265,12 +1288,20 @@ GET_ADDRESS:MACRO
 
 """)
 
+if os.path.exists(cli_args.include_output):
+    print("Skipping already created file file {cli_args.include_output}")
+else:
+    print("Generating file {cli_args.include_output}")
+    with open(cli_args.include_output,"w") as fw:
+        fw.write(f.getvalue())
 
-buffer = f.getvalue()+"".join(nout_lines)
+buffer = f"""\t.include "{cli_args.include_output}"
+
+"""+"".join(nout_lines)
 
 # remove review flags if requested (not recommended!!)
 if cli_args.no_review:
-    nout_lines = [line for line in buffer.splitlines(True) if "^ TODO" not in line]
+    nout_lines = [line for line in buffer.splitlines(True) if "{error}" not in line]
 else:
     nout_lines = [line for line in buffer.splitlines(True)]
 
