@@ -1163,6 +1163,23 @@ if True:
 \t.macro POP_SR
 \tmove.w\t(sp)+,ccr
 \t.endm
+\t.macro\tMOVE_W_TO_REG\tsrc,dest
+\tror.w\t#8,\\dest
+\tmove.b\t\\src+,\\dest
+\tror.w\t#8,\\dest
+\tmove.b\t\\src,\\dest
+\tsubq\t#1,\\dest
+\t.endm
+
+\t.macro    MOVE_W_FROM_REG    src,dest
+\tror.w\t#8,\\src
+\tmove.b\t\\src,\\dest+
+\tror.w\t#8,\src
+\tmove.b\t\\src,\\dest
+\tsubq\t#1,\\dest
+\t.endm
+\t.endif
+
 \t.else
 \t.macro PUSH_SR
 \tmove.w\tsr,-(sp)
