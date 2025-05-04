@@ -214,10 +214,10 @@ single_instructions = {"nop":"nop",
 "asrb":f"asr.b\t#1,{registers['b']}",
 "tsta":f"tst.b\t{registers['a']}",
 "tstb":f"tst.b\t{registers['b']}",
-"rora":f"roxr\t#1,{registers['a']}",
-"rola":f"roxl\t#1,{registers['a']}",
-"rorb":f"roxr\t#1,{registers['b']}",
-"rolb":f"roxl\t#1,{registers['b']}",
+"rora":f"roxr.b\t#1,{registers['a']}",
+"rola":f"roxl.b\t#1,{registers['a']}",
+"rorb":f"roxr.b\t#1,{registers['b']}",
+"rolb":f"roxl.b\t#1,{registers['b']}",
 
 
 "php":"PUSH_SR",
@@ -299,15 +299,15 @@ def f_ldb(args,comment):
 def f_sta(args,comment):
     return generic_store('a',args,comment)
 def f_stu(args,comment):
-    return generic_store('u',args,comment)
+    return generic_store('u',args,comment,word=True)
 def f_std(args,comment):
     return "\tMAKE_D\n"+generic_store('a',args,comment,word=True)
 def f_stb(args,comment):
     return generic_store('b',args,comment)
 def f_stx(args,comment):
-    return generic_store('x',args,comment)
+    return generic_store('x',args,comment,word=True)
 def f_sty(args,comment):
-    return generic_store('y',args,comment)
+    return generic_store('y',args,comment,word=True)
 def f_ldx(args,comment):
     return clear_reg('x') + generic_load('x',args,comment, word=True)
 def f_leax(args,comment):
@@ -472,7 +472,8 @@ def generic_indexed_to(inst,src,args,comment,word=False):
     suffix = ".w" if word else ".b"
     if inst.islower():
         inst += suffix
-    y_indexed = False
+
+
     regsrc = registers.get(src,src)
     if len(args)>1:
         # register indexed. There are many modes!
@@ -486,6 +487,10 @@ def generic_indexed_to(inst,src,args,comment,word=False):
             rval = f"\tGET_{invsa.upper()}_ADDRESS\t0{comment}\n"
             if increment:
                 rval += f"\taddq.w\t#{increment},{sa}\n"
+
+            if inst == "move.w":
+                # avoid odd address exception on 68000
+                inst = "MOVE_W_FROM_REG"
 
             rval += f"\t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"
             return rval
@@ -504,7 +509,11 @@ def generic_indexed_to(inst,src,args,comment,word=False):
             return f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
 \t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
 
-    gaf,arg = get_get_address_function(arg)
+    gaf,arg,value = get_get_address_function(arg)
+    if value % 2 and inst == "move.w":
+        inst = "MOVE_W_FROM_REG"
+    elif value % 2 == 0 and inst == "MOVE_W_FROM_REG":
+        inst = "move.w"
 
     return f"""\t{gaf}\t{arg}{comment}
 \t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
@@ -515,6 +524,8 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
     size = "w" if word else "b"
     if inst.islower():
         inst += f".{size}"
+
+
     y_indexed = False
 
     regdst = registers[dest]
@@ -545,6 +556,10 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
                     arg = registers['a']
                 else:
                     arg = registers[arg]
+            if inst == "move.w":
+                # avoid odd address exception on 68000
+                inst = "MOVE_W_TO_REG"
+
             return prefix+f"""\tGET_{invsa.upper()}_ADDRESS{fromreg}\t{arg}{comment}
 \t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
        # various optims
@@ -556,9 +571,7 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
             return out
         elif arg[0]=='#':
             # various optims for immediate mode
-            if inst=="move.b":
-                if word:
-                    inst = "move.w"
+            if inst=="move.w":
                 val = parse_hex(arg[1:],"WTF")
                 if val == 0:
                     # move 0 => clr
@@ -571,22 +584,27 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
 
     # we have to choose between GET_ADDRESS and GET_DP_ADDRESS
     # depending on the value of the argument
-    gaf,arg = get_get_address_function(arg)
+    gaf,arg,value = get_get_address_function(arg)
+    if value % 2 and inst == "move.w":
+        inst = "MOVE_W_TO_REG"
+
     return f"""\t{gaf}\t{arg}{comment}
 \t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
 
 
 def get_get_address_function(arg):
-    if arg[0] == ">":
-        # not direct mode, forced
-        arg = arg[1:]
-        return "GET_ADDRESS",arg
+    darg = arg.strip(">")
     try:
-        value = parse_hex(arg)
+        value = parse_hex(darg)
     except ValueError:
         # identifier has been renamed: split and get the value
-        value = int(arg.rsplit("_",1)[-1],16)
-    return ("GET_ADDRESS" if value >= 0x100 else "GET_DP_ADDRESS"),arg
+        value = int(darg.rsplit("_",1)[-1],16)
+
+
+    if arg[0] == ">":
+        # not direct mode, forced
+        return "GET_ADDRESS",darg,value
+    return ("GET_ADDRESS" if value >= 0x100 else "GET_DP_ADDRESS"),darg,value
 
 
 def f_jmp(args,comment):
@@ -1162,7 +1180,7 @@ if True:
 \t.endm
 
 \t.macro GET_ADDRESS\toffset
-\tlea\t\offset,{registers['awork1']}
+\tlea\t\\offset,{registers['awork1']}
 \tjbsr\tget_address
 \t.endm
 
@@ -1195,8 +1213,12 @@ if True:
 """)
         for reg in "xyu":
             f.write(f"""\t.macro GET_{reg.upper()}_ADDRESS\toffset
+\t.ifeq\\offset
+\tmove.l\t{registers[reg]},{registers['awork1']}
+\t.else
 \tlea\t\\offset,{registers['awork1']}
 \tadd.l\t{registers[reg]},{registers['awork1']}
+\t.endif
 \tjbsr\tget_address
 \t.endm
 
