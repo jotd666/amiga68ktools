@@ -1094,7 +1094,6 @@ if True:
 \t.macro\tMAKE_D
 \trol.w\t#8,{registers['a']}
 \tmove.b\t{registers['b']},{registers['a']}
-\trol.w\t#8,{registers['a']}
 \t.endm
 
 
