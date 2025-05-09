@@ -181,7 +181,8 @@ def issue_warning(msg,newline=False):
 # u => d3
 
 registers = {
-"a":"d0","b":"d1","x":"d2","y":"d3","u":"d4","c":"d5",
+"a":"d0","b":"d1","x":"d2","y":"d3","u":"d4",
+"dwork0":"d5",
 "dwork1":"d6",
 "dwork2":"d7",
 "awork1":"a0",
@@ -281,17 +282,14 @@ def f_ldd(args,comment):
         v = parse_hex(tok,tok)
         if v == tok:
             msb = f"(({v})>>8)"
-            lsb = f"(({v})&0xFF)"
         else:
             msb = f"{out_hex_sign}{v>>8:02x}"
-            lsb = f"{out_hex_sign}{v&0xFF:02x}"
 
         out = f"\tmove.b\t#{msb},{registers['a']}{comment}\n"
-        out += f"\tmove.b\t#{lsb},{registers['b']}{comment}"
+        out += f"\tmove.w\t#{out_hex_sign}{v:04x},{registers['b']}{comment}"
     else:
-        out = f_lda(args,comment)
-        out += f"\n\tmove.b\t(1,{registers['awork1']}),{registers['b']}{comment}"
-    out += f"\n\tMAKE_D{comment}\n\ttst.w\t{registers['a']}{comment}"
+        out = generic_indexed_from("","a",args,comment)
+        out += f"\n\tLOAD_D{comment}"
     return out
 
 def f_ldb(args,comment):
@@ -301,7 +299,7 @@ def f_sta(args,comment):
 def f_stu(args,comment):
     return generic_store('u',args,comment,word=True)
 def f_std(args,comment):
-    return "\tMAKE_D\n"+generic_store('a',args,comment,word=True)
+    return "\tMAKE_D\n"+generic_store('b',args,comment,word=True)
 def f_stb(args,comment):
     return generic_store('b',args,comment)
 def f_stx(args,comment):
@@ -339,9 +337,9 @@ def f_tfr(args,comment):
         return out
 
     if srcreg=="d":
-        srcreg=registers['a']
+        srcreg=registers['b']
     if dstreg=="d":
-        dstreg=registers['a']
+        dstreg=registers['b']
 
     # condition flags not affected!
     out = f"\tPUSH_SR\n\tmove.{ext}\t{srcreg},{dstreg}{comment}\n\tPOP_SR"
@@ -362,7 +360,7 @@ def generic_lea(dest,args,comment):
             first_arg = first_arg[1:]
             inst = "sub"
         elif first_arg=="d":
-            first_arg=registers['a']
+            first_arg=registers['b']
             rval = "\tMAKE_D\n"
         if is_immediate_value(first_arg):
             quick = "q" if parse_hex(first_arg) < 0x10 else ""
@@ -456,13 +454,15 @@ def f_adda(args,comment):
 def f_addb(args,comment):
     return generic_indexed_from("add",'b',args,comment)
 def f_addd(args,comment):
-    return "\tMAKE_D\n"+generic_indexed_from("add",'a',args,comment,word=True)
+    return "\tMAKE_D\n"+generic_indexed_from("add",'b',args,comment,word=True)
 def f_suba(args,comment):
     return generic_indexed_from("sub",'a',args,comment)
 def f_subb(args,comment):
     return generic_indexed_from("sub",'b',args,comment)
 def f_sbca(args,comment):
     return generic_indexed_from("subx",'a',args,comment)
+def f_subd(args,comment):
+    return "\tMAKE_D\n"+generic_indexed_from("sub",'b',args,comment,word=True)
 def f_sbcb(args,comment):
     return generic_indexed_from("subx",'b',args,comment)
 
@@ -519,10 +519,14 @@ def generic_indexed_to(inst,src,args,comment,word=False):
 \t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
 
 def generic_indexed_from(inst,dest,args,comment,word=False):
+    """
+    if inst is empty, just issue the address load
+    """
+
     arg = args[0]
 
     size = "w" if word else "b"
-    if inst.islower():
+    if inst and inst.islower():
         inst += f".{size}"
 
 
@@ -541,8 +545,8 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
             rval = f"\tGET_{invsa.upper()}_ADDRESS\t0{comment}\n"
             if increment:
                 rval += f"\taddq.w\t#{increment},{sa}\n"
-
-            rval += f"\t{inst}\t(a0),{regdst}{out_comment} [...]"
+            if inst:
+                rval += f"\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"
             return rval
         else:
             # X/Y indexed direct (6809 tested: ldd    $0200,x or ldx d,x)
@@ -553,15 +557,17 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
                 fromreg = "_FROM_REG"
                 if arg=='d':
                     prefix = "\tMAKE_D\n"
-                    arg = registers['a']
+                    arg = registers['b']
                 else:
                     arg = registers[arg]
             if inst == "move.w":
                 # avoid odd address exception on 68000
                 inst = "MOVE_W_TO_REG"
 
-            return prefix+f"""\tGET_{invsa.upper()}_ADDRESS{fromreg}\t{arg}{comment}
-\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
+            out = prefix+f"\tGET_{invsa.upper()}_ADDRESS{fromreg}\t{arg}{comment}"
+            if inst:
+                out += f"\n\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"
+            return out
        # various optims
     else:
         if arg.startswith(OPENING_BRACKET):
@@ -588,9 +594,11 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
     if value % 2 and inst == "move.w":
         inst = "MOVE_W_TO_REG"
 
-    return f"""\t{gaf}\t{arg}{comment}
-\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
+    out = f"\t{gaf}\t{arg}{comment}"
+    if inst:
+        out += f"\n\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"
 
+    return out
 
 def get_get_address_function(arg):
     darg = arg.strip(">")
@@ -1070,8 +1078,6 @@ if True:
     Y = registers['y']
     U = registers['u']
     A = registers['a']
-    C = registers['c']
-    V = "WTF"
     W = registers['dwork1']
     f.write(f"""{out_start_line_comment} Converted with 6809to68k by JOTD
 {out_start_line_comment}
@@ -1092,14 +1098,16 @@ if True:
     if cli_args.output_mode == "mit":
         f.write(f"""
 \t.macro\tMAKE_D
-\trol.w\t#8,{registers['a']}
-\tmove.b\t{registers['b']},{registers['a']}
+{out_start_line_comment} add value of A in B MSB so D&0xFF == B
+\trol.w\t#8,{registers['b']}
+\tmove.b\t{registers['a']},{registers['b']}
+\trol.w\t#8,{registers['b']}
 \t.endm
 
-
-\t.macro\tMAKE_B
-\tmove.w\t{registers['a']},{registers['b']}
-\trol.w\t#8,{registers['b']}
+\t.macro\tLOAD_D
+\tmove.b\t({registers['awork1']}),d0
+\tmove.b\t(1,{registers['awork1']}),d1
+\tMAKE_D
 \t.endm
 
 \t.macro INVERT_XC_FLAGS
@@ -1135,19 +1143,6 @@ if True:
 \tPOP_SR
 \t.endm
 
-\t.macro CLR_XC_FLAGS
-\tmoveq\t#0,{C}
-\troxl.b\t#1,{C}
-\t.endm
-\t.macro SET_XC_FLAGS
-\tst\t{C}
-\troxl.b\t#1,{C}
-\t.endm
-
-\t.macro CLR_V_FLAG
-\tmoveq\t#0,{V}
-\tadd.b\t{V},{V}
-\t.endm
 
 \t.macro SET_I_FLAG
     {error}   "TODO: insert interrupt disable code here"
@@ -1348,6 +1343,18 @@ else:
     print("Generating file {cli_args.include_output}")
     with open(cli_args.include_output,"w") as fw:
         fw.write(f.getvalue())
+        A ={registers['a']}
+        B ={registers['b']}
+        fw.write(f"""
+multiply_ab:
+\tand.w\t#{out_hex_sign}FF,{A}
+\tand.w\t#{out_hex_sign}FF,{B}
+\tmulu\t{A},{B}
+\tror.w\t#8,{B}
+\tmove.b\t{B},{A}
+\tror.w\t#8,{B}
+\trts
+""")
 
 buffer = f"""\t.include "{cli_args.include_output}"
 
@@ -1362,13 +1369,6 @@ else:
 with open(cli_args.code_output,"w") as f:
     f.writelines(nout_lines)
 
-    f.write(f"""
-multiply_ab:
-\tand.w\t#{out_hex_sign}FF,{registers['a']}
-\tand.w\t#{out_hex_sign}FF,{registers['b']}
-\tmulu\t{registers['b']},{registers['a']}
-\trts
-""")
 
 print(f"Converted {converted} lines on {len(lines)} total, {instructions} instruction lines")
 print(f"Converted instruction ratio {converted}/{instructions} {int(100*converted/instructions)}%")
