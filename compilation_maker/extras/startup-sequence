@@ -1,0 +1,15 @@
+C:freeanim >NIL:
+C:setpatch >NIL:
+C:Assign T: RAM:
+C:Assign AGS: SYS:AGS
+C:Assign ENV: RAM:
+setenv QUITKEY 92
+C:Anticlick
+devs:monitors/PAL
+devs:monitors/NTSC
+; avoid that that crap AGS program corrupts itself
+; put it in RAM 
+C:Assign AGS: ram: add
+copy sys:ags/AG#? ram: >NIL:
+copy sys:AGS/orig_AGS2Menu ram:AGS2Menu
+RAM:AGS2

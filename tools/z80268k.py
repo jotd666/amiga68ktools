@@ -1096,33 +1096,37 @@ with open(cli_args.code_output,"w") as f:
 \tmovem.w\t(a7)+,d7
 \t.endm
 
+* those macros use rol/ror instead of lsl/lsr
+* which doesn't clear MSB/LSB but matters much less than
+* leaving X untouched for next operations
+
 \t.macro\tLOAD_D1_16_FROM_D1D2
 \tand.l\t#0xFFFF,d1
-\tlsl.w\t#8,d1
+\trol.w\t#8,d1
 \tmove.b\td2,d1
 \t.endm
 \t
 \t.macro\tLOAD_D3_16_FROM_D3D4
 \tand.l\t#0xFFFF,d3
-\tlsl.w\t#8,d3
+\trol.w\t#8,d3
 \tmove.b\td4,d3
 \t.endm
 \t.macro\tLOAD_D5_16_FROM_D5D6
 \tand.l\t#0xFFFF,d5
-\tlsl.w\t#8,d5
+\trol.w\t#8,d5
 \tmove.b\td6,d5
 \t.endm
 \t.macro\tLOAD_D1D2_FROM_D1_16
 \tmove.b\td1,d2
-\tlsr.w\t#8,d1
+\tror.w\t#8,d1
 \t.endm
 \t.macro\tLOAD_D5D6_FROM_D5_16
 \tmove.b\td5,d6
-\tlsr.w\t#8,d5
+\tror.w\t#8,d5
 \t.endm
 \t.macro\tLOAD_D3D4_FROM_D3_16
 \tmove.b\td3,d4
-\tlsr.w\t#8,d3
+\tror.w\t#8,d3
 \t.endm
 
 """)
