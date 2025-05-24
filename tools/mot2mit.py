@@ -54,6 +54,29 @@ def optimize_jump(m):
 
     return "{}{}{}".format(blank,opcode,rest)
 
+def process_if_expression(m):
+    expr = m.group(1)
+    # replace "=" by "-" so
+    # if  a=b   =>   .ifeq  a-b
+    # if  a<b   =>   .if  a-b
+    # if  a>b   =>   .if  a-b
+    # probably not perfect
+    toks = expr.split("=")
+    if len(toks)==2:
+        if toks[1]=="0":
+            toks.pop()
+        expr = "-".join(toks)
+        return f".ifeq\t{expr}"
+
+    toks = expr.split("<")
+    if len(toks)==2:
+        return f".if\t{expr}"
+    toks = expr.split(">")
+    if len(toks)==2:
+        return f".if\t{expr}"
+
+    return f".ifeq\t{expr}"
+
 regexes_rev = [
 # de-collate suffix : moveb => move.b
 (r"^(\w*:?[ \t]+)(\w+)",convert_size),
@@ -97,14 +120,24 @@ regexes_1 = [
 # ";" to "|" for other comments
 (";","|"),
 # include directive
-(r"(\s+)include\b",r"\1.include"),
+(r"(\s+)include\b\s+(\S+)",r'\1.include "\2"'),
 # include directive
 (r"\bxdef\b",r".global"),
 # conditionals
-(r"\bendc\b",r".endif"),
+(r"\bend(c|if)\b",r".endif"),
+(r"\bsection\b",r".section"),
+(r"\bendm\b",r".endm"),
+(r"\bendr\b",r".endr"),
+(r"\brept\b",r".rept"),
+(r"\b(\w+)\s+macro",r"\t.macro\t\1"),
+(r"\becho\s*$",r""),
+(r"\becho\b",r".error"),
 (r"\belse\b",r".else"),
-(r"\bif(n*)d\b",r".if\1def"),
+(r"\bifd\b",r".ifdef"),
+(r"\bifnd\b",r".ifndef"),
 (r"\bif(eq|ne)\b",r".if\1"),
+(r"^(\s*\w+\s+)equ(\s+)",r"\1=\2"),
+(r"\bif\b\s+(\S+)",process_if_expression),
 (r"\beven\b",r".align\t2"),
 # mnemonic synomyms
 (r"\bshs\b",r"scc"),
