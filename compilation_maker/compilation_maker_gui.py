@@ -4,7 +4,7 @@ from collections import OrderedDict
 import compilation_maker
 
 class MyApp(wx_generic_gui_frame.GenericApp):
-    __VERSION_NUMBER = "1.2"
+    __VERSION_NUMBER = "1.3"
     __MODULE_FILE = __file__ if not hasattr(sys,'frozen') else sys.executable
     __PROGRAM_NAME = "CD/HD compilation maker (GUI)"
     __PROGRAM_DIR = os.path.abspath(os.path.dirname(__MODULE_FILE))

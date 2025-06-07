@@ -32,10 +32,11 @@ def doit(destination_directory,kickstarts_dir=None,ags_subdir="AGS",master_quitk
 
     shutil.copytree(libs_source,dest_lib)
 
-    for i in ["AGS2","AGS2.conf","AGS2Helper","AGS2Menu",
+    for i in ["AGS2","AGS2.conf","AGS2Helper","orig_AGS2Menu",
     "AGAWide-Background.iff","AGAWide-Empty.iff","README.txt"]:
         shutil.copy(os.path.join(ags2_source, i), os.path.join(destination_directory, ags_subdir))
-
+    # copy with direct ok name too
+    shutil.copy(os.path.join(ags2_source, "orig_AGS2Menu"), os.path.join(destination_directory, ags_subdir,"AGS2Menu"))
     mkdir("devs")
     if kickstarts_dir:
         mkdir("devs/kickstarts")

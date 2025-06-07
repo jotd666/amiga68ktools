@@ -58,8 +58,6 @@ def process_if_expression(m):
     expr = m.group(1)
     # replace "=" by "-" so
     # if  a=b   =>   .ifeq  a-b
-    # if  a<b   =>   .if  a-b
-    # if  a>b   =>   .if  a-b
     # probably not perfect
     toks = expr.split("=")
     if len(toks)==2:
@@ -68,14 +66,8 @@ def process_if_expression(m):
         expr = "-".join(toks)
         return f".ifeq\t{expr}"
 
-    toks = expr.split("<")
-    if len(toks)==2:
-        return f".if\t{expr}"
-    toks = expr.split(">")
-    if len(toks)==2:
-        return f".if\t{expr}"
 
-    return f".ifeq\t{expr}"
+    return f".if\t{expr}"
 
 regexes_rev = [
 # de-collate suffix : moveb => move.b
@@ -135,9 +127,11 @@ regexes_1 = [
 (r"\belse\b",r".else"),
 (r"\bifd\b",r".ifdef"),
 (r"\bifnd\b",r".ifndef"),
+(r"\b(blk|ds).b\b",r".skip"),
 (r"\bif(eq|ne)\b",r".if\1"),
 (r"^(\s*\w+\s+)equ(\s+)",r"\1=\2"),
-(r"\bif\b\s+(\S+)",process_if_expression),
+#(r"\bif\b\s+(\S+)",process_if_expression),
+(r"^( +)\bif\b",r"\1.if"),   # avoids changing "if" in comments!
 (r"\beven\b",r".align\t2"),
 # mnemonic synomyms
 (r"\bshs\b",r"scc"),
