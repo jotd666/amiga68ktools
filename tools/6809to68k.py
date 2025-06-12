@@ -4,6 +4,14 @@
 #  andcc
 #  lds
 #
+# jmp    [d0                                    | [$f711: jmp    [a,y]] [jump_table]
+#  bita
+#  bitb
+#  com
+#  lsr
+# check ROR
+
+
 
 
 # post_proc: tst.w + GET_.*ADDRESS => remove tst.w
@@ -66,6 +74,7 @@ if cli_args.output_mode == "mit":
     out_word_decl = ".word"
     out_long_decl = ".long"
     jsr_instruction = "jbsr"
+    branch_prefix = "j"
 else:
     out_comment = ";"
     out_start_line_comment = out_comment
@@ -73,6 +82,9 @@ else:
     out_byte_decl = "dc.b"
     out_long_decl = "dc.l"
     jsr_instruction = "jsr"
+    branch_prefix = "b"
+
+make_d_prefix = f"\tMAKE_D\t{out_comment} [...]\n"
 
 # input & output comments are "*" and "|" (MIT syntax)
 # some day I may set as as an option...
@@ -106,6 +118,13 @@ def split_params(params):
 
     rval.append("".join(cur))
     return rval
+
+def compose_instruction(inst,regdst):
+    if regdst:
+        out = f"\n\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"
+    else:
+        out = f"\n\t{inst}\t({registers['awork1']}){out_comment} [...]"
+    return out
 
 def change_tst_to_btst(nout_lines,i):
     nout_lines[i-1] = nout_lines[i-1].replace("tst.b\t","btst.b\t#6,")
@@ -181,13 +200,13 @@ def issue_warning(msg,newline=False):
 # u => d3
 
 registers = {
-"a":"d0","b":"d1","x":"d2","y":"d3","u":"d4",
-"dwork0":"d5",
+"a":"d0","b":"d1","x":"d2","y":"d3","u":"d4","s":"d5",
 "dwork1":"d6",
 "dwork2":"d7",
 "awork1":"a0",
 #"p":"sr",
-"dp_base":"a4"
+"dp_base":"a4",
+"":""
 }
 inv_registers = {v:k.upper() for k,v in registers.items()}
 
@@ -196,6 +215,7 @@ inv_registers = {v:k.upper() for k,v in registers.items()}
 
 single_instructions = {"nop":"nop",
 "rts":"rts",
+"daa":"DAA",
 "mul":"jbsr\tmultiply_ab",
 "nega":f"neg.b\t{registers['a']}",
 "negb":f"neg.b\t{registers['b']}",
@@ -215,6 +235,8 @@ single_instructions = {"nop":"nop",
 "asrb":f"asr.b\t#1,{registers['b']}",
 "tsta":f"tst.b\t{registers['a']}",
 "tstb":f"tst.b\t{registers['b']}",
+"coma":f"not.b\t{registers['a']}",
+"comb":f"not.b\t{registers['b']}",
 "rora":f"roxr.b\t#1,{registers['a']}",
 "rola":f"roxl.b\t#1,{registers['a']}",
 "rorb":f"roxr.b\t#1,{registers['b']}",
@@ -274,6 +296,22 @@ def f_ldu(args,comment):
 def f_lda(args,comment):
     return generic_load('a',args,comment)
 
+def f_tst(args,comment):
+    return generic_indexed_from("tst","",args,comment)
+
+def f_ror(args,comment):
+    return generic_indexed_to("ror","",args,comment)
+
+##def f_lsr(args,comment):
+##    return generic_indexed_to("lsr","",args,comment)
+
+def f_pshs(args,comment):
+    src = args[0]
+    return f"\tmove.w\t{src},-(sp){comment}"
+def f_puls(args,comment):
+    src = args[0]
+    return f"\tmove.w\t(sp)+,{src}{comment}"
+
 def f_ldd(args,comment):
     src = args[0]
     if src.startswith("#"):
@@ -299,7 +337,7 @@ def f_sta(args,comment):
 def f_stu(args,comment):
     return generic_store('u',args,comment,word=True)
 def f_std(args,comment):
-    return "\tMAKE_D\n"+generic_store('b',args,comment,word=True)
+    return make_d_prefix+generic_store('b',args,comment,word=True)
 def f_stb(args,comment):
     return generic_store('b',args,comment)
 def f_stx(args,comment):
@@ -361,7 +399,7 @@ def generic_lea(dest,args,comment):
             inst = "sub"
         elif first_arg=="d":
             first_arg=registers['b']
-            rval = "\tMAKE_D\n"
+            rval = make_d_prefix
         if is_immediate_value(first_arg):
             quick = "q" if parse_hex(first_arg) < 0x10 else ""
             first_arg = f'#{first_arg}'
@@ -482,9 +520,13 @@ def generic_indexed_to(inst,src,args,comment,word=False):
         if empty_first_arg:
             # 6809 mode that is not on 6502: ,X or ,X+...
             increment = args[1].count("+")
-            sa = index_reg.strip("+")
+            decrement = args[1].count("-")
+            sa = index_reg.strip("+-")
             invsa = inv_registers.get(sa)
-            rval = f"\tGET_{invsa.upper()}_ADDRESS\t0{comment}\n"
+            rval = ""
+            if decrement:
+                rval = f"\tsubq.w\t#{decrement},{sa}\n"
+            rval += f"\tGET_{invsa.upper()}_ADDRESS\t0{comment}\n"
             if increment:
                 rval += f"\taddq.w\t#{increment},{sa}\n"
 
@@ -532,6 +574,11 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
 
     y_indexed = False
 
+    if arg.startswith(OPENING_BRACKET):
+        # only 1 argument actually, re-merge args
+        args = [",".join(args)]
+        arg = args[0]
+
     regdst = registers[dest]
     if len(args)>1:
         # register indexed. There are many modes!
@@ -539,14 +586,20 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
 
         if arg=="":
             # direct without offset with possible increment: (6809 tested: ldd    ,x++)
+            decrement = args[1].count("-")
             increment = args[1].count("+")
-            sa = args[1].strip("+")
+            sa = args[1].strip("+-")
             invsa = inv_registers.get(sa)
-            rval = f"\tGET_{invsa.upper()}_ADDRESS\t0{comment}\n"
+            rval = ""
+            if decrement:
+                rval = f"\tsubq.w\t#{decrement},{sa}\n"
+            rval += f"\tGET_{invsa.upper()}_ADDRESS\t0{comment}\n"
             if increment:
-                rval += f"\taddq.w\t#{increment},{sa}\n"
+                rval += f"\taddq.w\t#{increment},{sa}"
             if inst:
-                rval += f"\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"
+                rval += compose_instruction(inst,regdst)
+            else:
+                rval += "\n"
             return rval
         else:
             # X/Y indexed direct (6809 tested: ldd    $0200,x or ldx d,x)
@@ -566,13 +619,20 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
 
             out = prefix+f"\tGET_{invsa.upper()}_ADDRESS{fromreg}\t{arg}{comment}"
             if inst:
-                out += f"\n\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"
+                out += compose_instruction(inst,regdst)
             return out
        # various optims
     else:
         if arg.startswith(OPENING_BRACKET):
             arg = arg.strip(BRACKETS)
-            out = f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
+            if "," in arg:
+                # indexed
+                arg,regsrc = arg.split(",")
+                z80_reg = inv_registers[regsrc]
+                out = f"""\tGET_{z80_reg}_INDIRECT_ADDRESS\t{arg}{comment}
+\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
+            else:
+                out = f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
 \t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
             return out
         elif arg[0]=='#':
@@ -596,7 +656,7 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
 
     out = f"\t{gaf}\t{arg}{comment}"
     if inst:
-        out += f"\n\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"
+        out += compose_instruction(inst,regdst)
 
     return out
 
@@ -653,7 +713,7 @@ def generic_cmp(args,reg,comment,word=False):
 
 
     p = args[0]
-    if p[0]=='#':
+    if p and p[0]=='#':
         size = "bw"[word]
         if parse_hex(p[1:],"WTF")==0:
             # optim
@@ -668,6 +728,9 @@ def generic_cmp(args,reg,comment,word=False):
 def f_cmpu(args,comment):
     return generic_cmp(args,'u',comment,word=True)
 
+def f_cmpd(args,comment):
+    return "\tMAKE_D\n"+generic_cmp(args,'b',comment,word=True)
+
 def f_cmpa(args,comment):
     return generic_cmp(args,'a',comment)
 
@@ -681,6 +744,8 @@ def f_cmpy(args,comment):
     return generic_cmp(args,'y',comment)
 
 
+def f_bsr(args,comment):
+    return f_jsr(args,comment)
 
 def f_jsr(args,comment):
     func = args[0]
@@ -724,6 +789,8 @@ def f_bmi(args,comment):
     return f_bcond("mi",args,comment)
 def f_bpl(args,comment):
     return f_bcond("pl",args,comment)
+def f_bls(args,comment):
+    return f_bcond("ls",args,comment)
 
 def f_bcond(cond,args,comment):
     func = args[0]
@@ -735,7 +802,7 @@ def f_bcond(cond,args,comment):
         target_address = func
     func = funcc
 
-    out += f"\tb{cond}\t{func}{comment}"
+    out += f"\t{branch_prefix}{cond}\t{func}{comment}"
 
     if target_address is not None:
         add_entrypoint(parse_hex(target_address))
@@ -957,11 +1024,13 @@ clrxcflags_inst = ["CLR_XC_FLAGS"]
 setxcflags_inst = ["SET_XC_FLAGS"]
 
 # sub/add aren't included as they're the translation of dec/inc which don't affect C
-carry_generating_instructions = {"add","sub","cmp","lsr","asl","roxr","roxl","subx","addx"}
+# those are 68000 instructions (used in post-processing)
+carry_generating_instructions = {"add","sub","cmp","lsr","asl","asr","roxr","roxl","subx","addx"}
 
 # post-processing phase is crucial here, as the converted code is guaranteed to be WRONG
 # as opposed to Z80 conversion where it could be optimizations or warnings about well-known
 # problematic constructs
+
 
 for i,line in enumerate(nout_lines):
     line = line.rstrip()
@@ -969,7 +1038,6 @@ for i,line in enumerate(nout_lines):
     if len(toks)==2:
         fp = toks[0].rstrip().split()
         finst = fp[0]
-
         if finst == "bvc":
             if prev_fp:
                 if prev_fp == ["CLR_V_FLAG"]:
@@ -986,7 +1054,7 @@ for i,line in enumerate(nout_lines):
             else:
                 nout_lines[i] += issue_warning("stray bvs test",newline=True)
 
-        elif finst in ("bcc","bcs"):
+        elif finst in ("bcc","bcs","jcc","jcs"):
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
                 inst_no_size = prev_fp[0].split(".")[0]
@@ -994,6 +1062,25 @@ for i,line in enumerate(nout_lines):
                     if not follows_sr_protected_block(nout_lines,i):
                         nout_lines[i] += issue_warning("stray bcc/bcs test",newline=True)
 
+        elif finst == "DAA" and prev_fp:
+            # try to match add/sub + DAA and replace by abcd
+            prev_inst = prev_fp[0]
+            if prev_inst in ["addx.b","subx.b","add.b","sub.b"]:
+                nout_lines[i] = ""
+                tmpreg = registers['dwork1']
+                clear_xc = "\tCLEAR_XC_FLAGS\n" if "addx" not in prev_inst and "subx" not in prev_inst else ""
+                new_inst = prev_inst.replace("addx","abcd")
+                new_inst = new_inst.replace("add","abcd")
+                new_inst = new_inst.replace("subx","sbcd")
+                new_inst = new_inst.replace("sub","sbcd")
+                toks = prev_fp[1].split(",")
+                nout_lines[i-1] = f"""{clear_xc}\tmove.b\t{toks[0]},{tmpreg}\t{out_comment} [...]
+\t{new_inst}\t{tmpreg},{toks[1]}\t{out_comment} [...]
+"""
+
+        elif finst == "MAKE_D" and prev_fp and prev_fp[0] == "LOAD_D":
+            # no need to MAKE_D after LOAD_D
+            nout_lines[i] = ""
         elif finst == "rts":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
@@ -1012,7 +1099,7 @@ for i,line in enumerate(nout_lines):
                 # clc+adc => add (way simpler & faster)
                 nout_lines[i-1] = nout_lines[i-1].replace(setxcflags_inst[0],"")
                 nout_lines[i] = nout_lines[i].replace("subx.b","sub.b")
-        elif finst not in ["bne","beq"] and prev_fp and prev_fp[0] == "cmp.b":
+        elif finst not in {"jls","bls","bne","beq","jne","jeq","jhi","jlo","bhi","blo","bcc","jcc","bcs","jcs"} and prev_fp and prev_fp[0] == "cmp.b":
                 nout_lines[i] = issue_warning("review stray cmp (insert SET_X_FROM_CLEARED_C)",newline=True)+nout_lines[i]
 
         prev_fp = fp
@@ -1046,7 +1133,7 @@ for line in nout_lines:
             nout_lines_2.append("\tPOP_SR\n")
             continue
         elif tok in {"addx","subx"}:
-            comment = "\t|"+line.split(in_comment)[1]
+            comment = "\t|"+line.split(out_comment)[1]
             first_param,second_param = split_params(toks[1])
             if "(" in first_param or '#' in first_param:
                 # 68k can't handle such modes
@@ -1054,8 +1141,8 @@ for line in nout_lines:
                 nout_lines_2.append(line.replace(first_param,tmpreg)+"\n")
                 continue
 
-
-    nout_lines_2.append(line+"\n")
+    if line:
+        nout_lines_2.append(line+"\n")
 
 nout_lines = []
 # ultimate pass to remove useless POP+PUSH SR
@@ -1214,6 +1301,15 @@ if True:
 \tlsr.w    #8,{registers['a']}
 \t.endm
 
+
+\t.macro SET_DP_FROM_A
+\tlsl.w    #8,{registers['a']}
+\tmove.l    {registers['a']},{registers['awork1']}
+\tjbsr    get_address
+\tmove.l\t{registers['awork1']},{registers['dp_base']}
+\tlsr.w    #8,{registers['a']}
+\t.endm
+
 \t.macro SET_DP_FROM    reg
 \texg\t{registers['a']},\\reg
 \tSET_DP_FROM_A
@@ -1230,6 +1326,17 @@ if True:
 \tlea\t\\offset,{registers['awork1']}
 \tadd.l\t{registers[reg]},{registers['awork1']}
 \t.endif
+\tjbsr\tget_address
+\t.endm
+
+\t.macro GET_{reg.upper()}_INDIRECT_ADDRESS\toffset
+\t.ifeq\\offset
+\tmove.l\t{registers[reg]},{registers['awork1']}
+\t.else
+\tlea\t\\offset,{registers['awork1']}
+\tadd.l\t{registers[reg]},{registers['awork1']}
+\t.endif
+\tREAD_BE_WORD\t{registers['awork1']}
 \tjbsr\tget_address
 \t.endm
 
@@ -1338,7 +1445,7 @@ GET_ADDRESS:MACRO
 """)
 
 if os.path.exists(cli_args.include_output):
-    print("Skipping already created file file {cli_args.include_output}")
+    print(f"Skipping already created file {cli_args.include_output}")
 else:
     print("Generating file {cli_args.include_output}")
     with open(cli_args.include_output,"w") as fw:
