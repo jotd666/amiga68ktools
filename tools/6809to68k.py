@@ -329,7 +329,9 @@ def f_ldd(args,comment):
         out = f"\tmove.b\t#{msb},{registers['a']}{comment}\n"
         out += f"\tmove.w\t#{out_hex_sign}{v:04x},{registers['b']}{comment}"
     else:
-        out = generic_indexed_from("","a",args,comment)
+        empty_inst = ""
+
+        out = generic_indexed_from(empty_inst,"a",args,comment)
         out += f"\n\tLOAD_D{comment}"
     return out
 
@@ -406,7 +408,7 @@ def generic_lea(dest,args,comment):
         first_arg=registers['b']
         rval = make_d_prefix
     if is_immediate_value(first_arg):
-        quick = "q" if parse_hex(first_arg) < 0x10 else ""
+        quick = "q" if can_be_quick(first_arg) else ""
         first_arg = f'#{first_arg}'
 
     if args[1]==registers[dest]:
@@ -555,10 +557,26 @@ def generic_indexed_to(inst,src,args,comment,word=False):
         else:
             sa = index_reg
             invsa = inv_registers.get(sa)
-            rval = f"\tGET_{invsa.upper()}_ADDRESS\t{arg}{comment}\n"
+            prefix = ""
+            fromreg = ""
+            if arg in registers or arg=='d':
+                fromreg = "_FROM_REG"
+                if arg=='d':
+                    prefix = "\tMAKE_D\n"
+                    arg = registers['b']
+                else:
+                    arg = registers[arg]
+
+            rval = f"\tGET_{invsa.upper()}_ADDRESS{fromreg}\t{arg}{comment}\n"
+            if inst == "move.w":
+                # avoid odd address exception on 68000
+                inst = "MOVE_W_TO_REG"
 
             rval += f"\t{inst}\t{regsrc}({registers['awork1']}){out_comment} [...]"
             return rval
+
+
+
     else:
         if arg.startswith(OPENING_BRACKET):
             # indirect
@@ -621,6 +639,11 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
             invsa = inv_registers.get(index_reg)
             fromreg = ""
             prefix = ""
+
+            if arg in inv_registers:
+                # first argument is a register: convert back to Z80 register
+                arg = inv_registers[arg].lower()
+
             if arg in registers or arg=='d':
                 fromreg = "_FROM_REG"
                 if arg=='d':
@@ -919,7 +942,7 @@ for i,(l,is_inst,address) in enumerate(lines):
                     # as-is
                     out = l
                 else:
-                    out = f"{l}\n"+issue_warning(f"unknown/unsupported instruction {inst}")
+                    out = f"\n"+issue_warning(f"unknown/unsupported instruction {inst}")+comment
                     unknown_instructions.add(inst)
     else:
         out=address_re.sub(rf"{lab_prefix}\1:",l)
@@ -1225,6 +1248,22 @@ if True:
 \tmove.b\t(1,{registers['awork1']}),d1
 \tMAKE_D
 \t.endm
+
+\t.macro CLEAR_XC_FLAGS
+\tmove.w\td7,-(a7)
+\tmoveq\t#0,{registers['dwork1']}
+\troxl.b\t#1,{registers['dwork1']}
+\tmovem.w\t(a7)+,{registers['dwork1']}
+\t.endm
+
+\t.macro SET_XC_FLAGS
+\tmove.w\t{registers['dwork1']},-(a7)
+\tst\t{registers['dwork1']}
+\troxl.b\t#1,{registers['dwork1']}
+\tmovem.w\t(a7)+,{registers['dwork1']}
+\t.endm
+
+
 
 \t.macro INVERT_XC_FLAGS
 \tPUSH_SR
