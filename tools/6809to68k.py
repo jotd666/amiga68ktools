@@ -5,13 +5,7 @@
 #  lds
 #
 # jmp    [d0                                    | [$f711: jmp    [a,y]] [jump_table]
-#  bita
-#  bitb
-#  com
-#  lsr
-# check ROR
-
-
+# stray jcc after POP_SR
 
 
 # post_proc: tst.w + GET_.*ADDRESS => remove tst.w
@@ -133,7 +127,7 @@ def change_tst_to_btst(nout_lines,i):
 
 address_re = re.compile("^([0-9A-F]{4}):")
 label_re = re.compile("^(\w+):")
-error = ".error"
+error = "ERROR"
 
 # doesn't capture all hex codes properly but we don't care
 if no_mame_prefixes:
@@ -188,7 +182,7 @@ for input_file in input_files:
 
 
 def issue_warning(msg,newline=False):
-    rval =  f'\t.error\t"review {msg}"'
+    rval =  f'\t{error}\t"review {msg}"'
     if newline:
         rval += "\n"
     return rval
@@ -300,7 +294,16 @@ def f_tst(args,comment):
     return generic_indexed_from("tst","",args,comment)
 
 def f_ror(args,comment):
-    return generic_indexed_to("ror","",args,comment)
+    return generic_shift_op("ror","",args,comment)
+
+def f_rol(args,comment):
+    return generic_shift_op("rol","",args,comment)
+
+def f_lsr(args,comment):
+    return generic_shift_op("lsr","",args,comment)
+
+def f_lsl(args,comment):
+    return generic_shift_op("lsl","",args,comment)
 
 ##def f_lsr(args,comment):
 ##    return generic_indexed_to("lsr","",args,comment)
@@ -330,6 +333,9 @@ def f_ldd(args,comment):
         out += f"\n\tLOAD_D{comment}"
     return out
 
+def f_com(args,comment):
+    return generic_indexed_to("not","",args,comment)
+
 def f_ldb(args,comment):
     return generic_load('b',args,comment)
 def f_sta(args,comment):
@@ -354,7 +360,7 @@ def f_leau(args,comment):
     return generic_lea('u',args,comment)
 
 def f_ldy(args,comment):
-    return clear_reg('x') + generic_load('y',args,comment, word=True)
+    return clear_reg('y') + generic_load('y',args,comment, word=True)
 
 def f_inc(args,comment):
     return generic_indexed_to("addq","#1",args,comment)
@@ -390,23 +396,25 @@ def f_clr(args,comment):
 def generic_lea(dest,args,comment):
     rval = ""
     quick = ""
-    if args[1]==registers[dest]:
-        # add or sub
-        first_arg = args[0]
-        inst = "add"
-        if first_arg[0]=="-":
-            first_arg = first_arg[1:]
-            inst = "sub"
-        elif first_arg=="d":
-            first_arg=registers['b']
-            rval = make_d_prefix
-        if is_immediate_value(first_arg):
-            quick = "q" if parse_hex(first_arg) < 0x10 else ""
-            first_arg = f'#{first_arg}'
-        rval += f"\t{inst}{quick}.w\t{first_arg},{args[1]}{comment}"
+    # add or sub
+    first_arg = args[0]
+    inst = "add"
+    if first_arg[0]=="-":
+        first_arg = first_arg[1:]
+        inst = "sub"
+    elif first_arg=="d":
+        first_arg=registers['b']
+        rval = make_d_prefix
+    if is_immediate_value(first_arg):
+        quick = "q" if parse_hex(first_arg) < 0x10 else ""
+        first_arg = f'#{first_arg}'
 
+    if args[1]==registers[dest]:
+        rval += f"\t{inst}{quick}.w\t{first_arg},{args[1]}{comment}"
     else:
-        rval = f'\t{error} "unsupported lea {dest} {args}"'
+        dest_68k = registers[dest]
+        rval += f"\tmove.w\t{args[1]},{dest_68k}{comment}\n"
+        rval += f"\t{inst}{quick}.w\t{first_arg},{dest_68k}{comment}"
 
     return rval
 
@@ -472,6 +480,10 @@ def f_rola(args,comment):
     return generic_shift_op("roxl","a",args,comment)
 def f_ora(args,comment):
     return generic_logical_op("or","a",args,comment)
+def f_bita(args,comment):
+    return generic_logical_op("BIT","a",args,comment)
+def f_bitb(args,comment):
+    return generic_logical_op("BIT","b",args,comment)
 def f_orb(args,comment):
     return generic_logical_op("or","b",args,comment)
 def f_anda(args,comment):
@@ -513,6 +525,9 @@ def generic_indexed_to(inst,src,args,comment,word=False):
 
 
     regsrc = registers.get(src,src)
+    if regsrc:
+        regsrc+=","
+
     if len(args)>1:
         # register indexed. There are many modes!
         index_reg = args[1]
@@ -534,7 +549,7 @@ def generic_indexed_to(inst,src,args,comment,word=False):
                 # avoid odd address exception on 68000
                 inst = "MOVE_W_FROM_REG"
 
-            rval += f"\t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"
+            rval += f"\t{inst}\t{regsrc}({registers['awork1']}){out_comment} [...]"
             return rval
 
         else:
@@ -542,14 +557,14 @@ def generic_indexed_to(inst,src,args,comment,word=False):
             invsa = inv_registers.get(sa)
             rval = f"\tGET_{invsa.upper()}_ADDRESS\t{arg}{comment}\n"
 
-            rval += f"\t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"
+            rval += f"\t{inst}\t{regsrc}({registers['awork1']}){out_comment} [...]"
             return rval
     else:
         if arg.startswith(OPENING_BRACKET):
             # indirect
             arg = arg.strip(BRACKETS)
             return f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
-\t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
+\t{inst}\t{regsrc}({registers['awork1']}){out_comment} [...]"""
 
     gaf,arg,value = get_get_address_function(arg)
     if value % 2 and inst == "move.w":
@@ -558,7 +573,7 @@ def generic_indexed_to(inst,src,args,comment,word=False):
         inst = "move.w"
 
     return f"""\t{gaf}\t{arg}{comment}
-\t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
+\t{inst}\t{regsrc}({registers['awork1']}){out_comment} [...]"""
 
 def generic_indexed_from(inst,dest,args,comment,word=False):
     """
@@ -677,6 +692,8 @@ def get_get_address_function(arg):
 
 def f_jmp(args,comment):
     target_address = None
+    if args[0][0] in BRACKETS:
+        return(f'\tERROR\t"indirect jmp"\t{comment}')
     label = arg2label(args[0])
     if args[0] != label:
         # had to convert the address, keep original to reference it
@@ -738,10 +755,10 @@ def f_cmpb(args,comment):
     return generic_cmp(args,'b',comment)
 
 def f_cmpx(args,comment):
-    return generic_cmp(args,'x',comment)
+    return generic_cmp(args,'x',comment,word=True)
 
 def f_cmpy(args,comment):
-    return generic_cmp(args,'y',comment)
+    return generic_cmp(args,'y',comment,word=True)
 
 
 def f_bsr(args,comment):
@@ -751,6 +768,8 @@ def f_jsr(args,comment):
     func = args[0]
     out = ""
     target_address = None
+    if args[0][0] in BRACKETS:
+        return(f'\tERROR\t"indirect jsr"\t{comment}')
 
     funcc = arg2label(func)
     if funcc != func:
@@ -1069,10 +1088,10 @@ for i,line in enumerate(nout_lines):
                 nout_lines[i] = ""
                 tmpreg = registers['dwork1']
                 clear_xc = "\tCLEAR_XC_FLAGS\n" if "addx" not in prev_inst and "subx" not in prev_inst else ""
-                new_inst = prev_inst.replace("addx","abcd")
-                new_inst = new_inst.replace("add","abcd")
-                new_inst = new_inst.replace("subx","sbcd")
-                new_inst = new_inst.replace("sub","sbcd")
+                new_inst = prev_inst.replace("addx.b","abcd")
+                new_inst = new_inst.replace("add.b","abcd")
+                new_inst = new_inst.replace("subx.b","sbcd")
+                new_inst = new_inst.replace("sub.b","sbcd")
                 toks = prev_fp[1].split(",")
                 nout_lines[i-1] = f"""{clear_xc}\tmove.b\t{toks[0]},{tmpreg}\t{out_comment} [...]
 \t{new_inst}\t{tmpreg},{toks[1]}\t{out_comment} [...]
@@ -1099,7 +1118,7 @@ for i,line in enumerate(nout_lines):
                 # clc+adc => add (way simpler & faster)
                 nout_lines[i-1] = nout_lines[i-1].replace(setxcflags_inst[0],"")
                 nout_lines[i] = nout_lines[i].replace("subx.b","sub.b")
-        elif finst not in {"jls","bls","bne","beq","jne","jeq","jhi","jlo","bhi","blo","bcc","jcc","bcs","jcs"} and prev_fp and prev_fp[0] == "cmp.b":
+        elif finst not in {"jpl","jmi","bpl","bmi","jls","bls","bne","beq","jne","jeq","jhi","jlo","bhi","blo","bcc","jcc","bcs","jcs"} and prev_fp and prev_fp[0] == "cmp.b":
                 nout_lines[i] = issue_warning("review stray cmp (insert SET_X_FROM_CLEARED_C)",newline=True)+nout_lines[i]
 
         prev_fp = fp
@@ -1184,12 +1203,22 @@ if True:
 
     if cli_args.output_mode == "mit":
         f.write(f"""
+\t.macro\tERROR     arg
+\t| \\arg
+\t.endm
+
 \t.macro\tMAKE_D
 {out_start_line_comment} add value of A in B MSB so D&0xFF == B
 \trol.w\t#8,{registers['b']}
 \tmove.b\t{registers['a']},{registers['b']}
 \trol.w\t#8,{registers['b']}
 \t.endm
+
+\t.macro\tBIT\treg,arg
+\tmove.b\t\\reg,{registers['dwork1']}
+\tand.b\t\\arg,{registers['dwork1']}
+\t.endm
+
 
 \t.macro\tLOAD_D
 \tmove.b\t({registers['awork1']}),d0
@@ -1244,6 +1273,16 @@ if True:
 \t.macro POP_SR
 \tmove.w\t(sp)+,ccr
 \t.endm
+
+\t.else
+\t.macro PUSH_SR
+\tmove.w\tsr,-(sp)
+\t.endm
+\t.macro POP_SR
+\tmove.w\t(sp)+,sr
+\t.endm
+\t.endif
+
 \t.macro\tMOVE_W_TO_REG\tsrc,dest
 \tror.w\t#8,\\dest
 \tmove.b\t\\src+,\\dest
@@ -1259,16 +1298,6 @@ if True:
 \tmove.b\t\\src,\\dest
 \tsubq\t#1,\\dest
 \t.endm
-\t.endif
-
-\t.else
-\t.macro PUSH_SR
-\tmove.w\tsr,-(sp)
-\t.endm
-\t.macro POP_SR
-\tmove.w\t(sp)+,sr
-\t.endm
-\t.endif
 
 \t.macro READ_BE_WORD\tsrcreg
 \tmove.b\t(\\srcreg),{registers['dwork1']}
@@ -1302,13 +1331,6 @@ if True:
 \t.endm
 
 
-\t.macro SET_DP_FROM_A
-\tlsl.w    #8,{registers['a']}
-\tmove.l    {registers['a']},{registers['awork1']}
-\tjbsr    get_address
-\tmove.l\t{registers['awork1']},{registers['dp_base']}
-\tlsr.w    #8,{registers['a']}
-\t.endm
 
 \t.macro SET_DP_FROM    reg
 \texg\t{registers['a']},\\reg
@@ -1318,9 +1340,9 @@ if True:
 \t.endm
 
 """)
-        for reg in "xyu":
+        for reg in "xysu":
             f.write(f"""\t.macro GET_{reg.upper()}_ADDRESS\toffset
-\t.ifeq\\offset
+\t.ifeq\t\\offset
 \tmove.l\t{registers[reg]},{registers['awork1']}
 \t.else
 \tlea\t\\offset,{registers['awork1']}
@@ -1330,7 +1352,7 @@ if True:
 \t.endm
 
 \t.macro GET_{reg.upper()}_INDIRECT_ADDRESS\toffset
-\t.ifeq\\offset
+\t.ifeq\t\\offset
 \tmove.l\t{registers[reg]},{registers['awork1']}
 \t.else
 \tlea\t\\offset,{registers['awork1']}
@@ -1439,7 +1461,7 @@ GET_ADDRESS:MACRO
     f.write("\trts\n\n")
 
     f.write(f"""get_address:
-\t{error}: "`TODO: implement this by adding memory base to {registers['awork1']}"
+\t{error} "`TODO: implement this by adding memory base to {registers['awork1']}"
 \trts
 
 """)
@@ -1450,8 +1472,8 @@ else:
     print("Generating file {cli_args.include_output}")
     with open(cli_args.include_output,"w") as fw:
         fw.write(f.getvalue())
-        A ={registers['a']}
-        B ={registers['b']}
+        A =registers['a']
+        B =registers['b']
         fw.write(f"""
 multiply_ab:
 \tand.w\t#{out_hex_sign}FF,{A}
