@@ -4,7 +4,6 @@
 #  andcc
 #  lds
 #
-# jmp    [d0                                    | [$f711: jmp    [a,y]] [jump_table]
 # stray jcc after POP_SR
 
 
@@ -559,6 +558,10 @@ def generic_indexed_to(inst,src,args,comment,word=False):
             invsa = inv_registers.get(sa)
             prefix = ""
             fromreg = ""
+            if arg in inv_registers:
+                # first argument is a register: convert back to Z80 register
+                arg = inv_registers[arg].lower()
+
             if arg in registers or arg=='d':
                 fromreg = "_FROM_REG"
                 if arg=='d':
@@ -966,6 +969,17 @@ for i,(l,is_inst,address) in enumerate(lines):
                 out = f"\t{out_long_decl}\t{','.join(outwords)}"
                 if len(outcom)==2:
                     out += f" {out_comment} {outcom[1]}"
+        if in_hex_sign=="$" and out_hex_sign=="0x":
+            # convert all $ labels to 0x in equates
+            m = re.match("(\w+)\s*(=|equ)\s*\$(\w+)",l,flags=re.IGNORECASE)
+            if m:
+                out = "{} = 0x{}".format(m.group(1),m.group(3))
+        elif out_hex_sign=="$" and in_hex_sign=="0x":
+            # convert all 0x labels to $
+            m = re.match("(\w+)\s*(=|equ)\s*0x(\w+)",l,flags=re.IGNORECASE)
+            if m:
+                out = "{} = ${}".format(m.group(1),m.group(3))
+
     if out and old_out != out:
         converted += 1
     else:
@@ -1313,6 +1327,15 @@ if True:
 \tmove.w\t(sp)+,ccr
 \t.endm
 
+\t.macro\tMOVE_W_TO_REG\tsrc,dest
+\tmove.w\t\\src,\\dest
+\t.endm
+
+\t.macro    MOVE_W_FROM_REG    src,dest
+\tmove.w\t\\dest,\\src
+\t.endm
+
+
 \t.else
 \t.macro PUSH_SR
 \tmove.w\tsr,-(sp)
@@ -1320,7 +1343,6 @@ if True:
 \t.macro POP_SR
 \tmove.w\t(sp)+,sr
 \t.endm
-\t.endif
 
 \t.macro\tMOVE_W_TO_REG\tsrc,dest
 \tror.w\t#8,\\dest
@@ -1337,6 +1359,7 @@ if True:
 \tmove.b\t\\src,\\dest
 \tsubq\t#1,\\dest
 \t.endm
+\t.endif
 
 \t.macro READ_BE_WORD\tsrcreg
 \tmove.b\t(\\srcreg),{registers['dwork1']}
