@@ -5,7 +5,7 @@
 #  lds
 #
 # stray jcc after POP_SR
-
+# group same operations (asr/rol/ror/add...)
 
 # post_proc: tst.w + GET_.*ADDRESS => remove tst.w
 # set macro MOVE_W for alignment (68000/68020) in post processing if source or dest
@@ -523,7 +523,7 @@ def f_andcc(args,comment):
             # immediate value to mask out carry
             rval = f"\tCLR_XC_FLAGS{comment}"
         elif v==0xEF:
-            rval = f"\tCLR_I_FLAGS{comment}"
+            rval = f"\tCLR_I_FLAG{comment}"
 
 
     return rval or unsupported_instruction("andcc",args,comment)
@@ -538,7 +538,7 @@ def f_orcc(args,comment):
             # immediate value to mask out carry
             rval = f"\tSET_XC_FLAGS{comment}"
         elif v==0x10:
-            rval = f"\tSET_I_FLAGS{comment}"
+            rval = f"\tSET_I_FLAG{comment}"
 
     return rval or unsupported_instruction("orcc",args,comment)
 
@@ -1217,6 +1217,44 @@ for i,line in enumerate(nout_lines):
 
         prev_fp = fp
 # post-processing
+grouping = True
+if grouping:
+    # after generation, a lot of instructions can be condensed, specially all INC, ROR, ...
+    prev_toks = None
+    last_line = 0
+    count = 0
+    for i,line in enumerate(nout_lines):
+        line = line.rstrip()
+        sequence_break = True
+        toks = None
+        if line and line[0].isspace():
+            sequence_break = False
+            toks = line.split()[0:2]  # lose offset
+            if toks == prev_toks and len(toks)==2:
+                arg = toks[1].split(",")
+                if len(arg)==2 and arg[0] == "#1":
+                    # xxx.b #1,dest we can group that
+                    count += 1
+                else:
+                    sequence_break = True
+            else:
+                sequence_break = True
+
+        if sequence_break and count:
+            #print(i,last_line,count,prev_toks)
+            for c in range(count):
+                # remove previous same instructions
+                prev_line = nout_lines[last_line-c-1]
+                comment_pos = prev_line.index(out_comment)
+                prev_line = " "*comment_pos + prev_line[comment_pos:]
+                nout_lines[last_line-c-1] = prev_line
+                # group
+                nout_lines[last_line] = nout_lines[last_line].replace("#1,",f"#{count+1},")
+            # reset sequence
+            count = 0
+        if toks is not None:
+            prev_toks = toks
+            last_line = i
 
 # the generator assumed that rol, ror... a lot of operations can work directly on non-data registers
 # for simplicity's sake, now we post-process the generator to insert read to reg/op with reg/write to mem
@@ -1279,7 +1317,8 @@ if True:
     Y = registers['y']
     U = registers['u']
     A = registers['a']
-    W = registers['dwork1']
+    B = registers['b']
+
     f.write(f"""{out_start_line_comment} Converted with 6809to68k by JOTD
 {out_start_line_comment}
 {out_start_line_comment} make sure you call "cpu_init" first so all bits of data registers
@@ -1300,15 +1339,15 @@ if True:
 
     if cli_args.output_mode == "mit":
         f.write(f"""
-\t.macro\tERROR     arg
-\t| \\arg
+\t.macro\tERROR\targ
+\t.error\t\\arg     | comment out to disable errors
 \t.endm
 
 \t.macro\tMAKE_D
 {out_start_line_comment} add value of A in B MSB so D&0xFF == B
-\trol.w\t#8,{registers['b']}
-\tmove.b\t{registers['a']},{registers['b']}
-\trol.w\t#8,{registers['b']}
+\trol.w\t#8,{B}
+\tmove.b\t{A},{B}
+\trol.w\t#8,{B}
 \t.endm
 
 \t.macro\tBIT\treg,arg
@@ -1332,7 +1371,7 @@ if True:
 
 \t.macro SET_XC_FLAGS
 \tmove.w\t{DW},-(a7)
-\tst\t{registers['dwork1']}
+\tst\t{DW}
 \troxl.b\t#1,{DW}
 \tmovem.w\t(a7)+,{DW}
 \t.endm
@@ -1374,10 +1413,10 @@ if True:
 
 
 \t.macro SET_I_FLAG
-    {error}   "TODO: insert interrupt disable code here"
+\t{error}\t"TODO: insert interrupt disable code here"
 \t.endm
 \t.macro CLR_I_FLAG
-    {error}   "TODO: insert interrupt enable code here"
+\t{error}\t"TODO: insert interrupt enable code here"
 \t.endm
 
 \t.macro\tJXX_A_INDEXED
@@ -1548,31 +1587,31 @@ if True:
         f.write(f"""SBC_X:MACRO
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\1
-\tmove.b\t({registers['awork1']},{X}.w),{W}
-\tsubx.b\t{W},{A}
+\tmove.b\t({registers['awork1']},{X}.w),{DW}
+\tsubx.b\t{DW},{A}
 \tINVERT_XC_FLAGS
 \tENDM
 \t
 SBC_Y:MACRO
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\1
-\tmove.b\t({AW},{Y}.w),{W}
-\tsubx.b\t{W},{A}
+\tmove.b\t({AW},{Y}.w),{DW}
+\tsubx.b\t{DW},{A}
 \tINVERT_XC_FLAGS
 \tENDM
 \t
 SBC:MACRO
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\1
-\tmove.b\t({AW}),{W}
-\tsubx.b\t{W},{A}
+\tmove.b\t({AW}),{DW}
+\tsubx.b\t{DW},{A}
 \tINVERT_XC_FLAGS
 \tENDM
 
 SBC_IMM:MACRO
 \tINVERT_XC_FLAGS
-\tmove.b\t#\\1,{W}
-\tsubx.b\t{W},{A}
+\tmove.b\t#\\1,{DW}
+\tsubx.b\t{DW},{A}
 \tINVERT_XC_FLAGS
 \tENDM
 
