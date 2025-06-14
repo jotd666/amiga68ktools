@@ -406,6 +406,17 @@ def generic_lea(dest,args,comment):
     elif first_arg=="d":
         first_arg=registers['b']
         rval = make_d_prefix
+    elif first_arg[0] in BRACKETS:
+        # get address in memory
+        args = [x.strip(BRACKETS) for x in args]
+        # if 8 bit register, mask first
+        rval = ""
+        for arg in args:
+            if inv_registers[arg] in "AB":
+                rval += f"\tand.w\t#0xFF,{arg}{out_comment} mask 8 bit register before add\n"
+        rval += f"\tGET_INDIRECT_ADDRESS_REGS\t{args[0]},{args[1]},{registers[dest]}{comment}"
+        return rval
+
     if is_immediate_value(first_arg):
         quick = "q" if can_be_quick(first_arg) else ""
         first_arg = f'#{first_arg}'
@@ -419,6 +430,10 @@ def generic_lea(dest,args,comment):
 
     return rval
 
+def unsupported_instruction(inst,args,comment):
+    unknown_instructions.add(inst)
+    return issue_warning(f"unknown/unsupported instruction {inst} with args {args}")+comment
+
 def generic_load(dest,args,comment,word=False):
     return generic_indexed_from("move",dest,args,comment,word)
 def generic_store(src,args,comment,word=False):
@@ -427,11 +442,20 @@ def generic_store(src,args,comment,word=False):
 def generic_shift_op(inst,reg,args,comment):
     arg = args[0]
     inst += ".b"
+    if arg=="":
+        # ,reg
+        reg = args[1]
+        invsa = inv_registers.get(reg)
+
+        rval = f"\tGET_{invsa}_ADDRESS\t0{comment}\n"
+        rval += f"\t{inst}\t#1,(a0){comment}"
+        return rval
+
     if arg==registers[reg]:
         return f"\t{inst}\t#1,{arg}{comment}"
     else:
         y_indexed = False
-
+        # this is clearly a 6502 leftover, it doesn't work
         if len(args)>1:
             # register indexed. There are many modes!
             index_reg = args[1].strip(")")
@@ -489,6 +513,35 @@ def f_orb(args,comment):
     return generic_logical_op("or","b",args,comment)
 def f_anda(args,comment):
     return generic_logical_op("and","a",args,comment)
+def f_andcc(args,comment):
+    # we can handle a few special cases
+    arg = args[0]
+    rval = None
+    if arg.startswith("#"):
+        v = int(arg[1:],16)
+        if v==0xFE:
+            # immediate value to mask out carry
+            rval = f"\tCLR_XC_FLAGS{comment}"
+        elif v==0xEF:
+            rval = f"\tCLR_I_FLAGS{comment}"
+
+
+    return rval or unsupported_instruction("andcc",args,comment)
+
+def f_orcc(args,comment):
+    # we can handle a few special cases
+    arg = args[0]
+    rval = None
+    if arg.startswith("#"):
+        v = int(arg[1:],16)
+        if v==0x1:
+            # immediate value to mask out carry
+            rval = f"\tSET_XC_FLAGS{comment}"
+        elif v==0x10:
+            rval = f"\tSET_I_FLAGS{comment}"
+
+    return rval or unsupported_instruction("orcc",args,comment)
+
 def f_andb(args,comment):
     return generic_logical_op("and","b",args,comment)
 def f_eora(args,comment):
@@ -660,7 +713,7 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
 
             out = prefix+f"\tGET_{invsa.upper()}_ADDRESS{fromreg}\t{arg}{comment}"
             if inst:
-                out += compose_instruction(inst,regdst)
+                out = out.rstrip()+compose_instruction(inst,regdst)
             return out
        # various optims
     else:
@@ -903,8 +956,7 @@ for i,(l,is_inst,address) in enumerate(lines):
             if si:
                 out = f"\t{si}{comment}"
             else:
-                unknown_instructions.add(inst)
-                out = f'\t{error}\t"unknown instruction {inst}"{comment}'
+                out = unsupported_instruction(inst,args,comment)
         else:
             inst = itoks[0]
             args = itoks[1:]
@@ -945,8 +997,7 @@ for i,(l,is_inst,address) in enumerate(lines):
                     # as-is
                     out = l
                 else:
-                    out = f"\n"+issue_warning(f"unknown/unsupported instruction {inst}")+comment
-                    unknown_instructions.add(inst)
+                    out = f"\n"+unsupported_instruction(inst,args,comment)
     else:
         out=address_re.sub(rf"{lab_prefix}\1:",l)
         if not re.search(r"\bdc.[bwl]",out,flags=re.I) and not out.strip().startswith((out_start_line_comment,out_comment)):
@@ -984,6 +1035,11 @@ for i,(l,is_inst,address) in enumerate(lines):
         converted += 1
     else:
         out = l
+    if not out.strip():
+        # helps preserving original blank lines and differentiate them from generated
+        # multiple blank lines that are more difficult not to generate :)
+        out = "<blank>"
+
     out_lines.append(out+"\n")
 
 for address in addresses_to_reference:
@@ -1047,6 +1103,7 @@ for line in out_lines:
 
     # also fix .byte,
     line = line.replace(".byte,",".byte\t")
+
 
     nout_lines.append(line+"\n")
 
@@ -1124,15 +1181,14 @@ for i,line in enumerate(nout_lines):
             if prev_inst in ["addx.b","subx.b","add.b","sub.b"]:
                 nout_lines[i] = ""
                 tmpreg = registers['dwork1']
-                clear_xc = "\tCLEAR_XC_FLAGS\n" if "addx" not in prev_inst and "subx" not in prev_inst else ""
+                clear_xc = "\tCLR_XC_FLAGS\n" if "addx" not in prev_inst and "subx" not in prev_inst else ""
                 new_inst = prev_inst.replace("addx.b","abcd")
                 new_inst = new_inst.replace("add.b","abcd")
                 new_inst = new_inst.replace("subx.b","sbcd")
                 new_inst = new_inst.replace("sub.b","sbcd")
                 toks = prev_fp[1].split(",")
                 nout_lines[i-1] = f"""{clear_xc}\tmove.b\t{toks[0]},{tmpreg}\t{out_comment} [...]
-\t{new_inst}\t{tmpreg},{toks[1]}\t{out_comment} [...]
-"""
+\t{new_inst}\t{tmpreg},{toks[1]}\t{out_comment} [...]"""
 
         elif finst == "MAKE_D" and prev_fp and prev_fp[0] == "LOAD_D":
             # no need to MAKE_D after LOAD_D
@@ -1157,6 +1213,7 @@ for i,line in enumerate(nout_lines):
                 nout_lines[i] = nout_lines[i].replace("subx.b","sub.b")
         elif finst not in {"jpl","jmi","bpl","bmi","jls","bls","bne","beq","jne","jeq","jhi","jlo","bhi","blo","bcc","jcc","bcs","jcs"} and prev_fp and prev_fp[0] == "cmp.b":
                 nout_lines[i] = issue_warning("review stray cmp (insert SET_X_FROM_CLEARED_C)",newline=True)+nout_lines[i]
+
 
         prev_fp = fp
 # post-processing
@@ -1196,8 +1253,9 @@ for line in nout_lines:
                 nout_lines_2.append(f"\tmove.b\t{first_param},{tmpreg}{comment}\n")
                 nout_lines_2.append(line.replace(first_param,tmpreg)+"\n")
                 continue
-
     if line:
+        if line.startswith("<blank>"):
+            line = ""
         nout_lines_2.append(line+"\n")
 
 nout_lines = []
@@ -1237,6 +1295,8 @@ if True:
 
 
 """)
+    AW = registers['awork1']
+    DW = registers['dwork1']
 
     if cli_args.output_mode == "mit":
         f.write(f"""
@@ -1252,63 +1312,63 @@ if True:
 \t.endm
 
 \t.macro\tBIT\treg,arg
-\tmove.b\t\\reg,{registers['dwork1']}
-\tand.b\t\\arg,{registers['dwork1']}
+\tmove.b\t\\reg,{DW}
+\tand.b\t\\arg,{DW}
 \t.endm
 
 
 \t.macro\tLOAD_D
-\tmove.b\t({registers['awork1']}),d0
-\tmove.b\t(1,{registers['awork1']}),d1
+\tmove.b\t({AW}),d0
+\tmove.b\t(1,{AW}),d1
 \tMAKE_D
 \t.endm
 
-\t.macro CLEAR_XC_FLAGS
+\t.macro CLR_XC_FLAGS
 \tmove.w\td7,-(a7)
-\tmoveq\t#0,{registers['dwork1']}
-\troxl.b\t#1,{registers['dwork1']}
-\tmovem.w\t(a7)+,{registers['dwork1']}
+\tmoveq\t#0,{DW}
+\troxl.b\t#1,{DW}
+\tmovem.w\t(a7)+,{DW}
 \t.endm
 
 \t.macro SET_XC_FLAGS
-\tmove.w\t{registers['dwork1']},-(a7)
+\tmove.w\t{DW},-(a7)
 \tst\t{registers['dwork1']}
-\troxl.b\t#1,{registers['dwork1']}
-\tmovem.w\t(a7)+,{registers['dwork1']}
+\troxl.b\t#1,{DW}
+\tmovem.w\t(a7)+,{DW}
 \t.endm
 
 
 
 \t.macro INVERT_XC_FLAGS
 \tPUSH_SR
-\tmove.w\t(sp),{registers['dwork1']}
-\teor.b\t#0x11,{registers['dwork1']}
-\tmove.w\t{registers['dwork1']},(sp)
+\tmove.w\t(sp),{DW}
+\teor.b\t#0x11,{DW}
+\tmove.w\t{DW},(sp)
 \tPOP_SR
 \t.endm
 
 {out_start_line_comment} useful to recall C from X (add then move then bcx)
 \t.macro\tSET_C_FROM_X
 \tPUSH_SR
-\tmove.w\t(sp),{registers['dwork1']}
-\tbset\t#0,{registers['dwork1']}   | set C
-\tbtst\t#4,{registers['dwork1']}
-\tbne.b\t0f
-\tbclr\t#0,{registers['dwork1']}   | X is clear: clear C
+\tmove.w\t(sp),{DW}
+\tbset\t#0,{DW}   | set C
+\tbtst\t#4,{DW}
+\tjne\t0f
+\tbclr\t#0,{DW}   | X is clear: clear C
 0:
-\tmove.w\t{registers['dwork1']},(sp)
+\tmove.w\t{DW},(sp)
 \tPOP_SR
 \t.endm
 
 \t.macro\tSET_X_FROM_CLEARED_C
 \tPUSH_SR
-\tmove.w\t(sp),{registers['dwork1']}
-\tbset\t#4,{registers['dwork1']}   | set X
-\tbtst\t#0,{registers['dwork1']}
-\tbeq.b\t0f
-\tbclr\t#4,{registers['dwork1']}   | C is set: clear X
+\tmove.w\t(sp),{DW}
+\tbset\t#4,{DW}   | set X
+\tbtst\t#0,{DW}
+\tjeq\t0f
+\tbclr\t#4,{DW}   | C is set: clear X
 0:
-\tmove.w\t{registers['dwork1']},(sp)
+\tmove.w\t{DW},(sp)
 \tPOP_SR
 \t.endm
 
@@ -1319,12 +1379,28 @@ if True:
 \t.macro CLR_I_FLAG
     {error}   "TODO: insert interrupt enable code here"
 \t.endm
+
+\t.macro\tJXX_A_INDEXED
+\tand.w\t#0xFF,{A}  {out_comment} mask 8 bits
+\tadd.w\t{A},{A}    {out_comment} *2 (16 -> 32 bits)
+\t.endm
+
 \t.ifdef\tMC68020
+
+* 68020 compliant & optimized
+
 \t.macro PUSH_SR
 \tmove.w\tccr,-(sp)
 \t.endm
 \t.macro POP_SR
 \tmove.w\t(sp)+,ccr
+\t.endm
+
+* registers must be masked out to proper size before use
+\t.macro\tGET_INDIRECT_ADDRESS_REGS\treg1,reg2,destreg
+\tmove.l\t\\reg1,{AW}
+\tadd.l\t\\reg2,{AW}
+\tmove.w\t({AW}),\\destreg
 \t.endm
 
 \t.macro\tMOVE_W_TO_REG\tsrc,dest
@@ -1335,8 +1411,19 @@ if True:
 \tmove.w\t\\dest,\\src
 \t.endm
 
+\t.macro\tJSR_A_INDEXED\treg
+\tJXX_A_INDEXED
+\tjsr\t([\\reg,{A}.W])
+\t.endm
+\t.macro\tJMP_A_INDEXED\treg
+\tJXX_A_INDEXED
+\tjmp\t([\\reg,{A}.W])
+\t.endm
 
 \t.else
+
+* 68000 compliant
+
 \t.macro PUSH_SR
 \tmove.w\tsr,-(sp)
 \t.endm
@@ -1352,43 +1439,68 @@ if True:
 \tsubq\t#1,\\dest
 \t.endm
 
-\t.macro    MOVE_W_FROM_REG    src,dest
+\t.macro\tMOVE_W_FROM_REG\tsrc,dest
 \tror.w\t#8,\\src
 \tmove.b\t\\src,\\dest+
 \tror.w\t#8,\src
 \tmove.b\t\\src,\\dest
 \tsubq\t#1,\\dest
 \t.endm
+
+
+\t.macro\tJSR_A_INDEXED\treg
+\tJXX_A_INDEXED
+\tmove.l\t(\\reg,{A}.w),\\reg
+\tjsr\t(\\reg)
+\t.endm
+
+\t.macro\tJMP_A_INDEXED\treg
+\tJXX_A_INDEXED
+\tmove.l\t(\\reg,{A}.w),\\reg
+\tjmp\t(\\reg)
+\t.endm
+
+* registers must be masked out to proper size before use
+\t.macro\tGET_INDIRECT_ADDRESS_REGS\treg1,reg2,destreg
+\tmove.l\t\\reg1,{AW}
+\tadd.l\t\\reg2,{AW}
+\tmove.b\t({AW}),\\destreg
+\tlsl.w\t#8,\\destreg
+\tmove.b\t(1,{AW}),\\destreg
+\t.endm
+
 \t.endif
 
+
+
 \t.macro READ_BE_WORD\tsrcreg
-\tmove.b\t(\\srcreg),{registers['dwork1']}
-\tlsl.w\t#8,{registers['dwork1']}
-\tmove.b\t(1,\\srcreg),{registers['dwork1']}
-\tmove.w\t{registers['dwork1']},\\srcreg
+\tmove.b\t(\\srcreg),{DW}
+\tlsl.w\t#8,{DW}
+\tmove.b\t(1,\\srcreg),{DW}
+\tmove.w\t{DW},\\srcreg
 \t.endm
 
 \t.macro GET_ADDRESS\toffset
-\tlea\t\\offset,{registers['awork1']}
+\tlea\t\\offset,{AW}
 \tjbsr\tget_address
 \t.endm
 
 \t.macro GET_DP_ADDRESS\toffset
-\tlea\t({registers['dp_base']},\\offset\\().W),{registers['awork1']}
+\tlea\t({registers['dp_base']},\\offset\\().W),{AW}
 \t.endm
 
 
 \t.macro GET_INDIRECT_ADDRESS\toffset
 \tGET_ADDRESS\t\\offset
-\tREAD_BE_WORD\t{registers['awork1']}
+\tREAD_BE_WORD\t{AW}
 \tjbsr\tget_address
 \t.endm
 
 \t.macro SET_DP_FROM_A
 \tlsl.w    #8,{registers['a']}
-\tmove.l    {registers['a']},{registers['awork1']}
+\tmove.l    {registers['a']},{AW}
 \tjbsr    get_address
-\tmove.l\t{registers['awork1']},{registers['dp_base']}
+\tmove.l\t{AW},{registers['dp_base']}
 \tlsr.w    #8,{registers['a']}
 \t.endm
 
@@ -1444,7 +1556,7 @@ if True:
 SBC_Y:MACRO
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\1
-\tmove.b\t({registers['awork1']},{Y}.w),{W}
+\tmove.b\t({AW},{Y}.w),{W}
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \tENDM
@@ -1452,7 +1564,7 @@ SBC_Y:MACRO
 SBC:MACRO
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\1
-\tmove.b\t({registers['awork1']}),{W}
+\tmove.b\t({AW}),{W}
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \tENDM
@@ -1503,10 +1615,10 @@ POP_SR:MACRO
 \tENDC
 
 READ_LE_WORD:MACRO
-\tmove.b\t(1,\\1),{registers['dwork1']}
-\tlsl.w\t#8,{registers['dwork1']}
-\tmove.b\t(\\1),{registers['dwork1']}
-\tmove.w\t{registers['dwork1']},\\1
+\tmove.b\t(1,\\1),{DW}
+\tlsl.w\t#8,{DW}
+\tmove.b\t(\\1),{DW}
+\tmove.w\t{DW},\\1
 \tENDM
 
 GET_ADDRESS:MACRO
@@ -1564,7 +1676,7 @@ with open(cli_args.code_output,"w") as f:
 print(f"Converted {converted} lines on {len(lines)} total, {instructions} instruction lines")
 print(f"Converted instruction ratio {converted}/{instructions} {int(100*converted/instructions)}%")
 if unknown_instructions:
-    print(f"Unknown instructions: ")
+    print(f"Unknown/fully or partially unsupported instructions: ")
     for s in sorted(unknown_instructions):
         if "nop" in s:
             print("  unofficial nop")
