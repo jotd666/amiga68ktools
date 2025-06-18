@@ -1399,7 +1399,15 @@ if True:
 \t.error\t"\\arg"     | comment out to disable errors
 \t.endm
 
+\t.macro\tVIDEO_DIRTY
+\t{out_comment} called when a write was done in {AW}
+\t.endm
+
 \t.macro\tGET_ADDRESS_FUNC
+\tjbsr\tget_address
+\t.endm
+
+\t.macro\tGET_UNCHECKED_ADDRESS_FUNC
 \tjbsr\tget_address
 \t.endm
 
@@ -1579,21 +1587,12 @@ if True:
 \tmove.w\t{DW},\\srcreg
 \t.endm
 
-\t.macro GET_ADDRESS\toffset
-\tlea\t\\offset,{AW}
-\tGET_ADDRESS_FUNC
-\t.endm
+
 
 \t.macro GET_DP_ADDRESS\toffset
 \tlea\t({registers['dp_base']},\\offset\\().W),{AW}
 \t.endm
 
-
-\t.macro GET_INDIRECT_ADDRESS\toffset
-\tGET_ADDRESS\t\\offset
-\tREAD_BE_WORD\t{AW}
-\tGET_ADDRESS_FUNC
-\t.endm
 
 \t.macro SET_DP_FROM_A
 \tlsl.w    #8,{registers['a']}
@@ -1614,17 +1613,19 @@ if True:
 \t.endm
 
 """)
-        f.write(f"""\t.macro GET_REG_ADDRESS\toffset,reg
+        for unchecked in ["","UNCHECKED_"]:
+            f.write(f"""\t.macro GET_REG_{unchecked}ADDRESS\toffset,reg
 \t.ifeq\t\\offset
 \tmove.l\t\\reg,{registers['awork1']}
 \t.else
 \tlea\t\\offset,{registers['awork1']}
 \tadd.l\t\\reg,{registers['awork1']}
 \t.endif
-\tGET_ADDRESS_FUNC
+\tGET_{unchecked}ADDRESS_FUNC
 \t.endm
 
-\t.macro GET_REG_INDIRECT_ADDRESS\toffset,reg
+
+\t.macro GET_REG_INDIRECT_{unchecked}ADDRESS\toffset,reg
 \t.ifeq\t\\offset
 \tmove.l\t\\reg,{registers['awork1']}
 \t.else
@@ -1632,15 +1633,25 @@ if True:
 \tadd.l\t\\reg,{registers['awork1']}
 \t.endif
 \tREAD_BE_WORD\t{registers['awork1']}
-\tGET_ADDRESS_FUNC
+\tGET_{unchecked}ADDRESS_FUNC
 \t.endm
 
-\t.macro GET_REG_ADDRESS_FROM_REG\treg,reg2
+\t.macro GET_REG_{unchecked}ADDRESS_FROM_REG\treg,reg2
 \tmove.l\t\\reg,{registers['awork1']}
 \tadd.l\t\\reg2,{registers['awork1']}
-\tGET_ADDRESS_FUNC
+\tGET_{unchecked}ADDRESS_FUNC
 \t.endm
 
+\t.macro GET_{unchecked}ADDRESS\toffset
+\tlea\t\\offset,{AW}
+\tGET_{unchecked}ADDRESS_FUNC
+\t.endm
+
+\t.macro GET_INDIRECT_{unchecked}ADDRESS\toffset
+\tGET_ADDRESS\t\\offset
+\tREAD_BE_WORD\t{AW}
+\tGET_{unchecked}ADDRESS_FUNC
+\t.endm
 """)
     else:
         # MOT macros are not up to date for now
