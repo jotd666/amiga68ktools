@@ -444,7 +444,7 @@ def generic_shift_op(inst,reg,args,comment):
         reg = args[1]
         invsa = inv_registers.get(reg)
 
-        rval = f"\tGET_{invsa}_ADDRESS\t0{comment}\n"
+        rval = f"\tGET_REG_ADDRESS\t0,{reg}{comment}\n"
         rval += f"\t{inst}\t#1,(a0){comment}"
         return rval
 
@@ -588,11 +588,10 @@ def generic_indexed_to(inst,src,args,comment,word=False):
             increment = args[1].count("+")
             decrement = args[1].count("-")
             sa = index_reg.strip("+-")
-            invsa = inv_registers.get(sa)
             rval = ""
             if decrement:
                 rval = f"\tsubq.w\t#{decrement},{sa}{continuation_comment}\n"
-            rval += f"\tGET_{invsa.upper()}_ADDRESS\t0{comment}\n"
+            rval += f"\tGET_REG_ADDRESS\t0,{sa}{comment}\n"
             if increment:
                 rval += f"\taddq.w\t#{increment},{sa}{continuation_comment}\n"
 
@@ -605,14 +604,13 @@ def generic_indexed_to(inst,src,args,comment,word=False):
 
         else:
             sa = index_reg
-            invsa = inv_registers.get(sa)
+
             prefix = ""
             fromreg = ""
             if arg in inv_registers:
                 # first argument is a register: convert back to Z80 register
                 arg = inv_registers[arg].lower()
 
-            # FUCK
             z80_reg = arg
 
             rval = ""
@@ -628,7 +626,7 @@ def generic_indexed_to(inst,src,args,comment,word=False):
                 and_value = "FF" if z80_reg in ["a","b"] else "FFFF"
                 rval  = f"\tand.l\t#{out_hex_sign}{and_value},{arg}{mask_out_comment}\n"
 
-            rval += f"\tGET_{invsa.upper()}_ADDRESS{fromreg}\t{arg}{comment}\n"
+            rval += f"\tGET_REG_ADDRESS{fromreg}\t{arg},{sa}{comment}\n"
             # END FUCK
 
             if inst == "move.w":
@@ -685,12 +683,12 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
             decrement = args[1].count("-")
             increment = args[1].count("+")
             sa = args[1].strip("+-")
-            invsa = inv_registers.get(sa)
+
             rval = ""
             if decrement:
                 rval = f"\tsubq.w\t#{decrement},{sa}{continuation_comment}\n"
 
-            rval += f"\nGET_{invsa.upper()}_ADDRESS\t0{comment}\n"
+            rval += f"\tGET_REG_ADDRESS\t0,{sa}{comment}\n"
             if increment:
                 rval += f"\taddq.w\t#{increment},{sa}{continuation_comment}"
             if inst:
@@ -727,7 +725,7 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
                 inst = "MOVE_W_TO_REG"
 
 
-            out = prefix+f"\tGET_{invsa.upper()}_ADDRESS{fromreg}\t{arg}{comment}"
+            out = prefix+f"\tGET_REG_ADDRESS{fromreg}\t{arg},{index_reg}{comment}"
             if inst:
                 out = out.rstrip()+compose_instruction(inst,regdst)
             return out
@@ -739,7 +737,7 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
                 # indexed
                 arg,regsrc = arg.split(",")
                 z80_reg = inv_registers[regsrc]
-                out = f"""\tGET_{z80_reg}_INDIRECT_ADDRESS\t{arg}{comment}
+                out = f"""\tGET_REG_INDIRECT_ADDRESS\t{arg},{regsrc}{comment}
 \t{inst}\t({registers['awork1']}),{regdst}{continuation_comment}"""
             else:
                 out = f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
@@ -1394,8 +1392,15 @@ if True:
 
     if cli_args.output_mode == "mit":
         f.write(f"""
+\t.global\tcpu_init
+\t.global\tm6809_direct_page_pointer
+
 \t.macro\tERROR\targ
-\t.error\t\\arg     | comment out to disable errors
+\t.error\t"\\arg"     | comment out to disable errors
+\t.endm
+
+\t.macro\tGET_ADDRESS_FUNC
+\tjbsr\tget_address
 \t.endm
 
 \t.macro\tMAKE_D
@@ -1576,7 +1581,7 @@ if True:
 
 \t.macro GET_ADDRESS\toffset
 \tlea\t\\offset,{AW}
-\tjbsr\tget_address
+\tGET_ADDRESS_FUNC
 \t.endm
 
 \t.macro GET_DP_ADDRESS\toffset
@@ -1587,14 +1592,15 @@ if True:
 \t.macro GET_INDIRECT_ADDRESS\toffset
 \tGET_ADDRESS\t\\offset
 \tREAD_BE_WORD\t{AW}
-\tjbsr\tget_address
+\tGET_ADDRESS_FUNC
 \t.endm
 
 \t.macro SET_DP_FROM_A
 \tlsl.w    #8,{registers['a']}
 \tmove.l    {registers['a']},{AW}
-\tjbsr    get_address
+\tGET_ADDRESS_FUNC
 \tmove.l\t{AW},{registers['dp_base']}
+\tmove.l\t{registers['dp_base']},m6809_direct_page_pointer
 \tlsr.w    #8,{registers['a']}
 \t.endm
 
@@ -1608,32 +1614,31 @@ if True:
 \t.endm
 
 """)
-        for reg in "xysu":
-            f.write(f"""\t.macro GET_{reg.upper()}_ADDRESS\toffset
+        f.write(f"""\t.macro GET_REG_ADDRESS\toffset,reg
 \t.ifeq\t\\offset
-\tmove.l\t{registers[reg]},{registers['awork1']}
+\tmove.l\t\\reg,{registers['awork1']}
 \t.else
 \tlea\t\\offset,{registers['awork1']}
-\tadd.l\t{registers[reg]},{registers['awork1']}
+\tadd.l\t\\reg,{registers['awork1']}
 \t.endif
-\tjbsr\tget_address
+\tGET_ADDRESS_FUNC
 \t.endm
 
-\t.macro GET_{reg.upper()}_INDIRECT_ADDRESS\toffset
+\t.macro GET_REG_INDIRECT_ADDRESS\toffset,reg
 \t.ifeq\t\\offset
-\tmove.l\t{registers[reg]},{registers['awork1']}
+\tmove.l\t\\reg,{registers['awork1']}
 \t.else
 \tlea\t\\offset,{registers['awork1']}
-\tadd.l\t{registers[reg]},{registers['awork1']}
+\tadd.l\t\\reg,{registers['awork1']}
 \t.endif
 \tREAD_BE_WORD\t{registers['awork1']}
-\tjbsr\tget_address
+\tGET_ADDRESS_FUNC
 \t.endm
 
-\t.macro GET_{reg.upper()}_ADDRESS_FROM_REG\treg
+\t.macro GET_REG_ADDRESS_FROM_REG\treg,reg2
 \tmove.l\t\\reg,{registers['awork1']}
-\tadd.l\t{registers[reg]},{registers['awork1']}
-\tjbsr\tget_address
+\tadd.l\t\\reg2,{registers['awork1']}
+\tGET_ADDRESS_FUNC
 \t.endm
 
 """)
@@ -1717,7 +1722,7 @@ READ_LE_WORD:MACRO
 
 GET_ADDRESS:MACRO
 \tlea\t\\1,{registers['awork1']}
-\tjbsr\tget_address
+\tGET_ADDRESS_FUNC
 \tENDM
 
 
@@ -1731,6 +1736,10 @@ GET_ADDRESS:MACRO
     f.write(f"""get_address:
 \t{error} "`TODO: implement this by adding memory base to {registers['awork1']}"
 \trts
+
+{out_comment} direct page pointer needs to be reloaded in case of irq
+m6809_direct_page_pointer:
+\t.long\t{out_hex_sign}A4A4A4A4
 
 """)
 
