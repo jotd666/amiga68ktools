@@ -77,7 +77,9 @@ else:
     jsr_instruction = "jsr"
     branch_prefix = "b"
 
-make_d_prefix = f"\tMAKE_D\t{out_comment} [...]\n"
+continuation_comment = f"{out_comment} [...]"
+mask_out_comment = f"{out_comment} [masking out]"
+make_d_prefix = f"\tMAKE_D\t{continuation_comment}\n"
 
 # input & output comments are "*" and "|" (MIT syntax)
 # some day I may set as as an option...
@@ -114,9 +116,9 @@ def split_params(params):
 
 def compose_instruction(inst,regdst):
     if regdst:
-        out = f"\n\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"
+        out = f"\n\t{inst}\t({registers['awork1']}),{regdst}{continuation_comment}"
     else:
-        out = f"\n\t{inst}\t({registers['awork1']}){out_comment} [...]"
+        out = f"\n\t{inst}\t({registers['awork1']}){continuation_comment}"
     return out
 
 def change_tst_to_btst(nout_lines,i):
@@ -236,15 +238,6 @@ single_instructions = {"nop":"nop",
 "rolb":f"roxl.b\t#1,{registers['b']}",
 
 
-"php":"PUSH_SR",
-"plp":"POP_SR",
-
-"sec":"SET_XC_FLAGS",
-"clc":"CLR_XC_FLAGS",
-"sei":"SET_I_FLAG",
-"cli":"CLR_I_FLAG",
-"sed":"illegal\n"+issue_warning("unsupported set decimal mode"),
-"cld":"nop",
 "clv":f"CLR_V_FLAG",
 }
 
@@ -257,7 +250,7 @@ def add_entrypoint(address):
     addresses_to_reference.add(address)
 
 def clear_reg(reg):
-    return f"\tmoveq\t#0,{registers[reg]}\n"
+    return f"\tmoveq\t#0,{registers[reg]}{continuation_comment}\n"
 
 def parse_hex(s,default=None):
     is_hex = s.startswith(("$","0x"))
@@ -293,10 +286,10 @@ def f_tst(args,comment):
     return generic_indexed_from("tst","",args,comment)
 
 def f_ror(args,comment):
-    return generic_shift_op("ror","",args,comment)
+    return generic_shift_op("roxr","",args,comment)
 
 def f_rol(args,comment):
-    return generic_shift_op("rol","",args,comment)
+    return generic_shift_op("roxl","",args,comment)
 
 def f_lsr(args,comment):
     return generic_shift_op("lsr","",args,comment)
@@ -309,9 +302,13 @@ def f_lsl(args,comment):
 
 def f_pshs(args,comment):
     src = args[0]
+    if src == "d":
+        src = registers['b']
     return f"\tmove.w\t{src},-(sp){comment}"
 def f_puls(args,comment):
     src = args[0]
+    if src == "d":
+        src = registers['b']
     return f"\tmove.w\t(sp)+,{src}{comment}"
 
 def f_ldd(args,comment):
@@ -352,7 +349,7 @@ def f_stx(args,comment):
 def f_sty(args,comment):
     return generic_store('y',args,comment,word=True)
 def f_ldx(args,comment):
-    return clear_reg('x') + generic_load('x',args,comment, word=True)
+    return generic_load('x',args,comment, word=True)
 def f_leax(args,comment):
     return generic_lea('x',args,comment)
 def f_leay(args,comment):
@@ -361,7 +358,7 @@ def f_leau(args,comment):
     return generic_lea('u',args,comment)
 
 def f_ldy(args,comment):
-    return clear_reg('y') + generic_load('y',args,comment, word=True)
+    return generic_load('y',args,comment, word=True)
 
 def f_inc(args,comment):
     return generic_indexed_to("addq","#1",args,comment)
@@ -417,7 +414,7 @@ def generic_lea(dest,args,comment):
         rval += f"\tGET_INDIRECT_ADDRESS_REGS\t{args[0]},{args[1]},{registers[dest]}{comment}"
         return rval
 
-    if is_immediate_value(first_arg):
+    if not is_register_value(first_arg):
         quick = "q" if can_be_quick(first_arg) else ""
         first_arg = f'#{first_arg}'
 
@@ -464,7 +461,7 @@ def generic_shift_op(inst,reg,args,comment):
                     # Y indirect indexed
                     arg = arg.strip("()")
                     return f"""\tGET_ADDRESS_Y\t{arg}{comment}
-\t{inst}\t#1,({registers['awork1']},{index_reg}.w){out_comment} [...]"""
+\t{inst}\t#1,({registers['awork1']},{index_reg}.w){continuation_comment}"""
                 else:
                     # X indirect indexed
                     arg = arg.strip("(")
@@ -474,15 +471,15 @@ def generic_shift_op(inst,reg,args,comment):
                         raise Exception("Unsupported indexed mode {}!=d1: {} {}".format(arg2,inst," ".join(args)))
 
                     return f"""\tGET_ADDRESS_X\t{arg}{comment}
-\t{inst}\t#1,({registers['awork1']}){out_comment} [...]"""
+\t{inst}\t#1,({registers['awork1']}){out_comment}{continuation_comment}"""
             else:
                 # X/Y indexed direct
                 return f"""\tGET_ADDRESS\t{arg}{comment}
-\t{inst}\t#1,({registers['awork1']},{index_reg}.w){out_comment} [...]"""
+\t{inst}\t#1,({registers['awork1']},{index_reg}.w){continuation_comment}"""
            # various optims
 
         return f"""\tGET_ADDRESS\t{arg}{comment}
-\t{inst}\t#1,({registers['awork1']}){out_comment} [...]"""
+\t{inst}\t#1,({registers['awork1']}){continuation_comment}"""
 
 def generic_logical_op(inst,reg,args,comment):
     return generic_indexed_from(inst,reg,args,comment,word=False)
@@ -594,16 +591,16 @@ def generic_indexed_to(inst,src,args,comment,word=False):
             invsa = inv_registers.get(sa)
             rval = ""
             if decrement:
-                rval = f"\tsubq.w\t#{decrement},{sa}\n"
+                rval = f"\tsubq.w\t#{decrement},{sa}{continuation_comment}\n"
             rval += f"\tGET_{invsa.upper()}_ADDRESS\t0{comment}\n"
             if increment:
-                rval += f"\taddq.w\t#{increment},{sa}\n"
+                rval += f"\taddq.w\t#{increment},{sa}{continuation_comment}\n"
 
             if inst == "move.w":
                 # avoid odd address exception on 68000
                 inst = "MOVE_W_FROM_REG"
 
-            rval += f"\t{inst}\t{regsrc}({registers['awork1']}){out_comment} [...]"
+            rval += f"\t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}"
             return rval
 
         else:
@@ -615,20 +612,30 @@ def generic_indexed_to(inst,src,args,comment,word=False):
                 # first argument is a register: convert back to Z80 register
                 arg = inv_registers[arg].lower()
 
+            # FUCK
+            z80_reg = arg
+
+            rval = ""
             if arg in registers or arg=='d':
                 fromreg = "_FROM_REG"
+
                 if arg=='d':
                     prefix = "\tMAKE_D\n"
                     arg = registers['b']
                 else:
                     arg = registers[arg]
 
-            rval = f"\tGET_{invsa.upper()}_ADDRESS{fromreg}\t{arg}{comment}\n"
+                and_value = "FF" if z80_reg in ["a","b"] else "FFFF"
+                rval  = f"\tand.l\t#{out_hex_sign}{and_value},{arg}{mask_out_comment}\n"
+
+            rval += f"\tGET_{invsa.upper()}_ADDRESS{fromreg}\t{arg}{comment}\n"
+            # END FUCK
+
             if inst == "move.w":
                 # avoid odd address exception on 68000
                 inst = "MOVE_W_TO_REG"
 
-            rval += f"\t{inst}\t{regsrc}({registers['awork1']}){out_comment} [...]"
+            rval += f"\t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}"
             return rval
 
 
@@ -638,7 +645,7 @@ def generic_indexed_to(inst,src,args,comment,word=False):
             # indirect
             arg = arg.strip(BRACKETS)
             return f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
-\t{inst}\t{regsrc}({registers['awork1']}){out_comment} [...]"""
+\t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}"""
 
     gaf,arg,value = get_get_address_function(arg)
     if value % 2 and inst == "move.w":
@@ -647,7 +654,7 @@ def generic_indexed_to(inst,src,args,comment,word=False):
         inst = "move.w"
 
     return f"""\t{gaf}\t{arg}{comment}
-\t{inst}\t{regsrc}({registers['awork1']}){out_comment} [...]"""
+\t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}"""
 
 def generic_indexed_from(inst,dest,args,comment,word=False):
     """
@@ -681,10 +688,11 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
             invsa = inv_registers.get(sa)
             rval = ""
             if decrement:
-                rval = f"\tsubq.w\t#{decrement},{sa}\n"
-            rval += f"\tGET_{invsa.upper()}_ADDRESS\t0{comment}\n"
+                rval = f"\tsubq.w\t#{decrement},{sa}{continuation_comment}\n"
+
+            rval += f"\nGET_{invsa.upper()}_ADDRESS\t0{comment}\n"
             if increment:
-                rval += f"\taddq.w\t#{increment},{sa}"
+                rval += f"\taddq.w\t#{increment},{sa}{continuation_comment}"
             if inst:
                 rval += compose_instruction(inst,regdst)
             else:
@@ -700,6 +708,10 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
                 # first argument is a register: convert back to Z80 register
                 arg = inv_registers[arg].lower()
 
+            z80_reg = arg
+
+
+            prefix = ""
             if arg in registers or arg=='d':
                 fromreg = "_FROM_REG"
                 if arg=='d':
@@ -707,9 +719,13 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
                     arg = registers['b']
                 else:
                     arg = registers[arg]
+                and_value = "FF" if z80_reg in ["a","b"] else "FFFF"
+                prefix += f"\tand.l\t#{out_hex_sign}{and_value},{arg}{mask_out_comment}\n"
+
             if inst == "move.w":
                 # avoid odd address exception on 68000
                 inst = "MOVE_W_TO_REG"
+
 
             out = prefix+f"\tGET_{invsa.upper()}_ADDRESS{fromreg}\t{arg}{comment}"
             if inst:
@@ -724,10 +740,10 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
                 arg,regsrc = arg.split(",")
                 z80_reg = inv_registers[regsrc]
                 out = f"""\tGET_{z80_reg}_INDIRECT_ADDRESS\t{arg}{comment}
-\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
+\t{inst}\t({registers['awork1']}),{regdst}{continuation_comment}"""
             else:
                 out = f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
-\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
+\t{inst}\t({registers['awork1']}),{regdst}{continuation_comment}"""
             return out
         elif arg[0]=='#':
             # various optims for immediate mode
@@ -911,6 +927,9 @@ def is_immediate_value(p):
     srcval = parse_hex(p,"FAIL")
     return srcval != "FAIL"
 
+def is_register_value(p):
+    return re.match("[ad]\d",p)
+
 def can_be_quick(source):
     return parse_hex(source,default=8)<8
 
@@ -956,7 +975,7 @@ for i,(l,is_inst,address) in enumerate(lines):
             if si:
                 out = f"\t{si}{comment}"
             else:
-                out = unsupported_instruction(inst,args,comment)
+                out = unsupported_instruction(inst,"",comment)
         else:
             inst = itoks[0]
             args = itoks[1:]
@@ -1107,6 +1126,9 @@ for line in out_lines:
 
     nout_lines.append(line+"\n")
 
+def remove_instruction(line):
+    comment_pos = line.index(out_comment)
+    return " "*comment_pos + line[comment_pos:]
 
 def follows_sr_protected_block(nout_lines,i):
     # we have a chance of protected block only if POP_SR
@@ -1114,16 +1136,16 @@ def follows_sr_protected_block(nout_lines,i):
     if "POP_SR" not in nout_lines[i-1]:
         return False
 
-    for j in range(i-2,1,-1):
-        line = nout_lines[j]
-        if line.startswith("\trts"):
-            # sequence break:
-                return False
-
-        if line.startswith("\tPUSH_SR"):
-            # encountered POP then PUSH while going back
-            finst = nout_lines[j-1].split()[0]
-            return finst in carry_generating_instructions
+##    for j in range(i-2,1,-1):
+##        line = nout_lines[j]
+##        if line.startswith("\trts"):
+##            # sequence break:
+##                return False
+##
+##        if line.startswith("\tPUSH_SR"):
+##            # encountered POP then PUSH while going back
+##            finst = nout_lines[j-1].split()[0]
+##            return finst in carry_generating_instructions
 
     return True
 
@@ -1167,14 +1189,6 @@ for i,line in enumerate(nout_lines):
             else:
                 nout_lines[i] += issue_warning("stray bvs test",newline=True)
 
-        elif finst in ("bcc","bcs","jcc","jcs"):
-            # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
-            if prev_fp:
-                inst_no_size = prev_fp[0].split(".")[0]
-                if inst_no_size not in carry_generating_instructions:
-                    if not follows_sr_protected_block(nout_lines,i):
-                        nout_lines[i] += issue_warning("stray bcc/bcs test",newline=True)
-
         elif finst == "DAA" and prev_fp:
             # try to match add/sub + DAA and replace by abcd
             prev_inst = prev_fp[0]
@@ -1187,8 +1201,8 @@ for i,line in enumerate(nout_lines):
                 new_inst = new_inst.replace("subx.b","sbcd")
                 new_inst = new_inst.replace("sub.b","sbcd")
                 toks = prev_fp[1].split(",")
-                nout_lines[i-1] = f"""{clear_xc}\tmove.b\t{toks[0]},{tmpreg}\t{out_comment} [...]
-\t{new_inst}\t{tmpreg},{toks[1]}\t{out_comment} [...]"""
+                nout_lines[i-1] = f"""{clear_xc}\tmove.b\t{toks[0]},{tmpreg}\t{continuation_comment}
+\t{new_inst}\t{tmpreg},{toks[1]}\t{continuation_comment}"""
 
         elif finst == "MAKE_D" and prev_fp and prev_fp[0] == "LOAD_D":
             # no need to MAKE_D after LOAD_D
@@ -1216,6 +1230,8 @@ for i,line in enumerate(nout_lines):
 
 
         prev_fp = fp
+
+
 # post-processing
 grouping = True
 if grouping:
@@ -1240,14 +1256,12 @@ if grouping:
             else:
                 sequence_break = True
 
+
         if sequence_break and count:
             #print(i,last_line,count,prev_toks)
             for c in range(count):
                 # remove previous same instructions
-                prev_line = nout_lines[last_line-c-1]
-                comment_pos = prev_line.index(out_comment)
-                prev_line = " "*comment_pos + prev_line[comment_pos:]
-                nout_lines[last_line-c-1] = prev_line
+                nout_lines[last_line-c-1] = remove_instruction(nout_lines[last_line-c-1])
                 # group
                 nout_lines[last_line] = nout_lines[last_line].replace("#1,",f"#{count+1},")
             # reset sequence
@@ -1297,14 +1311,55 @@ for line in nout_lines:
         nout_lines_2.append(line+"\n")
 
 nout_lines = []
-# ultimate pass to remove useless POP+PUSH SR
+# ultimate passes to process POP+PUSH
+# remove PUSH following POP
 prev_line = ""
+last_get_address = None
+last_dir = None
+
 for line in nout_lines_2:
+    toks = line.split()
+    if toks:
+        if toks[0] in ("GET_ADDRESS","GET_DP_ADDRESS"):
+            if last_get_address == toks[1] and last_dir == toks[0]:
+                line = remove_instruction(line)
+            last_dir = toks[0]
+            last_get_address = toks[1]
+        elif not toks[0].startswith(("move","add","sub","or","and")):
+            # cancel duplicate same get_address call when we're not sure!
+            last_get_address = None
+        if toks[0] == "nop":
+            line = remove_instruction(line)
+
     if "POP_SR" in prev_line and "PUSH_SR" in line:
+        # remove both
         nout_lines.pop()
         continue
+    if "LOAD_D" in prev_line and "MAKE_D" in line:
+        # remove MAKE_D
+        continue
+
+    # optimize move.b => clr.b
+    line = line.replace("move.b\t#0,","clr.b\t")
     nout_lines.append(line)
     prev_line = line
+
+# another pass after ror has been resolved
+for i,line in enumerate(nout_lines):
+    line = line.rstrip()
+    toks = line.split("|",maxsplit=1)
+    if len(toks)==2:
+        fp = toks[0].rstrip().split()
+        if fp:
+            finst = fp[0]
+            if finst in ("bcc","bcs","jcc","jcs"):
+                # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
+                if prev_fp:
+                    inst_no_size = prev_fp[0].split(".")[0]
+                    if inst_no_size not in carry_generating_instructions:
+                        if not follows_sr_protected_block(nout_lines,i):
+                            nout_lines[i] += issue_warning("stray bcc/bcs test",newline=True)
+        prev_fp = fp
 
 if cli_args.spaces:
     nout_lines = [tab2space(n) for n in nout_lines]
