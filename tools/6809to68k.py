@@ -1399,8 +1399,12 @@ if True:
 \t.error\t"\\arg"     | comment out to disable errors
 \t.endm
 
-\t.macro\tVIDEO_DIRTY
-\t{out_comment} called when a write was done in {AW}
+\t.macro\tVIDEO_BYTE_DIRTY
+\t{out_comment} called when a byte write was done in {AW}
+\t.endm
+
+\t.macro\tVIDEO_WORD_DIRTY
+\t{out_comment} called when a word write was done in {AW}
 \t.endm
 
 \t.macro\tGET_ADDRESS_FUNC
