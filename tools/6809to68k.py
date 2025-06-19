@@ -121,10 +121,8 @@ def compose_instruction(inst,regdst):
         out = f"\n\t{inst}\t({registers['awork1']}){continuation_comment}"
     return out
 
-def change_tst_to_btst(nout_lines,i):
-    nout_lines[i-1] = nout_lines[i-1].replace("tst.b\t","btst.b\t#6,")
-    nout_lines[i] = (nout_lines[i].replace("bvc\t","beq\t",1).replace("bvs\t","bne\t",1)
-    + "          ^^^^^^ TODO: check bit 6 of operand\n")
+
+
 
 address_re = re.compile("^([0-9A-F]{4}):")
 label_re = re.compile("^(\w+):")
@@ -240,6 +238,9 @@ single_instructions = {"nop":"nop",
 
 "clv":f"CLR_V_FLAG",
 }
+
+AW = registers['awork1']
+DW = registers['dwork1']
 
 m68_regs = set(registers.values())
 
@@ -595,9 +596,6 @@ def generic_indexed_to(inst,src,args,comment,word=False):
             if increment:
                 rval += f"\taddq.w\t#{increment},{sa}{continuation_comment}\n"
 
-            if inst == "move.w":
-                # avoid odd address exception on 68000
-                inst = "MOVE_W_FROM_REG"
 
             rval += f"\t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}"
             return rval
@@ -627,11 +625,7 @@ def generic_indexed_to(inst,src,args,comment,word=False):
                 rval  = f"\tand.l\t#{out_hex_sign}{and_value},{arg}{mask_out_comment}\n"
 
             rval += f"\tGET_REG_ADDRESS{fromreg}\t{arg},{sa}{comment}\n"
-            # END FUCK
 
-            if inst == "move.w":
-                # avoid odd address exception on 68000
-                inst = "MOVE_W_TO_REG"
 
             rval += f"\t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}"
             return rval
@@ -646,10 +640,7 @@ def generic_indexed_to(inst,src,args,comment,word=False):
 \t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}"""
 
     gaf,arg,value = get_get_address_function(arg)
-    if value % 2 and inst == "move.w":
-        inst = "MOVE_W_FROM_REG"
-    elif value % 2 == 0 and inst == "MOVE_W_FROM_REG":
-        inst = "move.w"
+
 
     return f"""\t{gaf}\t{arg}{comment}
 \t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}"""
@@ -720,10 +711,6 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
                 and_value = "FF" if z80_reg in ["a","b"] else "FFFF"
                 prefix += f"\tand.l\t#{out_hex_sign}{and_value},{arg}{mask_out_comment}\n"
 
-            if inst == "move.w":
-                # avoid odd address exception on 68000
-                inst = "MOVE_W_TO_REG"
-
 
             out = prefix+f"\tGET_REG_ADDRESS{fromreg}\t{arg},{index_reg}{comment}"
             if inst:
@@ -759,8 +746,6 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
     # we have to choose between GET_ADDRESS and GET_DP_ADDRESS
     # depending on the value of the argument
     gaf,arg,value = get_get_address_function(arg)
-    if value % 2 and inst == "move.w":
-        inst = "MOVE_W_TO_REG"
 
     out = f"\t{gaf}\t{arg}{comment}"
     if inst:
@@ -1337,6 +1322,14 @@ for line in nout_lines_2:
         # remove MAKE_D
         continue
 
+    # if move.w in line and (ax) replace move.w by cpu-dependent macro
+    if "move.w" in line and f"({AW})" in line:
+        if ",(" in line:
+            inst = "MOVE_W_FROM_REG"
+        else:
+            inst = "MOVE_W_TO_REG"
+        line = line.replace("move.w",inst).replace(f"({AW})",AW).replace(f"({AW})".lower(),AW)
+
     # optimize move.b => clr.b
     line = line.replace("move.b\t#0,","clr.b\t")
     nout_lines.append(line)
@@ -1387,8 +1380,6 @@ if True:
 
 
 """)
-    AW = registers['awork1']
-    DW = registers['dwork1']
 
     if cli_args.output_mode == "mit":
         f.write(f"""
@@ -1515,11 +1506,11 @@ if True:
 \t.endm
 
 \t.macro\tMOVE_W_TO_REG\tsrc,dest
-\tmove.w\t\\src,\\dest
+\tmove.w\t(\\src),\\dest
 \t.endm
 
-\t.macro    MOVE_W_FROM_REG    src,dest
-\tmove.w\t\\dest,\\src
+\t.macro\tMOVE_W_FROM_REG    src,dest
+\tmove.w\t\\src,(\\dest)
 \t.endm
 
 \t.macro\tJSR_A_INDEXED\treg
@@ -1542,21 +1533,21 @@ if True:
 \tmove.w\t(sp)+,sr
 \t.endm
 
-\t.macro\tMOVE_W_TO_REG\tsrc,dest
+\t.macro\tMOVE_W_TO_REG    src,dest
 \tror.w\t#8,\\dest
-\tmove.b\t\\src+,\\dest
+\tmove.b\t(\\src),\\dest
 \tror.w\t#8,\\dest
-\tmove.b\t\\src,\\dest
-\tsubq\t#1,\\dest
+\tmove.b\t(1,\\src),\\dest
 \t.endm
 
-\t.macro\tMOVE_W_FROM_REG\tsrc,dest
+\t.macro\tMOVE_W_FROM_REG    src,dest
 \tror.w\t#8,\\src
-\tmove.b\t\\src,\\dest+
-\tror.w\t#8,\src
-\tmove.b\t\\src,\\dest
-\tsubq\t#1,\\dest
+\tmove.b\t\\src,(\\dest)
+\tror.w\t#8,\\src
+\tmove.b\t\\src,(1,\\dest)
 \t.endm
+
+
 
 
 \t.macro\tJSR_A_INDEXED\treg
