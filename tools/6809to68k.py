@@ -440,47 +440,23 @@ def generic_store(src,args,comment,word=False):
 def generic_shift_op(inst,reg,args,comment):
     arg = args[0]
     inst += ".b"
-    if arg=="":
-        # ,reg
-        reg = args[1]
-        invsa = inv_registers.get(reg)
+    if len(args)==2:
 
-        rval = f"\tGET_REG_ADDRESS\t0,{reg}{comment}\n"
-        rval += f"\t{inst}\t#1,(a0){comment}"
+        offset = arg or "0"
+        reg = args[1]
+
+        rval = f"\tGET_REG_ADDRESS\t{offset},{reg}{comment}\n"
+        rval += f"\t{inst}\t#1,({registers['awork1']}){comment}"
         return rval
 
-    if arg==registers[reg]:
+    # sole argument: maybe can be register
+    if arg in inv_registers:
         return f"\t{inst}\t#1,{arg}{comment}"
     else:
-        y_indexed = False
-        # this is clearly a 6502 leftover, it doesn't work
-        if len(args)>1:
-            # register indexed. There are many modes!
-            index_reg = args[1].strip(")")
-            if arg.startswith("("):
-                if arg.endswith(")"):
-                    # Y indirect indexed
-                    arg = arg.strip("()")
-                    return f"""\tGET_ADDRESS_Y\t{arg}{comment}
-\t{inst}\t#1,({registers['awork1']},{index_reg}.w){continuation_comment}"""
-                else:
-                    # X indirect indexed
-                    arg = arg.strip("(")
-                    arg2 = index_reg
-                    if arg2.lower() != 'd1':
-                        # can't happen
-                        raise Exception("Unsupported indexed mode {}!=d1: {} {}".format(arg2,inst," ".join(args)))
-
-                    return f"""\tGET_ADDRESS_X\t{arg}{comment}
-\t{inst}\t#1,({registers['awork1']}){out_comment}{continuation_comment}"""
-            else:
-                # X/Y indexed direct
-                return f"""\tGET_ADDRESS\t{arg}{comment}
-\t{inst}\t#1,({registers['awork1']},{index_reg}.w){continuation_comment}"""
-           # various optims
-
-        return f"""\tGET_ADDRESS\t{arg}{comment}
-\t{inst}\t#1,({registers['awork1']}){continuation_comment}"""
+        # we have to load the address first
+        rval = f"\tGET_ADDRESS\t{arg}{comment}\n"
+        rval += f"\t{inst}\t#1,({registers['awork1']}){comment}"
+        return rval
 
 def generic_logical_op(inst,reg,args,comment):
     return generic_indexed_from(inst,reg,args,comment,word=False)
@@ -1116,7 +1092,7 @@ def remove_instruction(line):
 def follows_sr_protected_block(nout_lines,i):
     # we have a chance of protected block only if POP_SR
     # was just before the branch test
-    if "POP_SR" not in nout_lines[i-1]:
+    if i>0 and "POP_SR" not in nout_lines[i-1]:
         return False
 
 ##    for j in range(i-2,1,-1):
@@ -1351,6 +1327,12 @@ for i,line in enumerate(nout_lines):
                         if not follows_sr_protected_block(nout_lines,i):
                             nout_lines[i] += issue_warning("stray bcc/bcs test",newline=True)
         prev_fp = fp
+        if re.search("GET_.*_ADDRESS",toks[0]) and follows_sr_protected_block(nout_lines,i):
+            if "PUSH_SR" in nout_lines[i-3]:
+                # PUSH/op/POP+GET_xxx_ADDRESS
+                # no need to protect CCs as there's a GET_xxx_ADDRESS (so not a test) just after it
+                nout_lines[i-1] = ""
+                nout_lines[i-3] = ""
 
 if cli_args.spaces:
     nout_lines = [tab2space(n) for n in nout_lines]
