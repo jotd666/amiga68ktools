@@ -951,10 +951,15 @@ for i,(l,is_inst,address) in enumerate(lines):
             # other instructions, not single, not implicit a
             conv_func = globals().get(f"f_{inst}")
 
+            def switch_reg(m):
+                g1,g2 = m.groups()
+                return g1 if g1 else registers.get(g2,g2)
+
             if conv_func:
                 jargs = sole_arg.split(",")
-                # switch registers now
-                jargs = [re.sub(r"\b(\w+)\b",lambda m:registers.get(m.group(1),m.group(1)),a) for a in jargs]
+                # switch registers now, warning, avoid changing $a by 0xd0!!
+                hex_esc = re.escape(in_hex_sign)
+                jargs = [re.sub(rf"({hex_esc}\w+)|(\b\w+)\b",switch_reg,a) for a in jargs]
                 # replace "+" or "-" for address registers and swap params
                 jargs = [re.sub("\((a\d)\+([^)]+)\)",r"(\2,\1)",a,flags=re.I) for a in jargs]
                 jargs = [re.sub("\((a\d)-([^)]+)\)",r"(-\2,\1)",a,flags=re.I) for a in jargs]
