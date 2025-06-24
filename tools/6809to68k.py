@@ -315,13 +315,17 @@ def decode_movem(args):
 
 
 
+# move.w would work except that... sign extension happens even on
+# data registers, which then causes trouble when using long adds.
+# it would be okay if all addresses were below 7FFF but most 6809 code
+# uses addresses above 7FFF
 def f_pshs(args,comment):
     move_params,inst,_ = decode_movem(args)
-    return f"\t{inst}.w\t{move_params},-(sp){comment}"
+    return f"\t{inst}.l\t{move_params},-(sp){comment}"
 
 def f_puls(args,comment):
     move_params,inst,return_afterwards = decode_movem(args)
-    rval = f"\t{inst}.w\t(sp)+,{move_params}{comment}"
+    rval = f"\t{inst}.l\t(sp)+,{move_params}{comment}"
     if return_afterwards:
         # pulling PC triggers a RTS (seen in Joust)
         rval += f"\n\trts{continuation_comment}"
@@ -425,8 +429,11 @@ def generic_lea(dest,args,comment):
         # if 8 bit register, mask first
         rval = ""
         for arg in args:
-            if inv_registers[arg] in "AB":
-                rval += f"\tand.w\t#0xFF,{arg}{out_comment} mask 8 bit register before add\n"
+            mask = "ff" if inv_registers[arg] in "AB" else "ffff"
+            if mask == "ff":
+                rval += f"\tand.l\t#{out_hex_sign}{mask},{arg}{out_comment} mask register before add\n"
+
+
         rval += f"\tGET_INDIRECT_ADDRESS_REGS\t{args[0]},{args[1]},{registers[dest]}{comment}"
         return rval
 
@@ -1189,7 +1196,7 @@ for i,line in enumerate(nout_lines):
         elif finst == "rts":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
-                if prev_fp == ["movem.w","d0,-(sp)"]:
+                if prev_fp == ["movem.l","d0,-(sp)"]:
                     nout_lines[i] += issue_warning("push to stack+return",newline=True)
                 elif prev_fp[0] == "cmp.b":
                     nout_lines[i] += issue_warning("stray cmp (check caller)",newline=True)
@@ -1623,13 +1630,7 @@ if True:
 
 
 \t.macro GET_REG_INDIRECT_{unchecked}ADDRESS\toffset,reg
-\t.ifeq\t\\offset
-\tmove.l\t\\reg,{registers['awork1']}
-\t.else
-\tlea\t\\offset,{registers['awork1']}
-\tadd.l\t\\reg,{registers['awork1']}
-\t.endif
-\tGET_ADDRESS_FUNC
+\tGET_REG_ADDRESS\t\\offset,\\reg
 \tREAD_BE_WORD\t{registers['awork1']}
 \tGET_{unchecked}ADDRESS_FUNC
 \t.endm
