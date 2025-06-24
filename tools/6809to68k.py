@@ -302,7 +302,7 @@ def f_lsl(args,comment):
 ##    return generic_indexed_to("lsr","",args,comment)
 
 def decode_movem(args):
-    toks = ["d" if t==registers['b'] else t for t in args]
+    toks = [registers['b'] if t=="d" else t for t in args]
     return "/".join(toks),"movem" if len(toks)>1 else "move"
 
 
