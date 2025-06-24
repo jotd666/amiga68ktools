@@ -1,8 +1,4 @@
-# TODO:
-#
-# generic_shift_op: remainders of 6502: crash if not a register ATM
-#  andcc
-#  lds
+
 #
 # stray jcc after POP_SR
 # group same operations (asr/rol/ror/add...)
@@ -10,8 +6,9 @@
 # post_proc: tst.w + GET_.*ADDRESS => remove tst.w
 # set macro MOVE_W for alignment (68000/68020) in post processing if source or dest
 # is not a register, detect others .w operands in that case
+# cmpd generates cmp.w which is not 68000 friendly
 
-# you'll have to implement the macro GET_ADDRESS_BASE to return pointer on memory layout
+# you'll have to implement the macro GET_ADDRESS_FUNC to return pointer on memory layout
 # to replace lea/move/... in memory
 # extract RAM memory constants as defines, not variables
 # work like an emulator
@@ -20,6 +17,9 @@
 # for memory because of those indirect indexed modes that read pointers from memory
 # so we can't really map 32-bit model on original code without heavily adapting everything
 #
+# however, if memory is not banked, it is possible to create a full 64k address space
+# and almost leave the code live its life. Just insert some video update commands there
+# and there when the game changes tiles or other things
 
 import re,itertools,os,collections,glob,io
 import argparse
@@ -1489,6 +1489,7 @@ if True:
 \t.macro\tGET_INDIRECT_ADDRESS_REGS\treg1,reg2,destreg
 \tmove.l\t\\reg1,{AW}
 \tadd.l\t\\reg2,{AW}
+\tGET_ADDRESS_FUNC
 \tmove.w\t({AW}),\\destreg
 \t.endm
 
@@ -1614,6 +1615,7 @@ if True:
 \tlea\t\\offset,{registers['awork1']}
 \tadd.l\t\\reg,{registers['awork1']}
 \t.endif
+\tGET_ADDRESS_FUNC
 \tREAD_BE_WORD\t{registers['awork1']}
 \tGET_{unchecked}ADDRESS_FUNC
 \t.endm
