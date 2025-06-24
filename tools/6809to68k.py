@@ -301,16 +301,23 @@ def f_lsl(args,comment):
 ##def f_lsr(args,comment):
 ##    return generic_indexed_to("lsr","",args,comment)
 
+def decode_movem(args):
+    toks = ["d" if t==registers['b'] else t for t in args]
+    return "/".join(toks),"movem" if len(toks)>1 else "move"
+
+
+
 def f_pshs(args,comment):
-    src = args[0]
-    if src == "d":
-        src = registers['b']
-    return f"\tmove.w\t{src},-(sp){comment}"
+    move_params,inst = decode_movem(args)
+    return f"\t{inst}.w\t{move_params},-(sp){comment}"
+
 def f_puls(args,comment):
-    src = args[0]
-    if src == "d":
-        src = registers['b']
-    return f"\tmove.w\t(sp)+,{src}{comment}"
+    move_params,inst = decode_movem(args)
+    rval = f"\t{inst}.w\t(sp)+,{move_params}{comment}"
+    if "pc" in move_params:
+        # pulling PC triggers a RTS (seen in Joust)
+        rval += "\trts{continuation_comment}"
+    return rval
 
 def f_ldd(args,comment):
     src = args[0]
