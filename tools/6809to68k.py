@@ -302,21 +302,29 @@ def f_lsl(args,comment):
 ##    return generic_indexed_to("lsr","",args,comment)
 
 def decode_movem(args):
-    toks = [registers['b'] if t=="d" else t for t in args]
-    return "/".join(toks),"movem" if len(toks)>1 else "move"
+    return_afterwards = False
+    toks = set(args)
+    if "d" in toks:
+        toks.discard("d")
+        toks.add(registers['a'])
+        toks.add(registers['b'])
+    if "pc" in toks:
+        toks.discard("pc")
+        return_afterwards = True
+    return "/".join(sorted(toks)),"movem" if len(toks)>1 else "move",return_afterwards
 
 
 
 def f_pshs(args,comment):
-    move_params,inst = decode_movem(args)
+    move_params,inst,_ = decode_movem(args)
     return f"\t{inst}.w\t{move_params},-(sp){comment}"
 
 def f_puls(args,comment):
-    move_params,inst = decode_movem(args)
+    move_params,inst,return_afterwards = decode_movem(args)
     rval = f"\t{inst}.w\t(sp)+,{move_params}{comment}"
-    if "pc" in move_params:
+    if return_afterwards:
         # pulling PC triggers a RTS (seen in Joust)
-        rval += "\trts{continuation_comment}"
+        rval += f"\n\trts{continuation_comment}"
     return rval
 
 def f_ldd(args,comment):
@@ -1492,13 +1500,6 @@ if True:
 \tmove.w\t(sp)+,ccr
 \t.endm
 
-* registers must be masked out to proper size before use
-\t.macro\tGET_INDIRECT_ADDRESS_REGS\treg1,reg2,destreg
-\tmove.l\t\\reg1,{AW}
-\tadd.l\t\\reg2,{AW}
-\tGET_ADDRESS_FUNC
-\tmove.w\t({AW}),\\destreg
-\t.endm
 
 \t.macro\tMOVE_W_TO_REG\tsrc,dest
 \tmove.w\t(\\src),\\dest
@@ -1515,6 +1516,12 @@ if True:
 \t.macro\tJMP_A_INDEXED\treg
 \tJXX_A_INDEXED
 \tjmp\t([\\reg,{A}.W])
+\t.endm
+
+\t.macro READ_BE_WORD\tsrcreg
+\tmoveq\t#0,{DW}
+\tmove.w\t(\\srcreg),{DW}
+\tmove.l\t{DW},\\srcreg
 \t.endm
 
 \t.else
@@ -1557,26 +1564,26 @@ if True:
 \tjmp\t(\\reg)
 \t.endm
 
-* registers must be masked out to proper size before use
-\t.macro\tGET_INDIRECT_ADDRESS_REGS\treg1,reg2,destreg
-\tmove.l\t\\reg1,{AW}
-\tadd.l\t\\reg2,{AW}
-\tmove.b\t({AW}),\\destreg
-\tlsl.w\t#8,\\destreg
-\tmove.b\t(1,{AW}),\\destreg
+\t.macro READ_BE_WORD\tsrcreg
+\tmoveq\t#0,{DW}
+\tmove.b\t(\\srcreg),{DW}
+\tlsl.w\t#8,{DW}
+\tmove.b\t(1,\\srcreg),{DW}
+\tmove.l\t{DW},\\srcreg
 \t.endm
 
 \t.endif
 
 
 
-\t.macro READ_BE_WORD\tsrcreg
-\tmove.b\t(\\srcreg),{DW}
-\tlsl.w\t#8,{DW}
-\tmove.b\t(1,\\srcreg),{DW}
-\tmove.w\t{DW},\\srcreg
-\t.endm
 
+* registers must be masked out to proper size before use
+\t.macro\tGET_INDIRECT_ADDRESS_REGS\treg1,reg2,destreg
+\tmove.l\t\\reg1,{AW}
+\tadd.l\t\\reg2,{AW}
+\tGET_ADDRESS_FUNC
+\tMOVE_W_TO_REG\t{AW},\\destreg
+\t.endm
 
 
 \t.macro GET_DP_ADDRESS\toffset
