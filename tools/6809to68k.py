@@ -387,7 +387,7 @@ def f_dec(args,comment):
 def f_tfr(args,comment):
     srcreg = args[0]
     dstreg = args[1]
-    double_size = ["x","y","u","d"]
+    double_size = {registers.get(x,x) for x in ["x","y","u","d"]}
     ext = "w" if srcreg in double_size or dstreg in double_size else "b"
     if dstreg == "dp":
         invreg = inv_registers[srcreg]
@@ -398,14 +398,21 @@ def f_tfr(args,comment):
             out = f"\tSET_DP_FROM\t{srcreg}{comment}"
         return out
 
+    out = "\tPUSH_SR\n"
+    dest_d = False
     if srcreg=="d":
+        out += "\tMAKE_D\n"
         srcreg=registers['b']
     if dstreg=="d":
+        dest_d = True
         dstreg=registers['b']
 
     # condition flags not affected!
-    out = f"\tPUSH_SR\n\tmove.{ext}\t{srcreg},{dstreg}{comment}\n\tPOP_SR"
+    out += f"\tmove.{ext}\t{srcreg},{dstreg}{comment}\n"
+    if dest_d:
+        out += f"\tmove.b\t{srcreg},{registers['a']}{continuation_comment}\n"
 
+    out += "\tPOP_SR"
     return out
 
 def f_clr(args,comment):
