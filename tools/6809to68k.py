@@ -423,6 +423,14 @@ def generic_lea(dest,args,comment):
     quick = ""
     # add or sub
     first_arg = args[0]
+    if first_arg == registers['b']:
+        # problem: using .w on B register actually picks D
+        DW = registers['dwork1']
+        rval = f"""\tmoveq\t#0,{DW}{continuation_comment}
+\tmove.b\t{first_arg},{DW}
+"""
+        first_arg = DW        # from now on use work register, only first 8 bits are active
+
     inst = "add"
     if first_arg[0]=="-":
         first_arg = first_arg[1:]
@@ -654,8 +662,16 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
     """
     if inst is empty, just issue the address load
     """
+    rval = ""
 
     arg = args[0]
+    if arg == registers['b']:
+        # problem: using .w on B register actually picks D
+        DW = registers['dwork1']
+        rval = f"""\tmoveq\t#0,{DW}{continuation_comment}
+\tmove.b\t{arg},{DW}
+"""
+        arg = DW        # from now on use work register, only first 8 bits are active
 
     size = "w" if word else "b"
     if inst and inst.islower():
@@ -680,9 +696,8 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
             increment = args[1].count("+")
             sa = args[1].strip("+-")
 
-            rval = ""
             if decrement:
-                rval = f"\tsubq.w\t#{decrement},{sa}{continuation_comment}\n"
+                rval += f"\tsubq.w\t#{decrement},{sa}{continuation_comment}\n"
 
             rval += f"\tGET_REG_ADDRESS\t0,{sa}{comment}\n"
             if increment:
@@ -691,7 +706,7 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
                 rval += compose_instruction(inst,regdst)
             else:
                 rval += "\n"
-            return rval
+
         else:
             # X/Y indexed direct (6809 tested: ldd    $0200,x or ldx d,x)
             invsa = inv_registers.get(index_reg)
@@ -705,22 +720,23 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
             z80_reg = arg
 
 
-            prefix = ""
+
             if arg in registers or arg=='d':
                 fromreg = "_FROM_REG"
                 if arg=='d':
-                    prefix = "\tMAKE_D\n"
+                    rval += "\tMAKE_D\n"
                     arg = registers['b']
                 else:
                     arg = registers[arg]
-                and_value = "FF" if z80_reg in ["a","b"] else "FFFF"
-                prefix += f"\tand.l\t#{out_hex_sign}{and_value},{arg}{mask_out_comment}\n"
+                #and_value = "FF" if z80_reg in ["a","b"] else "FFFF"
+                #prefix += f"\tand.l\t#{out_hex_sign}{and_value},{arg}{mask_out_comment}\n"
 
 
-            out = prefix+f"\tGET_REG_ADDRESS{fromreg}\t{arg},{index_reg}{comment}"
+            rval += f"\tGET_REG_ADDRESS{fromreg}\t{arg},{index_reg}{comment}"
             if inst:
-                out = out.rstrip()+compose_instruction(inst,regdst)
-            return out
+                rval  = rval.rstrip()+compose_instruction(inst,regdst)
+
+        return rval
        # various optims
     else:
         if arg.startswith(OPENING_BRACKET):
