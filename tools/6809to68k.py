@@ -1,7 +1,11 @@
-
 #
-# stray jcc after POP_SR
-# group same operations (asr/rol/ror/add...)
+# 6809 to 680x0 converter by JOTD (c) 2025
+#
+# this code has been used to convert the following games
+#
+# - Gyruss (coordinate transformation code)
+# - Track'N'Field (the whole game)
+#
 
 # post_proc: tst.w + GET_.*ADDRESS => remove tst.w
 # set macro MOVE_W for alignment (68000/68020) in post processing if source or dest
@@ -20,6 +24,19 @@
 # however, if memory is not banked, it is possible to create a full 64k address space
 # and almost leave the code live its life. Just insert some video update commands there
 # and there when the game changes tiles or other things
+#
+# track'n'field runs without any manual patches now :)
+#
+# the converter tries to keep A,B and D updated, the result is sometimes it does things
+# that aren't really needed. But it's accurate at least and code runs without need for
+# complete RE + debug...
+#
+# what I'm advising is that after the code works 100%, profile it using MAME trace and scripts
+# (there are python scripts that do that in that repository) and concentrate on the 68k code
+# in regions where the code is often called, optimize manually, and never re-generate
+#
+# check how conversion+custom post-processing does an automatic job here:
+# https://github.com/jotd666/track_and_field
 
 import re,itertools,os,collections,glob,io
 import argparse
