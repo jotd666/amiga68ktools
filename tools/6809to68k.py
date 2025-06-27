@@ -428,6 +428,7 @@ def generic_lea(dest,args,comment):
         DW = registers['dwork1']
         rval = f"""\tmoveq\t#0,{DW}{continuation_comment}
 \tmove.b\t{first_arg},{DW}
+\text\t{DW}
 """
         first_arg = DW        # from now on use work register, only first 8 bits are active
 
@@ -669,7 +670,8 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
         # problem: using .w on B register actually picks D
         DW = registers['dwork1']
         rval = f"""\tmoveq\t#0,{DW}{continuation_comment}
-\tmove.b\t{arg},{DW}
+\tmove.b\t{arg},{DW}{continuation_comment} as byte
+\text\t{DW}{continuation_comment} with sign extension
 """
         arg = DW        # from now on use work register, only first 8 bits are active
 
