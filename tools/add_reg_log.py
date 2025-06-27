@@ -13,6 +13,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-s","--start-address",required=True)
 parser.add_argument("-e","--end-address",required=True)
 parser.add_argument("-p","--period",required=True,type=int)
+parser.add_argument("-c","--capture-start-address")
 parser.add_argument("asm_file")
 
 
@@ -20,6 +21,10 @@ args = parser.parse_args()
 
 start_address = int(args.start_address,16)
 end_address = int(args.end_address,16)
+if args.capture_start_address is not None:
+    capture_start_address = int(args.capture_start_address,16)
+else:
+    capture_start_address = -1
 
 counter = 0
 
@@ -29,6 +34,9 @@ with open(args.asm_file) as f:
         m = instruction_with_offset_re.match(line)
         if m:
             address = int(m.group(1),16)
+            if address == capture_start_address:
+                line = f"\tENABLE_REGS_LOG   | added by add_reg_log.py\n"+line
+
             if start_address <= address <= end_address:
                 counter += 1
                 if counter == args.period:

@@ -303,7 +303,10 @@ def f_lsl(args,comment):
 
 def decode_movem(args):
     return_afterwards = False
+
     toks = set(args)
+
+    must_make_d = registers['a'] in toks
     if "d" in toks:
         toks.discard("d")
         toks.add(registers['a'])
@@ -311,7 +314,7 @@ def decode_movem(args):
     if "pc" in toks:
         toks.discard("pc")
         return_afterwards = True
-    return "/".join(sorted(toks)),"movem" if len(toks)>1 else "move",return_afterwards
+    return "/".join(sorted(toks)),"movem" if len(toks)>1 else "move",return_afterwards,must_make_d
 
 
 
@@ -320,12 +323,15 @@ def decode_movem(args):
 # it would be okay if all addresses were below 7FFF but most 6809 code
 # uses addresses above 7FFF
 def f_pshs(args,comment):
-    move_params,inst,_ = decode_movem(args)
+    move_params,inst,_,_ = decode_movem(args)
     return f"\t{inst}.l\t{move_params},-(sp){comment}"
 
 def f_puls(args,comment):
-    move_params,inst,return_afterwards = decode_movem(args)
-    rval = f"\t{inst}.l\t(sp)+,{move_params}{comment}"
+    move_params,inst,return_afterwards,must_make_d = decode_movem(args)
+    rval = f"\tmovem.l\t(sp)+,{move_params}{comment}"  # always movem to preserve flags by default
+    if must_make_d:
+        # A was just restored: we have to rebuild D
+        rval += f"\n\tPUSH_SR{continuation_comment}\n{MAKE_D_PREFIX}\tPOP_SR{continuation_comment}"
     if return_afterwards:
         # pulling PC triggers a RTS (seen in Joust)
         rval += f"\n\trts{continuation_comment}"
@@ -592,7 +598,7 @@ def get_substitution_extended_reg(arg):
         DW = registers['dwork1']
         rval = f"""\tmoveq\t#0,{DW}{continuation_comment}
 \tmove.b\t{arg},{DW}{continuation_comment} as byte
-\text\t{DW}{continuation_comment} with sign extension
+\tDO_EXTB\t{DW}{continuation_comment} with sign extension
 """
         return rval,DW
     else:
@@ -1539,7 +1545,12 @@ if True:
 
 \t.ifdef\tMC68020
 
+
 * 68020 compliant & optimized
+
+\t.macro DO_EXTB\treg
+\textb.l\t\\reg
+\t.endm
 
 \t.macro PUSH_SR
 \tmove.w\tccr,-(sp)
@@ -1575,6 +1586,11 @@ if True:
 \t.else
 
 * 68000 compliant
+
+\t.macro DO_EXTB\treg
+\text\t\\reg
+\text.l\t\\reg
+\t.endm
 
 \t.macro PUSH_SR
 \tmove.w\tsr,-(sp)
