@@ -79,7 +79,7 @@ else:
 
 continuation_comment = f"{out_comment} [...]"
 mask_out_comment = f"{out_comment} [masking out]"
-make_d_prefix = f"\tMAKE_D\t{continuation_comment}\n"
+MAKE_D_PREFIX = f"\tMAKE_D\t{continuation_comment}\n"
 
 # input & output comments are "*" and "|" (MIT syntax)
 # some day I may set as as an option...
@@ -361,7 +361,7 @@ def f_sta(args,comment):
 def f_stu(args,comment):
     return generic_store('u',args,comment,word=True)
 def f_std(args,comment):
-    return make_d_prefix+generic_store('b',args,comment,word=True)
+    return MAKE_D_PREFIX+generic_store('b',args,comment,word=True)
 def f_stb(args,comment):
     return generic_store('b',args,comment)
 def f_stx(args,comment):
@@ -401,7 +401,7 @@ def f_tfr(args,comment):
     out = "\tPUSH_SR\n"
     dest_d = False
     if srcreg=="d":
-        out += "\tMAKE_D\n"
+        out += MAKE_D_PREFIX
         srcreg=registers['b']
     if dstreg=="d":
         dest_d = True
@@ -410,7 +410,8 @@ def f_tfr(args,comment):
     # condition flags not affected!
     out += f"\tmove.{ext}\t{srcreg},{dstreg}{comment}\n"
     if dest_d:
-        out += f"\tmove.b\t{srcreg},{registers['a']}{continuation_comment}\n"
+        rorreg = f"\tror.w\t#8,{srcreg}{continuation_comment}\n"
+        out += f"{rorreg}\tmove.b\t{srcreg},{registers['a']}{continuation_comment} set MSB\n{rorreg}"
 
     out += "\tPOP_SR"
     return out
@@ -419,18 +420,11 @@ def f_clr(args,comment):
     return generic_store('#0',args,comment)
 
 def generic_lea(dest,args,comment):
-    rval = ""
+
     quick = ""
     # add or sub
     first_arg = args[0]
-    if first_arg == registers['b']:
-        # problem: using .w on B register actually picks D
-        DW = registers['dwork1']
-        rval = f"""\tmoveq\t#0,{DW}{continuation_comment}
-\tmove.b\t{first_arg},{DW}
-\text\t{DW}
-"""
-        first_arg = DW        # from now on use work register, only first 8 bits are active
+    rval,first_arg = get_substitution_extended_reg(first_arg)     # from now on use work register, only first 8 bits are active
 
     inst = "add"
     if first_arg[0]=="-":
@@ -438,7 +432,7 @@ def generic_lea(dest,args,comment):
         inst = "sub"
     elif first_arg=="d":
         first_arg=registers['b']
-        rval = make_d_prefix
+        rval = MAKE_D_PREFIX
     elif first_arg[0] in BRACKETS:
         # get address in memory
         args = [x.strip(BRACKETS) for x in args]
@@ -569,18 +563,42 @@ def f_adda(args,comment):
     return generic_indexed_from("add",'a',args,comment)
 def f_addb(args,comment):
     return generic_indexed_from("add",'b',args,comment)
+
+def f_op_on_d(args,comment,op):
+    rval = MAKE_D_PREFIX+generic_indexed_from(op,'b',args,comment,word=True)
+    rval += f"\n\tPUSH_SR{continuation_comment}\n\tMAKE_A{continuation_comment}\n\tPOP_SR{continuation_comment}"
+    return rval
+
 def f_addd(args,comment):
-    return "\tMAKE_D\n"+generic_indexed_from("add",'b',args,comment,word=True)
+    return f_op_on_d(args,comment,"add")
+
+def f_subd(args,comment):
+    return f_op_on_d(args,comment,"sub")
+
 def f_suba(args,comment):
     return generic_indexed_from("sub",'a',args,comment)
 def f_subb(args,comment):
     return generic_indexed_from("sub",'b',args,comment)
 def f_sbca(args,comment):
     return generic_indexed_from("subx",'a',args,comment)
-def f_subd(args,comment):
-    return "\tMAKE_D\n"+generic_indexed_from("sub",'b',args,comment,word=True)
+
 def f_sbcb(args,comment):
     return generic_indexed_from("subx",'b',args,comment)
+
+def get_substitution_extended_reg(arg):
+    if arg == registers['b'] or arg == registers['a']:
+    # problem: using .w on B register actually picks D
+    # also there's a sign extension to consider!
+        DW = registers['dwork1']
+        rval = f"""\tmoveq\t#0,{DW}{continuation_comment}
+\tmove.b\t{arg},{DW}{continuation_comment} as byte
+\text\t{DW}{continuation_comment} with sign extension
+"""
+        return rval,DW
+    else:
+        return "",arg
+
+
 
 def generic_indexed_to(inst,src,args,comment,word=False):
     arg = args[0]
@@ -663,17 +681,9 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
     """
     if inst is empty, just issue the address load
     """
-    rval = ""
 
     arg = args[0]
-    if arg == registers['b']:
-        # problem: using .w on B register actually picks D
-        DW = registers['dwork1']
-        rval = f"""\tmoveq\t#0,{DW}{continuation_comment}
-\tmove.b\t{arg},{DW}{continuation_comment} as byte
-\text\t{DW}{continuation_comment} with sign extension
-"""
-        arg = DW        # from now on use work register, only first 8 bits are active
+    rval,arg = get_substitution_extended_reg(arg) # from now on use work register, only first 8 bits are active
 
     size = "w" if word else "b"
     if inst and inst.islower():
@@ -1444,6 +1454,12 @@ if True:
 {out_start_line_comment} add value of A in B MSB so D&0xFF == B
 \trol.w\t#8,{B}
 \tmove.b\t{A},{B}
+\trol.w\t#8,{B}
+\t.endm
+
+\t.macro\tMAKE_A
+\trol.w\t#8,{B}
+\tmove.b\t{B},{A}
 \trol.w\t#8,{B}
 \t.endm
 
