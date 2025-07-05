@@ -226,6 +226,7 @@ inv_registers = {v:k.upper() for k,v in registers.items()}
 single_instructions = {"nop":"nop",
 "rts":"rts",
 "daa":"DAA",
+"abx":"ABX",
 "mul":"jbsr\tmultiply_ab",
 "nega":f"neg.b\t{registers['a']}",
 "negb":f"neg.b\t{registers['b']}",
@@ -315,6 +316,12 @@ def f_lsr(args,comment):
 def f_lsl(args,comment):
     return generic_shift_op("lsl","",args,comment)
 
+def f_asr(args,comment):
+    return generic_shift_op("asr","",args,comment)
+
+def f_asl(args,comment):
+    return generic_shift_op("asl","",args,comment)
+
 ##def f_lsr(args,comment):
 ##    return generic_indexed_to("lsr","",args,comment)
 
@@ -376,6 +383,8 @@ def f_ldd(args,comment):
 
 def f_com(args,comment):
     return generic_indexed_to("not","",args,comment)
+def f_neg(args,comment):
+    return generic_indexed_to("neg","",args,comment)
 
 def f_ldb(args,comment):
     return generic_load('b',args,comment)
@@ -441,6 +450,8 @@ def f_tfr(args,comment):
 
 def f_clr(args,comment):
     return generic_store('#0',args,comment)
+
+
 
 def generic_lea(dest,args,comment):
 
@@ -894,7 +905,8 @@ def f_cmpx(args,comment):
 def f_cmpy(args,comment):
     return generic_cmp(args,'y',comment,word=True)
 
-
+def f_exg(args,comment):
+    return f"\texg\t{args[0]},{args[1]}{comment}"
 def f_bsr(args,comment):
     return f_jsr(args,comment)
 
@@ -924,6 +936,10 @@ def f_blo(args,comment):
     return f_bcond("lo",args,comment)
 def f_ble(args,comment):
     return f_bcond("le",args,comment)
+def f_bge(args,comment):
+    return f_bcond("ge",args,comment)
+def f_blt(args,comment):
+    return f_bcond("lt",args,comment)
 def f_bgt(args,comment):
     return f_bcond("gt",args,comment)
 def f_bra(args,comment):
@@ -1204,7 +1220,9 @@ setxcflags_inst = ["SET_XC_FLAGS"]
 
 # sub/add aren't included as they're the translation of dec/inc which don't affect C
 # those are 68000 instructions (used in post-processing)
-carry_generating_instructions = {"add","sub","cmp","lsr","asl","asr","roxr","roxl","subx","addx"}
+carry_generating_instructions = {"add","sub","cmp","lsr","lsl","asl","asr","roxr","roxl","subx","addx","abcd","CLR_XC_FLAGS","SET_XC_FLAGS"}
+conditional_branch_instructions = {"bpl","bmi","bls","bne","beq","bhi","blo","bcc","bcs","blt","ble","bge","bgt"}
+conditional_branch_instructions.update({f"j{x[1:]}" for x in conditional_branch_instructions})
 
 # post-processing phase is crucial here, as the converted code is guaranteed to be WRONG
 # as opposed to Z80 conversion where it could be optimizations or warnings about well-known
@@ -1269,7 +1287,7 @@ for i,line in enumerate(nout_lines):
                 # clc+adc => add (way simpler & faster)
                 nout_lines[i-1] = nout_lines[i-1].replace(setxcflags_inst[0],"")
                 nout_lines[i] = nout_lines[i].replace("subx.b","sub.b")
-        elif finst not in {"jpl","jmi","bpl","bmi","jls","bls","bne","beq","jne","jeq","jhi","jlo","bhi","blo","bcc","jcc","bcs","jcs"} and prev_fp and prev_fp[0] == "cmp.b":
+        elif finst not in conditional_branch_instructions and prev_fp and prev_fp[0] == "cmp.b":
                 nout_lines[i] = issue_warning("review stray cmp (insert SET_X_FROM_CLEARED_C)",newline=True)+nout_lines[i]
 
 
@@ -1329,7 +1347,7 @@ for line in nout_lines:
             nout_lines_2.append(f"\tmove.b\t{first_param},{tmpreg}{comment}\n")
             nout_lines_2.append(line.replace(first_param,tmpreg)+"\n")
             continue
-        if tok in {"roxr","roxl","ror","rol","lsr","asl"} and "(" in toks[1]:
+        if tok in {"roxr","roxl","ror","rol","lsr","asl","lsl","asr"} and "(" in toks[1]:
             # 68k can't handle such modes
             comment = "\t"+out_comment+line.split(out_comment)[1]
             first_param,second_param = split_params(toks[1])
@@ -1406,8 +1424,9 @@ for i,line in enumerate(nout_lines):
                 # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
                 if prev_fp:
                     inst_no_size = prev_fp[0].split(".")[0]
-                    if inst_no_size not in carry_generating_instructions:
+                    if inst_no_size not in carry_generating_instructions and inst_no_size not in conditional_branch_instructions:
                         if not follows_sr_protected_block(nout_lines,i):
+                            print('iddidi',inst_no_size)
                             nout_lines[i] += issue_warning("stray bcc/bcs test",newline=True)
         prev_fp = fp
         if re.search("GET_.*_ADDRESS",toks[0]) and follows_sr_protected_block(nout_lines,i):
@@ -1469,6 +1488,12 @@ if True:
 
 \t.macro\tGET_UNCHECKED_ADDRESS_FUNC
 \tjbsr\tget_address
+\t.endm
+
+\t.macro\tABX
+\tmoveq\t#0,{DW}
+\tmove.b\t{B},{DW}
+\tadd.w\t{B},{X}
 \t.endm
 
 \t.macro\tMAKE_D
