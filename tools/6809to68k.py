@@ -1300,19 +1300,17 @@ if grouping:
             else:
                 sequence_break = True
 
-
         if sequence_break and count:
-            #print(i,last_line,count,prev_toks)
             for c in range(count):
+                ltr = last_line-c-1
                 # remove previous same instructions
-                nout_lines[last_line-c-1] = remove_instruction(nout_lines[last_line-c-1])
+                nout_lines[ltr] = remove_instruction(nout_lines[ltr])
                 # group
-                nout_lines[last_line] = nout_lines[last_line].replace("#1,",f"#{count+1},")
+            nout_lines[last_line] = nout_lines[last_line].replace("#1,",f"#{count+1},")
             # reset sequence
             count = 0
-        if toks is not None:
-            prev_toks = toks
-            last_line = i
+        prev_toks = toks
+        last_line = i
 
 # the generator assumed that rol, ror... a lot of operations can work directly on non-data registers
 # for simplicity's sake, now we post-process the generator to insert read to reg/op with reg/write to mem

@@ -3,6 +3,9 @@ import argparse
 import collections
 from itertools import groupby
 
+#
+# Amiga run-time profiler a la gprof decoder
+#
 # how to use:
 # 1) hook the VBL with profiler.s
 # 2) let run
