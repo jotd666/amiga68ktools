@@ -519,8 +519,10 @@ def generic_shift_op(inst,reg,args,comment):
     if arg in inv_registers:
         return f"\t{inst}\t#1,{arg}{comment}"
     else:
+        gaf,arg,value = get_get_address_function(arg)
+
         # we have to load the address first
-        rval = f"\tGET_ADDRESS\t{arg}{comment}\n"
+        rval = f"\t{gaf}\t{arg}{comment}\n"
         rval += f"\t{inst}\t#1,({registers['awork1']}){comment}"
         return rval
 
