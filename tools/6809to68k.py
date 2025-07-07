@@ -215,7 +215,7 @@ registers = {
 "dwork2":"d7",
 "awork1":"a0",
 #"p":"sr",
-"dp_base":"a4",
+"dp_base":"a5",
 "":""
 }
 inv_registers = {v:k.upper() for k,v in registers.items()}
@@ -791,7 +791,15 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
                 # indexed
                 arg,regsrc = arg.split(",")
                 z80_reg = inv_registers[regsrc]
-                out = f"""\tGET_REG_INDIRECT_ADDRESS\t{arg},{regsrc}{comment}
+                if arg in inv_registers:
+                    # first arg is also a register
+                    out,arg = get_substitution_extended_reg(arg)
+                    # if a or b, mask must be applied, sign extension and switch to work reg!
+                    out += f"""\tGET_REG_REG_INDIRECT_ADDRESS\t{arg},{regsrc}{comment}
+\t{inst}\t({registers['awork1']}),{regdst}{continuation_comment}"""
+                else:
+                    # first arg is a constant
+                    out = f"""\tGET_REG_INDIRECT_ADDRESS\t{arg},{regsrc}{comment}
 \t{inst}\t({registers['awork1']}),{regdst}{continuation_comment}"""
             else:
                 out = f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
@@ -1426,7 +1434,6 @@ for i,line in enumerate(nout_lines):
                     inst_no_size = prev_fp[0].split(".")[0]
                     if inst_no_size not in carry_generating_instructions and inst_no_size not in conditional_branch_instructions:
                         if not follows_sr_protected_block(nout_lines,i):
-                            print('iddidi',inst_no_size)
                             nout_lines[i] += issue_warning("stray bcc/bcs test",newline=True)
         prev_fp = fp
         if re.search("GET_.*_ADDRESS",toks[0]) and follows_sr_protected_block(nout_lines,i):
@@ -1717,10 +1724,10 @@ if True:
         for unchecked in ["","UNCHECKED_"]:
             f.write(f"""\t.macro GET_REG_{unchecked}ADDRESS\toffset,reg
 \t.ifeq\t\\offset
-\tmove.l\t\\reg,{registers['awork1']}
+\tmove.l\t\\reg,{AW}
 \t.else
-\tlea\t\\offset,{registers['awork1']}
-\tadd.l\t\\reg,{registers['awork1']}
+\tlea\t\\offset,{AW}
+\tadd.l\t\\reg,{AW}
 \t.endif
 \tGET_{unchecked}ADDRESS_FUNC
 \t.endm
@@ -1728,13 +1735,20 @@ if True:
 
 \t.macro GET_REG_INDIRECT_{unchecked}ADDRESS\toffset,reg
 \tGET_REG_ADDRESS\t\\offset,\\reg
-\tREAD_BE_WORD\t{registers['awork1']}
+\tREAD_BE_WORD\t{AW}
+\tGET_{unchecked}ADDRESS_FUNC
+\t.endm
+
+\t.macro    GET_REG_REG_{unchecked}INDIRECT_ADDRESS reg1,reg2
+\tGET_INDIRECT_ADDRESS_REGS\t\\reg1,\\reg2,{DW}
+\tand.l\t#0xFFFF,{DW}
+\tmove.l\t{DW},{AW}
 \tGET_{unchecked}ADDRESS_FUNC
 \t.endm
 
 \t.macro GET_REG_{unchecked}ADDRESS_FROM_REG\treg,reg2
-\tmove.l\t\\reg,{registers['awork1']}
-\tadd.l\t\\reg2,{registers['awork1']}
+\tmove.l\t\\reg,{AW}
+\tadd.l\t\\reg2,{AW}
 \tGET_{unchecked}ADDRESS_FUNC
 \t.endm
 
@@ -1846,7 +1860,7 @@ GET_ADDRESS:MACRO
 
 {out_comment} direct page pointer needs to be reloaded in case of irq
 m6809_direct_page_pointer:
-\t.long\t{out_hex_sign}A4A4A4A4
+\t.long\t{out_hex_sign}A5A5A5A5
 
 """)
 
