@@ -1263,6 +1263,7 @@ for i,line in enumerate(nout_lines):
 
         elif finst == "DAA" and prev_fp:
             # try to match add/sub + DAA and replace by abcd
+
             prev_inst = prev_fp[0]
             if prev_inst in ["addx.b","subx.b","add.b","sub.b"]:
                 nout_lines[i] = ""
@@ -1273,8 +1274,12 @@ for i,line in enumerate(nout_lines):
                 new_inst = new_inst.replace("subx.b","sbcd")
                 new_inst = new_inst.replace("sub.b","sbcd")
                 toks = prev_fp[1].split(",")
-                nout_lines[i-1] = f"""{clear_xc}\tmove.b\t{toks[0]},{tmpreg}\t{continuation_comment}
+                if prev_inst in nout_lines[i-1]:
+                    nout_lines[i-1] = f"""{clear_xc}\tmove.b\t{toks[0]},{tmpreg}\t{continuation_comment}
 \t{new_inst}\t{tmpreg},{toks[1]}\t{continuation_comment}"""
+                else:
+                    # maybe a label or a comment was inserted there, can't process automatically
+                    nout_lines[i] = issue_warning("stray daa, handle manually")
 
         elif finst == "MAKE_D" and prev_fp and prev_fp[0] == "LOAD_D":
             # no need to MAKE_D after LOAD_D
@@ -1869,7 +1874,7 @@ m6809_direct_page_pointer:
 if os.path.exists(cli_args.include_output):
     print(f"Skipping already created file {cli_args.include_output}")
 else:
-    print("Generating file {cli_args.include_output}")
+    print(f"Generating file {cli_args.include_output}")
     with open(cli_args.include_output,"w") as fw:
         fw.write(f.getvalue())
         A =registers['a']
