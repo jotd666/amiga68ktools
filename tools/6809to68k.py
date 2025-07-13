@@ -5,6 +5,7 @@
 #
 # - Gyruss (coordinate transformation code)
 # - Track'N'Field (the whole game)
+# - Hyper Sports (the whole game)
 #
 
 # post_proc: tst.w + GET_.*ADDRESS => remove tst.w
@@ -219,9 +220,9 @@ registers = {
 "":""
 }
 inv_registers = {v:k.upper() for k,v in registers.items()}
-
 # do NOT define this!!
 #registers["d"] = registers["a"]
+#inv_registers['d'] = 'd'
 
 single_instructions = {"nop":"nop",
 "rts":"rts",
@@ -473,10 +474,12 @@ def generic_lea(dest,args,comment):
         # if 8 bit register, mask first
         rval = ""
         for arg in args:
-            mask = "ff" if inv_registers[arg] in "AB" else "ffff"
+            mask = "ff" if inv_registers.get(arg,arg) in "AB" else "ffff"
             if mask == "ff":
                 rval += f"\tand.l\t#{out_hex_sign}{mask},{arg}{out_comment} mask register before add\n"
 
+        if args[0] == 'd':
+            args[0] = 'd0'
 
         rval += f"\tGET_INDIRECT_ADDRESS_REGS\t{args[0]},{args[1]},{registers[dest]}{comment}"
         return rval
