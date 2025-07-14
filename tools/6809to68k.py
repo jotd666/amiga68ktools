@@ -226,6 +226,7 @@ inv_registers = {v:k.upper() for k,v in registers.items()}
 
 single_instructions = {"nop":"nop",
 "rts":"rts",
+"sex":"SEX",
 "daa":"DAA",
 "abx":"ABX",
 "mul":"jbsr\tmultiply_ab",
@@ -298,6 +299,12 @@ def arg2label(s):
 
 def f_ldu(args,comment):
     return generic_load('u',args,comment,word=True)
+
+# we load the 'stack'. Games then use this as auto variable memory
+# but rarely hack on return address or saved registers so using the real 68000 stack
+# pointer in that case is OK
+def f_lds(args,comment):
+    return generic_load('s',args,comment,word=True)
 
 def f_lda(args,comment):
     return generic_load('a',args,comment)
@@ -409,6 +416,8 @@ def f_leay(args,comment):
     return generic_lea('y',args,comment)
 def f_leau(args,comment):
     return generic_lea('u',args,comment)
+def f_leas(args,comment):
+    return generic_lea('s',args,comment)
 
 def f_ldy(args,comment):
     return generic_load('y',args,comment, word=True)
@@ -1511,6 +1520,12 @@ if True:
 \tmoveq\t#0,{DW}
 \tmove.b\t{B},{DW}
 \tadd.w\t{B},{X}
+\t.endm
+
+
+\t.macro\tSEX
+\tmove.b\t{B},{A}
+\text.b\t{A}
 \t.endm
 
 \t.macro\tMAKE_D
