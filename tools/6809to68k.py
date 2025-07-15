@@ -335,6 +335,7 @@ def f_asl(args,comment):
 
 def decode_movem(args):
     return_afterwards = False
+    cc_move = False
 
     toks = set(args)
 
@@ -346,7 +347,10 @@ def decode_movem(args):
     if "pc" in toks:
         toks.discard("pc")
         return_afterwards = True
-    return "/".join(sorted(toks)),"movem" if len(toks)>1 else "move",return_afterwards,must_make_d
+    if "cc" in toks:
+        toks.discard("cc")
+        cc_move = True
+    return "/".join(sorted(toks)),"movem" if len(toks)>1 else "move",return_afterwards,must_make_d,cc_move
 
 
 
@@ -355,18 +359,36 @@ def decode_movem(args):
 # it would be okay if all addresses were below 7FFF but most 6809 code
 # uses addresses above 7FFF
 def f_pshs(args,comment):
-    move_params,inst,_,_ = decode_movem(args)
-    return f"\t{inst}.l\t{move_params},-(sp){comment}"
+    move_params,inst,_,_,cc_move= decode_movem(args)
+    if cc_move:
+        rval = f"\tPUSH_SR{comment}"
+    if move_params:
+        rval += f"\n\t{inst}.l\t{move_params},-(sp){comment}"
+    else:
+        rval += "\n"
+    return rval
 
 def f_puls(args,comment):
-    move_params,inst,return_afterwards,must_make_d = decode_movem(args)
-    rval = f"\tmovem.l\t(sp)+,{move_params}{comment}"  # always movem to preserve flags by default
+    move_params,inst,return_afterwards,must_make_d,cc_move = decode_movem(args)
+    if move_params:
+        rval = f"\tmovem.l\t(sp)+,{move_params}{comment}"  # always movem to preserve flags by default
+    else:
+        rval = ""
     if must_make_d:
         # A was just restored: we have to rebuild D
-        rval += f"\n\tPUSH_SR{continuation_comment}\n{MAKE_D_PREFIX}\tPOP_SR{continuation_comment}"
+        if cc_move:
+            # cc is restored afterwards, no need to push/pop
+            rval += f"\n{MAKE_D_PREFIX}".rstrip()
+        else:
+            rval += f"\n\tPUSH_SR{continuation_comment}\n{MAKE_D_PREFIX}\tPOP_SR{continuation_comment}"
+    if cc_move:
+        rval += f"\n\tPOP_SR{comment}"
+
     if return_afterwards:
         # pulling PC triggers a RTS (seen in Joust)
         rval += f"\n\trts{continuation_comment}"
+
+
     return rval
 
 def f_ldd(args,comment):
@@ -381,7 +403,11 @@ def f_ldd(args,comment):
             msb = f"{out_hex_sign}{v>>8:02x}"
 
         out = f"\tmove.b\t#{msb},{registers['a']}{comment}\n"
-        out += f"\tmove.w\t#{out_hex_sign}{v:04x},{registers['b']}{comment}"
+        if isinstance(v,int):
+            source = f"{out_hex_sign}{v:04x}"
+        else:
+            source = v
+        out += f"\tmove.w\t#{source},{registers['b']}{comment}"
     else:
         empty_inst = ""
 
@@ -471,13 +497,13 @@ def generic_lea(dest,args,comment):
     rval,first_arg = get_substitution_extended_reg(first_arg)     # from now on use work register, only first 8 bits are active
 
     inst = "add"
-    if first_arg[0]=="-":
+    if first_arg.startswith("-"):
         first_arg = first_arg[1:]
         inst = "sub"
     elif first_arg=="d":
         first_arg=registers['b']
         rval = MAKE_D_PREFIX
-    elif first_arg[0] in BRACKETS:
+    elif first_arg and first_arg[0] in BRACKETS:
         # get address in memory
         args = [x.strip(BRACKETS) for x in args]
         # if 8 bit register, mask first
@@ -493,16 +519,18 @@ def generic_lea(dest,args,comment):
         rval += f"\tGET_INDIRECT_ADDRESS_REGS\t{args[0]},{args[1]},{registers[dest]}{comment}"
         return rval
 
-    if not is_register_value(first_arg):
+    if first_arg and not is_register_value(first_arg):
         quick = "q" if can_be_quick(first_arg) else ""
         first_arg = f'#{first_arg}'
 
     if args[1]==registers[dest]:
-        rval += f"\t{inst}{quick}.w\t{first_arg},{args[1]}{comment}"
+        if first_arg:
+            rval += f"\t{inst}{quick}.w\t{first_arg},{args[1]}{comment}"
     else:
         dest_68k = registers[dest]
         rval += f"\tmove.w\t{args[1]},{dest_68k}{comment}\n"
-        rval += f"\t{inst}{quick}.w\t{first_arg},{dest_68k}{comment}"
+        if first_arg:
+            rval += f"\t{inst}{quick}.w\t{first_arg},{dest_68k}{comment}"
 
     return rval
 
@@ -859,7 +887,7 @@ def get_get_address_function(arg):
 
 def f_jmp(args,comment):
     target_address = None
-    if args[0][0] in BRACKETS:
+    if not args[0] or args[0][0] in BRACKETS:
         return(f'\tERROR\t"indirect jmp"\t{comment}')
     label = arg2label(args[0])
     if args[0] != label:
@@ -1873,10 +1901,12 @@ GET_ADDRESS:MACRO
 
 
 """)
-
+    f.write("* zero all registers but 6809 stack pointer\n")
     f.write("cpu_init:\n")
     for i in range(8):
-        f.write(f"\tmoveq\t#0,d{i}\n")
+        reg = f"d{i}"
+        if reg != registers["s"]:
+            f.write(f"\tmoveq\t#0,{reg}\n")
     f.write("\trts\n\n")
 
     f.write(f"""get_address:
