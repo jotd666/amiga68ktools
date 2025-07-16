@@ -1641,11 +1641,6 @@ if True:
 \t{error}\t"TODO: insert interrupt enable code here"
 \t.endm
 
-\t.macro\tJXX_A_INDEXED
-\tand.w\t#0xFF,{A}  {out_comment} mask 8 bits
-\tadd.w\t{A},{A}    {out_comment} *2 (16 -> 32 bits)
-\t.endm
-
 \t.ifdef\tMC68020
 
 
@@ -1681,14 +1676,7 @@ if True:
 \tmove.w\t\\src,(\\dest)
 \t.endm
 
-\t.macro\tJSR_A_INDEXED\treg
-\tJXX_A_INDEXED
-\tjsr\t([\\reg,{A}.W])
-\t.endm
-\t.macro\tJMP_A_INDEXED\treg
-\tJXX_A_INDEXED
-\tjmp\t([\\reg,{A}.W])
-\t.endm
+
 
 \t.macro READ_BE_WORD\tsrcreg
 \tmoveq\t#0,{DW}
@@ -1703,14 +1691,14 @@ if True:
     .macro    JXX_A_INDEXED    inst,reg
     and.w    #0xFF,{A}  | mask 8 bits
     add.w    {A},{A}    | *2 (16 -> 32 bits)
-    move.l    (\\reg,{A}.w),\reg
+    move.l    (\\reg,{A}.w),\\reg
     \\inst    (\\reg)
     .endm
 
     .macro    JXX_B_INDEXED    inst,reg
     and.w    #0xFF,{B}  | mask 8 bits
     add.w    {A},{B}    | *2 (16 -> 32 bits)
-    move.l    (\\reg,{B}.w),\reg
+    move.l    (\\reg,{B}.w),\\reg
     \\inst    (\\reg)
     .endm
 
@@ -1742,19 +1730,6 @@ if True:
 
 
 
-
-\t.macro\tJSR_A_INDEXED\treg
-\tJXX_A_INDEXED
-\tmove.l\t(\\reg,{A}.w),\\reg
-\tjsr\t(\\reg)
-\t.endm
-
-\t.macro\tJMP_A_INDEXED\treg
-\tJXX_A_INDEXED
-\tmove.l\t(\\reg,{A}.w),\\reg
-\tjmp\t(\\reg)
-\t.endm
-
 \t.macro READ_BE_WORD\tsrcreg
 \tmoveq\t#0,{DW}
 \tmove.b\t(\\srcreg),{DW}
@@ -1767,20 +1742,16 @@ if True:
 
 
     .macro    JSR_A_INDEXED    reg
-    JXX_A_INDEXED
-    jsr    ([\\reg,d0.W])
+    JXX_A_INDEXED\tjsr,\\reg
     .endm
     .macro    JMP_A_INDEXED    reg
-    JXX_A_INDEXED
-    jmp    ([\\reg,d0.W])
+    JXX_A_INDEXED\tjmp,\\reg
     .endm
     .macro    JSR_B_INDEXED    reg
-    JXX_B_INDEXED
-    jsr    ([\\reg,d0.W])
+    JXX_B_INDEXED\tjsr,\\reg
     .endm
     .macro    JMP_B_INDEXED    reg
-    JXX_B_INDEXED
-    jmp    ([\\reg,d0.W])
+    JXX_B_INDEXED\tjmp,\\reg
     .endm
 
 
