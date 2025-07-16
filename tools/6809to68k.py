@@ -3,7 +3,7 @@
 #
 # this code has been used to convert the following games
 #
-# - Gyruss (coordinate transformation code)
+# - Gyruss (small coordinate transformation code)
 # - Track'N'Field (the whole game)
 # - Hyper Sports (the whole game)
 #
@@ -360,6 +360,7 @@ def decode_movem(args):
 # uses addresses above 7FFF
 def f_pshs(args,comment):
     move_params,inst,_,_,cc_move= decode_movem(args)
+    rval = ""
     if cc_move:
         rval = f"\tPUSH_SR{comment}"
     if move_params:
@@ -765,7 +766,6 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
     if inst and inst.islower():
         inst += f".{size}"
 
-
     y_indexed = False
 
     if arg.startswith(OPENING_BRACKET):
@@ -837,15 +837,18 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
                     # first arg is also a register
                     out,arg = get_substitution_extended_reg(arg)
                     # if a or b, mask must be applied, sign extension and switch to work reg!
-                    out += f"""\tGET_REG_REG_INDIRECT_ADDRESS\t{arg},{regsrc}{comment}
-\t{inst}\t({registers['awork1']}),{regdst}{continuation_comment}"""
+                    out += f"\tGET_REG_REG_INDIRECT_ADDRESS\t{arg},{regsrc}{comment}"
+                    if inst:
+                        out += f"\n\t{inst}\t({registers['awork1']}),{regdst}{continuation_comment}"
                 else:
                     # first arg is a constant
-                    out = f"""\tGET_REG_INDIRECT_ADDRESS\t{arg},{regsrc}{comment}
-\t{inst}\t({registers['awork1']}),{regdst}{continuation_comment}"""
+                    out = f"\tGET_REG_INDIRECT_ADDRESS\t{arg},{regsrc}{comment}"
+                    if inst:
+                        out += f"\n\t{inst}\t({registers['awork1']}),{regdst}{continuation_comment}"
             else:
-                out = f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
-\t{inst}\t({registers['awork1']}),{regdst}{continuation_comment}"""
+                out = f"\tGET_INDIRECT_ADDRESS\t{arg}{comment}"
+                if inst:
+                    out += f"\n\t{inst}\t({registers['awork1']}),{regdst}{continuation_comment}"
             return out
         elif arg[0]=='#':
             # various optims for immediate mode
@@ -1484,7 +1487,7 @@ for i,line in enumerate(nout_lines):
                             nout_lines[i] += issue_warning("stray bcc/bcs test",newline=True)
         prev_fp = fp
         if re.search("GET_.*_ADDRESS",toks[0]) and follows_sr_protected_block(nout_lines,i):
-            if "PUSH_SR" in nout_lines[i-3]:
+            if i>3 and "PUSH_SR" in nout_lines[i-3]:
                 # PUSH/op/POP+GET_xxx_ADDRESS
                 # no need to protect CCs as there's a GET_xxx_ADDRESS (so not a test) just after it
                 nout_lines[i-1] = ""
@@ -1648,6 +1651,16 @@ if True:
 
 * 68020 compliant & optimized
 
+    .macro    JXX_A_INDEXED    inst,reg
+    and.w    #0xFF,{A}  | mask 8 bits
+    \\inst    ([\\reg,{A}.W*2])
+    .endm
+
+    .macro    JXX_B_INDEXED    inst,reg
+    and.w    #0xFF,{B}  | mask 8 bits
+    \\inst    ([\\reg,{B}.W*2])
+    .endm
+
 \t.macro DO_EXTB\treg
 \textb.l\t\\reg
 \t.endm
@@ -1686,6 +1699,20 @@ if True:
 \t.else
 
 * 68000 compliant
+
+    .macro    JXX_A_INDEXED    inst,reg
+    and.w    #0xFF,{A}  | mask 8 bits
+    add.w    {A},{A}    | *2 (16 -> 32 bits)
+    move.l    (\\reg,{A}.w),\reg
+    \\inst    (\\reg)
+    .endm
+
+    .macro    JXX_B_INDEXED    inst,reg
+    and.w    #0xFF,{B}  | mask 8 bits
+    add.w    {A},{B}    | *2 (16 -> 32 bits)
+    move.l    (\\reg,{B}.w),\reg
+    \\inst    (\\reg)
+    .endm
 
 \t.macro DO_EXTB\treg
 \text\t\\reg
@@ -1739,6 +1766,22 @@ if True:
 \t.endif
 
 
+    .macro    JSR_A_INDEXED    reg
+    JXX_A_INDEXED
+    jsr    ([\\reg,d0.W])
+    .endm
+    .macro    JMP_A_INDEXED    reg
+    JXX_A_INDEXED
+    jmp    ([\\reg,d0.W])
+    .endm
+    .macro    JSR_B_INDEXED    reg
+    JXX_B_INDEXED
+    jsr    ([\\reg,d0.W])
+    .endm
+    .macro    JMP_B_INDEXED    reg
+    JXX_B_INDEXED
+    jmp    ([\\reg,d0.W])
+    .endm
 
 
 * registers must be masked out to proper size before use
