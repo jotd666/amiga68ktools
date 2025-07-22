@@ -41,6 +41,7 @@ parser.add_argument("-s","--spaces",help="replace tabs by x spaces",type=int)
 parser.add_argument("-n","--no-mame-prefixes",help="treat as real source, not MAME disassembly",action="store_true")
 parser.add_argument("input_file")
 parser.add_argument("output_file")
+parser.add_argument("output_include_file")
 
 cli_args = parser.parse_args()
 
@@ -920,6 +921,7 @@ if cli_args.spaces:
 
 
 f = io.StringIO()
+finc = io.StringIO()
 
 if True:
     X = registers['x']
@@ -941,16 +943,50 @@ if True:
 
 """)
 
+    finc.write(f"""{out_start_line_comment} Generated with 6502to68k by JOTD
+{out_start_line_comment}
+{out_start_line_comment} include file which contains generic macros
+{out_start_line_comment} and also macros that the user must fill/tune
+
+""")
+
     if cli_args.output_mode == "mit":
-        f.write(f"""
+        finc.write(f"""
 \t.ifdef\tMC68020
+* 68020 optimized
 \t.macro PUSH_SR
 \tmove.w\tccr,-(sp)
 \t.endm
+
+\t.macro READ_LE_WORD    srcreg
+\tPUSH_SR
+\tmoveq    #0,d4
+\tmove.w    (\srcreg),d4
+\trol.w    #8,d4
+* we have to use long else it will
+* extend sign for > 0x7FFF and will compute wrong offset
+\tmove.l    d4,\srcreg
+\tPOP_SR
+\t.endm
+
 \t.else
+* 68000 compliant
 \t.macro PUSH_SR
 \tmove.w\tsr,-(sp)
 \t.endm
+
+\t.macro READ_LE_WORD    srcreg
+\tPUSH_SR
+\tmoveq    #0,d4
+\tmove.b    (1,\srcreg),d4
+\tlsl.w    #8,d4
+\tmove.b    (\srcreg),d4
+* we have to use long else it will
+* extend sign for > 0x7FFF and will compute wrong offset
+\tmove.l    d4,\srcreg
+\tPOP_SR
+\t.endm
+
 \t.endif
 
 \t.macro POP_SR
@@ -1029,14 +1065,14 @@ if True:
 \tmove.w\t(sp),{registers['dwork1']}
 \tbset\t#4,{registers['dwork1']}   | set X
 \tbtst\t#0,{registers['dwork1']}
-\tbeq.b\t0f
+\tbeq.b\tskip\\@
 \tbclr\t#4,{registers['dwork1']}   | C is set: clear X
-0:
+skip\\@:
 \tmove.w\t{registers['dwork1']},(sp)
 \tPOP_SR
 \t.endm
 
-.macro CLR_XC_FLAGS
+\t.macro CLR_XC_FLAGS
 \tmoveq\t#0,{C}
 \troxl.b\t#1,{C}
 \t.endm
@@ -1058,17 +1094,7 @@ if True:
 \t.endm
 
 
-.macro READ_LE_WORD    srcreg
-PUSH_SR
-moveq    #0,d4
-move.b    (1,\srcreg),d4
-lsl.w    #8,d4
-move.b    (\srcreg),d4
-* we have to use long else it will
-* extend sign for > 0x7FFF and will compute wrong offset
-move.l    d4,\srcreg
-POP_SR
-.endm
+
 
 \t.macro GET_ADDRESS\toffset
 \tlea\t\offset,{registers['awork1']}
@@ -1095,8 +1121,10 @@ POP_SR
 
 
 """)
+        f.write(f'\t.include\t"{cli_args.output_include_file}"\n')
+
     else:
-        f.write(f"""SBC_X:MACRO
+        finc.write(f"""SBC_X:MACRO
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\1
 \tmove.b\t({registers['awork1']},{X}.w),{W}
@@ -1160,7 +1188,7 @@ SET_I_FLAG:MACRO
 \tENDM
 
 CLR_I_FLAG:MACRO
-\t.error  "TODO: insert interrupt enable code here"
+\tERROR  "TODO: insert interrupt enable code here"
 \tENDM
 
 \tIFD\tMC68020
@@ -1206,6 +1234,7 @@ GET_INDIRECT_ADDRESS:MACRO
 \tENDM
 
 """)
+        f.write(f'\tinclude\t"{cli_args.output_include_file}"\n')
 
     f.write("cpu_init:\n")
     for i in range(8):
@@ -1229,6 +1258,13 @@ else:
 
 with open(cli_args.output_file,"w") as f:
     f.writelines(nout_lines)
+
+if os.path.exists(cli_args.output_include_file):
+    print("Keeping existing include file {cli_args.output_include_file}")
+else:
+    print("Generating include file {cli_args.output_include_file}. Adaptations are required")
+    with open(cli_args.output_include_file,"w") as f:
+        f.write(finc.getvalue())
 
 
 print(f"Converted {converted} lines on {len(lines)} total, {instructions} instruction lines")

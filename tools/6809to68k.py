@@ -6,12 +6,8 @@
 # - Gyruss (small coordinate transformation code)
 # - Track'N'Field (the whole game)
 # - Hyper Sports (the whole game)
-#
+# - Jailbreak (the whole game)
 
-# post_proc: tst.w + GET_.*ADDRESS => remove tst.w
-# set macro MOVE_W for alignment (68000/68020) in post processing if source or dest
-# is not a register, detect others .w operands in that case
-# cmpd generates cmp.w which is not 68000 friendly
 
 # you'll have to implement the macro GET_ADDRESS_FUNC to return pointer on memory layout
 # to replace lea/move/... in memory
@@ -38,6 +34,11 @@
 #
 # check how conversion+custom post-processing does an automatic job here:
 # https://github.com/jotd666/track_and_field
+#
+# - inca/deca should trigger MAKE_D
+# - post_proc: tst.w + GET_.*ADDRESS => remove tst.w
+# - cmpd generates cmp.w which is not 68000 friendly (odd adress)
+#
 
 import re,itertools,os,collections,glob,io
 import argparse
@@ -1273,7 +1274,7 @@ setxcflags_inst = ["SET_XC_FLAGS"]
 
 # sub/add aren't included as they're the translation of dec/inc which don't affect C
 # those are 68000 instructions (used in post-processing)
-carry_generating_instructions = {"add","sub","cmp","lsr","lsl","asl","asr","roxr","roxl","subx","addx","abcd","CLR_XC_FLAGS","SET_XC_FLAGS"}
+carry_generating_instructions = {"add","sub","cmp","CMP_W_TO_REG","lsr","lsl","asl","asr","roxr","roxl","subx","addx","abcd","CLR_XC_FLAGS","SET_XC_FLAGS"}
 conditional_branch_instructions = {"bpl","bmi","bls","bne","beq","bhi","blo","bcc","bcs","blt","ble","bge","bgt"}
 conditional_branch_instructions.update({f"j{x[1:]}" for x in conditional_branch_instructions})
 
@@ -1345,7 +1346,7 @@ for i,line in enumerate(nout_lines):
                 # clc+adc => add (way simpler & faster)
                 nout_lines[i-1] = nout_lines[i-1].replace(setxcflags_inst[0],"")
                 nout_lines[i] = nout_lines[i].replace("subx.b","sub.b")
-        elif finst not in conditional_branch_instructions and prev_fp and prev_fp[0] == "cmp.b":
+        elif finst not in conditional_branch_instructions and finst != "PUSH_SR" and prev_fp and prev_fp[0] == "cmp.b":
                 nout_lines[i] = issue_warning("review stray cmp (insert SET_X_FROM_CLEARED_C)",newline=True)+nout_lines[i]
 
 
@@ -1464,6 +1465,10 @@ for line in nout_lines_2:
         else:
             inst = "MOVE_W_TO_REG"
         line = line.replace("move.w",inst).replace(f"({AW})",AW).replace(f"({AW})".lower(),AW)
+
+    if "cmp.w" in line and f"({AW})" in line:
+        inst = "CMP_W_TO_REG"
+        line = line.replace("cmp.w",inst).replace(f"({AW})",AW).replace(f"({AW})".lower(),AW)
 
     # optimize move.b => clr.b
     line = line.replace("move.b\t#0,","clr.b\t")
@@ -1672,6 +1677,12 @@ if True:
 \tmove.w\t(\\src),\\dest
 \t.endm
 
+\t.macro    CMP_W_TO_REG    src,dest
+\tmove.w    (\\src),\\dest
+\t.endm
+
+
+
 \t.macro\tMOVE_W_FROM_REG    src,dest
 \tmove.w\t\\src,(\\dest)
 \t.endm
@@ -1728,6 +1739,12 @@ if True:
 \tmove.b\t\\src,(1,\\dest)
 \t.endm
 
+    .macro    CMP_W_TO_REG    src,dest
+    move.b    (\\src),{DW}
+    ror.w    #8,{DW}
+    move.b    (1,\\src),{DW}
+    cmp.w    {DW},\\dest
+    .endm
 
 
 \t.macro READ_BE_WORD\tsrcreg
