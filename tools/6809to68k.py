@@ -1724,7 +1724,7 @@ if True:
 \t.endm
 
 \t.macro    CMP_W_TO_REG    src,dest
-\tmove.w    (\\src),\\dest
+\tcmp.w    (\\src),\\dest
 \t.endm
 
 
