@@ -187,8 +187,8 @@ inv_registers = {v:k.upper() for k,v in registers.items()}
 
 single_instructions = {"nop":"nop",  # no need to convert to no-operation
 "rts":"rts",
-"txs":'.error   "unsupported transfer to stack register"',
-"tsx":'.error   "unsupported transfer from stack register"',
+"txs":'ERROR   "unsupported transfer to stack register"',
+"tsx":'ERROR   "unsupported transfer from stack register"',
 "txa":f"move.b\t{registers['x']},{registers['a']}",
 "tya":f"move.b\t{registers['y']},{registers['a']}",
 "tax":f"move.b\t{registers['a']},{registers['x']}",
@@ -207,15 +207,15 @@ single_instructions = {"nop":"nop",  # no need to convert to no-operation
 "asl":f"asl\t#1,{registers['a']}",
 "ror":f"roxr\t#1,{registers['a']}",
 "rol":f"roxl\t#1,{registers['a']}",
-"rti":'.error  "unsupported return from interrupt!"',
+"rti":'ERROR  "unsupported return from interrupt!"',
 "sec":"SET_XC_FLAGS",
 "clc":"CLR_XC_FLAGS",
 "sec":"SET_XC_FLAGS",
 "clc":"CLR_XC_FLAGS",
 "sei":"SET_I_FLAG",
 "cli":"CLR_I_FLAG",
-"sed":'.error  "TODO: unsupported set decimal mode"',
-"cld":"nop",
+"sed":'ERROR  "TODO: unsupported set decimal mode"',
+"cld": "nop",
 "clv":f"CLR_V_FLAG",
 }
 
@@ -760,6 +760,10 @@ for line in out_lines:
     nout_lines.append(line+"\n")
 
 
+def remove_instruction(line):
+    comment_pos = line.index(out_comment)
+    return " "*comment_pos + line[comment_pos:]
+
 def follows_sr_protected_block(nout_lines,i):
     # we have a chance of protected block only if POP_SR
     # was just before the branch test
@@ -789,7 +793,45 @@ clrxcflags_inst = ["CLR_XC_FLAGS"]
 setxcflags_inst = ["SET_XC_FLAGS"]
 
 # sub/add aren't included as they're the translation of dec/inc which don't affect C
-carry_generating_instructions = {"lsr.b","asl.b","roxr.b","roxl.b","subx.b","addx.b"}
+carry_generating_instructions = {"lsr.b","asl.b","roxr.b","roxl.b","subx.b","addx.b","SBC_IMM","SBC","SBC_X","SBC_Y"}
+conditional_branch_instructions = {"bpl","bmi","bls","bne","beq","bhi","blo","bcc","bcs","blt","ble","bge","bgt"}
+conditional_branch_instructions.update({f"j{x[1:]}" for x in conditional_branch_instructions})
+
+grouping = True
+# group several same instructions like add, lsr... #1 in one go
+if grouping:
+    # after generation, a lot of instructions can be condensed, specially all INC, ROR, ...
+    prev_toks = None
+    last_line = 0
+    count = 0
+    for i,line in enumerate(nout_lines):
+        line = line.rstrip()
+        sequence_break = True
+        toks = None
+        if line and line[0].isspace():
+            sequence_break = False
+            toks = line.split()[0:2]  # lose offset
+            if toks == prev_toks and len(toks)==2:
+                arg = toks[1].split(",")
+                if len(arg)==2 and arg[0] == "#1":
+                    # xxx.b #1,dest we can group that
+                    count += 1
+                else:
+                    sequence_break = True
+            else:
+                sequence_break = True
+
+        if sequence_break and count:
+            for c in range(count):
+                ltr = last_line-c-1
+                # remove previous same instructions
+                nout_lines[ltr] = remove_instruction(nout_lines[ltr])
+                # group
+            nout_lines[last_line] = nout_lines[last_line].replace("#1,",f"#{count+1},")
+            # reset sequence
+            count = 0
+        prev_toks = toks
+        last_line = i
 
 # post-processing phase is crucial here, as the converted code is guaranteed to be WRONG
 # as opposed to Z80 conversion where it could be optimizations or warnings about well-known
@@ -798,7 +840,7 @@ carry_generating_instructions = {"lsr.b","asl.b","roxr.b","roxl.b","subx.b","add
 for i,line in enumerate(nout_lines):
     line = line.rstrip()
     toks = line.split("|",maxsplit=1)
-    if len(toks)==2:
+    if len(toks)==2 and toks[0].strip():
         fp = toks[0].rstrip().split()
         finst = fp[0]
 
@@ -821,35 +863,38 @@ for i,line in enumerate(nout_lines):
         elif finst == "bcc":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
+                inst_no_size = prev_fp[0].split(".")[0]
+
                 if prev_fp == clrxcflags_inst:
                     nout_lines[i-1] = f"{out_start_line_comment} clc+bcc => bra\n"
                     nout_lines[i] = nout_lines[i].replace("\t"+finst,"\tbra.b")
                 elif prev_fp[0] == "cmp.b":
                     # we KNOW we generated it wrong as in 6502 conditions are opposed. Change to bcs
                     nout_lines[i] = f"\t{out_start_line_comment} bcc=>bcs\n"+nout_lines[i].replace("\tbcc","\tbcs")
-                elif prev_fp[0] not in carry_generating_instructions:
+                elif prev_fp[0] not in carry_generating_instructions and inst_no_size not in conditional_branch_instructions:
                     if not follows_sr_protected_block(nout_lines,i):
-                        nout_lines[i] += '  .error  "warning: stray bcc test"\n'
+                        nout_lines[i] += '  ERROR  "warning: stray bcc test"\n'
 
         elif finst == "bcs":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
+                inst_no_size = prev_fp[0].split(".")[0]
                 if prev_fp == setxcflags_inst:
                     nout_lines[i-1] = f"{out_start_line_comment} sec+bcs => bra\n"
                     nout_lines[i] = nout_lines[i].replace(finst,"bra.b")
                 elif prev_fp[0] == "cmp.b":
                     # we KNOW we generated it wrong as in 6502 conditions are opposed. Change to bcs
                     nout_lines[i] = f"\t{out_start_line_comment} bcs=>bcc\n"+nout_lines[i].replace("\tbcs","\tbcc")
-                elif prev_fp[0] not in carry_generating_instructions:
+                elif prev_fp[0] not in carry_generating_instructions and inst_no_size not in conditional_branch_instructions:
                    if not follows_sr_protected_block(nout_lines,i):
-                        nout_lines[i] += '     .error "warning: review stray bcs test"\n'
+                        nout_lines[i] += '     ERROR "warning: review stray bcs test"\n'
         elif finst == "rts":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
                 if prev_fp == ["movem.w","d0,-(sp)"]:
-                    nout_lines[i] += '          .error  "review push to stack+return"\n'
+                    nout_lines[i] += '          ERROR  "review push to stack+return"\n'
                 elif prev_fp[0] == "cmp.b":
-                    nout_lines[i] += '          .error  "review stray cmp (check caller)"\n'
+                    nout_lines[i] += '          ERROR  "review stray cmp (check caller)"\n'
 
         elif finst == "addx.b":
             if prev_fp == clrxcflags_inst:
@@ -861,8 +906,8 @@ for i,line in enumerate(nout_lines):
                 # clc+adc => add (way simpler & faster)
                 nout_lines[i-1] = nout_lines[i-1].replace(setxcflags_inst[0],"")
                 nout_lines[i] = nout_lines[i].replace("subx.b","sub.b")
-        elif finst not in ["bne","beq"] and prev_fp and prev_fp[0] == "cmp.b":
-                nout_lines[i] = '      .error  "review stray cmp (insert SET_X_FROM_CLEARED_C)"\n'+nout_lines[i]
+        elif finst not in ["bne","beq","bmi"] and prev_fp and prev_fp[0] == "cmp.b":
+                nout_lines[i] = '      ERROR  "review stray cmp (insert SET_X_FROM_CLEARED_C)"\n'+nout_lines[i]
 
         prev_fp = fp
 # post-processing
@@ -952,6 +997,10 @@ if True:
 
     if cli_args.output_mode == "mit":
         finc.write(f"""
+    .macro    ERROR    arg
+    .error    "\\arg"     | comment out to disable errors
+    .endm
+
 \t.ifdef\tMC68020
 * 68020 optimized
 \t.macro PUSH_SR
@@ -1087,10 +1136,10 @@ skip\\@:
 \t.endm
 
 \t.macro SET_I_FLAG
-.error "TODO: insert interrupt disable code here"
+\tERROR "TODO: insert interrupt disable code here"
 \t.endm
 \t.macro CLR_I_FLAG
-.error  "TODO: insert interrupt enable code here"
+\tERROR  "TODO: insert interrupt enable code here"
 \t.endm
 
 
@@ -1233,6 +1282,10 @@ GET_INDIRECT_ADDRESS:MACRO
 \tjbsr\tget_address
 \tENDM
 
+get_address:
+\tERROR   "TODO: implement this by adding memory base to {registers['awork1']}"
+\trts
+
 """)
         f.write(f'\tinclude\t"{cli_args.output_include_file}"\n')
 
@@ -1241,11 +1294,7 @@ GET_INDIRECT_ADDRESS:MACRO
         f.write(f"\tmoveq\t#0,d{i}\n")
     f.write("\trts\n\n")
 
-    f.write(f"""get_address:
-\t.error    "TODO: implement this by adding memory base to {registers['awork1']}"
-\trts
 
-""")
 
 
 buffer = f.getvalue()+"".join(nout_lines)
@@ -1260,9 +1309,9 @@ with open(cli_args.output_file,"w") as f:
     f.writelines(nout_lines)
 
 if os.path.exists(cli_args.output_include_file):
-    print("Keeping existing include file {cli_args.output_include_file}")
+    print(f"Keeping existing include file {cli_args.output_include_file}")
 else:
-    print("Generating include file {cli_args.output_include_file}. Adaptations are required")
+    print(f"Generating include file {cli_args.output_include_file}. Adaptations are required")
     with open(cli_args.output_include_file,"w") as f:
         f.write(finc.getvalue())
 
