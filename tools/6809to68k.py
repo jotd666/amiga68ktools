@@ -1244,6 +1244,10 @@ def remove_instruction(line):
     comment_pos = line.index(out_comment)
     return " "*comment_pos + line[comment_pos:]
 
+def replace_instruction(new_instruction,line):
+    comment_pos = line.index(out_comment)
+    return new_instruction + " "*(comment_pos-len(new_instruction)) + line[comment_pos:]
+
 def follows_sr_protected_block(nout_lines,i):
     # we have a chance of protected block only if POP_SR
     # was just before the branch test
@@ -1389,6 +1393,8 @@ if grouping:
         prev_toks = toks
         last_line = i
 
+
+
 # the generator assumed that rol, ror... a lot of operations can work directly on non-data registers
 # for simplicity's sake, now we post-process the generator to insert read to reg/op with reg/write to mem
 
@@ -1429,6 +1435,7 @@ for line in nout_lines:
             line = ""
         nout_lines_2.append(line+"\n")
 
+
 nout_lines = []
 # ultimate passes to process POP+PUSH
 # remove PUSH following POP
@@ -1439,7 +1446,7 @@ last_dir = None
 for line in nout_lines_2:
     toks = line.split()
     if toks:
-        if toks[0] in ("GET_ADDRESS","GET_DP_ADDRESS"):
+        if toks[0] in ("GET_ADDRESS",):   # do NOT put GET_DP_ADDRESS in list as last optimizer pass needs it
             if last_get_address == toks[1] and last_dir == toks[0]:
                 line = remove_instruction(line)
             last_dir = toks[0]
@@ -1498,6 +1505,44 @@ for i,line in enumerate(nout_lines):
                 nout_lines[i-1] = ""
                 nout_lines[i-3] = ""
 
+
+optimize_dp = True
+if optimize_dp:
+    # optimize GET_DP_ADDRESS + known instruction (tst/clr/move)
+    # rationale: if they're using direct page they want speed. We may as well
+    # try to optimize that access, without changing the other GET_ADDRESS and others as this
+    # would create so many macros and ... I really don't want to dig into this
+    for i,line in enumerate(nout_lines):
+        line = line.rstrip()
+        toks = line.split()
+        if toks and toks[0]=="GET_DP_ADDRESS":
+            # check next line
+            AW = registers['awork1']
+            next_line = nout_lines[i+1]
+            ntoks = next_line.split()
+
+            ninst = None
+            if len(ntoks)>1:
+                # only on some instructions, or it's going to be a pain to check stray jcc, ...
+                if ntoks[0] in {"move.b","clr.b","add.b","addq.b","sub.b","subq.b","cmp.b","tst.b"}:
+                    inst = ntoks[0].split(".")[0]
+                    if ntoks[1]==f"({AW})":
+                        # one operand
+                        ninst = f"\tOP_1_ON_DP_ADDRESS\t{inst},{toks[1]}"
+                    else:
+                        subtoks = ntoks[1].split(",")
+                        if len(subtoks)==2:
+                            # two operands: which is source?
+                            if subtoks[0]==f"({AW})":
+                                # read
+                                ninst = f"\tOP_R_ON_DP_ADDRESS\t{inst},{toks[1]},{subtoks[1]}"
+                            else:
+                                # write
+                                ninst = f"\tOP_W_ON_DP_ADDRESS\t{inst},{toks[1]},{subtoks[0]}"
+                if ninst:
+                    nout_lines[i] = replace_instruction(ninst,line)+'\n'
+                    nout_lines[i+1] = ""
+
 if cli_args.spaces:
     nout_lines = [tab2space(n) for n in nout_lines]
 
@@ -1510,6 +1555,7 @@ if True:
     U = registers['u']
     A = registers['a']
     B = registers['b']
+    DP = registers['dp_base']
 
     f.write(f"""{out_start_line_comment} Converted with 6809to68k by JOTD
 {out_start_line_comment}
@@ -1782,8 +1828,21 @@ if True:
 
 
 \t.macro GET_DP_ADDRESS\toffset
-\tlea\t({registers['dp_base']},\\offset\\().W),{AW}
+\tlea\t({DP},\\offset\\().W),{AW}
 \t.endm
+
+# optimzed DP operations
+.macro OP_1_ON_DP_ADDRESS    inst,offset
+\t\\inst\\().b    ({DP},\\offset\\().W)
+.endm
+
+.macro OP_R_ON_DP_ADDRESS    inst,offset,reg
+\t\\inst\\().b    ({DP},\\offset\\().W),\reg
+.endm
+
+.macro OP_W_ON_DP_ADDRESS    inst,offset,reg
+\t\\inst\\().b    \\reg,({DP},\\offset\\().W)
+.endm
 
 
 \t.macro SET_DP_FROM_A
