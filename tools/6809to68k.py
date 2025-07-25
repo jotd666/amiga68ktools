@@ -1278,7 +1278,7 @@ setxcflags_inst = ["SET_XC_FLAGS"]
 
 # sub/add aren't included as they're the translation of dec/inc which don't affect C
 # those are 68000 instructions (used in post-processing)
-carry_generating_instructions = {"add","sub","cmp","CMP_W_TO_REG","lsr","lsl","asl","asr","roxr","roxl","subx","addx","abcd","CLR_XC_FLAGS","SET_XC_FLAGS"}
+carry_generating_instructions = {"add","sub","cmp","CMP_W_TO_REG","ADD_W_TO_REG","SUB_W_TO_REG","lsr","lsl","asl","asr","roxr","roxl","subx","addx","abcd","CLR_XC_FLAGS","SET_XC_FLAGS"}
 conditional_branch_instructions = {"bpl","bmi","bls","bne","beq","bhi","blo","bcc","bcs","blt","ble","bge","bgt"}
 conditional_branch_instructions.update({f"j{x[1:]}" for x in conditional_branch_instructions})
 
@@ -1473,9 +1473,10 @@ for line in nout_lines_2:
             inst = "MOVE_W_TO_REG"
         line = line.replace("move.w",inst).replace(f"({AW})",AW).replace(f"({AW})".lower(),AW)
 
-    if "cmp.w" in line and f"({AW})" in line:
-        inst = "CMP_W_TO_REG"
-        line = line.replace("cmp.w",inst).replace(f"({AW})",AW).replace(f"({AW})".lower(),AW)
+    for i in ["cmp","add","sub"]:
+        if f"{i}.w" in line and f"({AW})" in line:
+            inst = f"{i.upper()}_W_TO_REG"
+            line = line.replace(f"{i}.w",inst).replace(f"({AW})",AW).replace(f"({AW})".lower(),AW)
 
     # optimize move.b => clr.b
     line = line.replace("move.b\t#0,","clr.b\t")
@@ -1727,6 +1728,13 @@ if True:
 \tcmp.w    (\\src),\\dest
 \t.endm
 
+    .macro    ADD_W_TO_REG    src,dest
+    add.w    (\src),\dest
+    .endm
+
+    .macro    SUB_W_TO_REG    src,dest
+    sub.w    (\src),\dest
+    .endm
 
 
 \t.macro\tMOVE_W_FROM_REG    src,dest
@@ -1785,11 +1793,23 @@ if True:
 \tmove.b\t\\src,(1,\\dest)
 \t.endm
 
-    .macro    CMP_W_TO_REG    src,dest
+    .macro    INST_W_TO_REG    inst,src,dest
     move.b    (\\src),{DW}
     ror.w    #8,{DW}
     move.b    (1,\\src),{DW}
-    cmp.w    {DW},\\dest
+    \\inst\().w    {DW},\\dest
+    .endm
+
+    .macro    SUB_W_TO_REG    src,dest
+    INST_W_TO_REG   sub,\\src,\\dest
+    .endm
+
+    .macro    ADD_W_TO_REG    src,dest
+    INST_W_TO_REG   add,\\src,\\dest
+    .endm
+
+    .macro    CMP_W_TO_REG    src,dest
+    INST_W_TO_REG   cmp,\\src,\\dest
     .endm
 
 
