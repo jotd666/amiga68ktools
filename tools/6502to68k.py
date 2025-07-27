@@ -949,14 +949,14 @@ for line in nout_lines:
     if line and line[0].isspace():
         toks = line.split()
         tok = toks[0].split(".")[0]
-        if tok == "eor" and "(" in toks[1]:
+        if tok in ["eor","abcd","sbcd"] and "(" in toks[1]:
             # 68k can't handle such modes
             comment = "\t|"+line.split(out_comment)[1]
             first_param,second_param = split_params(toks[1])
             nout_lines_2.append(f"\tmove.b\t{first_param},{tmpreg}{comment}\n")
             nout_lines_2.append(line.replace(first_param,tmpreg)+"\n")
             continue
-        if tok in {"roxr","roxl","ror","rol","lsr","asl"} and "(" in toks[1]:
+        elif tok in {"roxr","roxl","ror","rol","lsr","asl"} and "(" in toks[1]:
             # 68k can't handle such modes
             comment = "\t|"+line.split(out_comment)[1]
             first_param,second_param = split_params(toks[1])
@@ -966,7 +966,7 @@ for line in nout_lines:
             nout_lines_2.append(f"\tmove.b\t{tmpreg},{second_param}{comment}\n")
             nout_lines_2.append("\tPOP_SR\n")
             continue
-        elif tok in {"addx","subx"}:
+        elif tok in {"addx","subx","abcd","sbcd"}:
             comment = "\t|"+line.split(out_comment)[1]
             first_param,second_param = split_params(toks[1])
             if "(" in first_param or '#' in first_param:
@@ -1316,6 +1316,7 @@ get_address:
 """)
         f.write(f'\tinclude\t"{cli_args.output_include_file}"\n')
 
+    f.write("\t.global\tcpu_init\n")
     f.write("cpu_init:\n")
     for i in range(8):
         f.write(f"\tmoveq\t#0,d{i}\n")
