@@ -759,6 +759,15 @@ for line in out_lines:
 
     nout_lines.append(line+"\n")
 
+def find_sed_line(lines,start):
+    for i in range(start,0,-1):
+        toks = lines[i].split()
+        if toks:
+            if "rts" in toks or "jmp" in toks:
+                return None
+            if "sed]" in toks:
+                return i
+    return None
 
 def remove_instruction(line):
     comment_pos = line.index(out_comment)
@@ -897,15 +906,33 @@ for i,line in enumerate(nout_lines):
                     nout_lines[i] += '          ERROR  "review stray cmp (check caller)"\n'
 
         elif finst == "addx.b":
-            if prev_fp == clrxcflags_inst:
+            if prev_fp == clrxcflags_inst or clrxcflags_inst[0] in nout_lines[i-2]:
                 # clc+adc => add (way simpler & faster)
-                nout_lines[i-1] = nout_lines[i-1].replace(clrxcflags_inst[0],"")
-                nout_lines[i] = nout_lines[i].replace("addx.b","add.b")
-        elif finst == "subx.b":
-            if prev_fp == setxcflags_inst:
-                # clc+adc => add (way simpler & faster)
-                nout_lines[i-1] = nout_lines[i-1].replace(setxcflags_inst[0],"")
-                nout_lines[i] = nout_lines[i].replace("subx.b","sub.b")
+                # also try to handle previously set "sed" decimal mode
+                # we try to find the previous sed instruction
+                sed_line = find_sed_line(nout_lines,i-2)
+                if sed_line:
+                    print(f"detected & removed sed instruction at line {sed_line+1}, turning addx to abcd")
+                    # it's actually a abcd operation
+                    nout_lines[sed_line] = ""
+                    nout_lines[i] = nout_lines[i].replace("addx.b","abcd")
+                else:
+                    nout_lines[i-1] = nout_lines[i-1].replace(clrxcflags_inst[0],"")
+                    nout_lines[i] = nout_lines[i].replace("addx.b","add.b")
+        elif finst in ["subx.b","SBC_IMM"]:
+            if prev_fp == setxcflags_inst or setxcflags_inst[0] in nout_lines[i-2]:
+                # clc+sbc => sub (way simpler & faster)
+                # also try to handle previously set "sed" decimal mode
+                # we try to find the previous sed instruction
+                sed_line = find_sed_line(nout_lines,i-2)
+                if sed_line:
+                    print(f"detected & removed sed instruction at line {sed_line+1}, turning subx to sbcd")
+                    nout_lines[sed_line] = ""
+                    nout_lines[i] = nout_lines[i].replace("subx.b","sbcd")
+                else:
+                    nout_lines[i-1] = nout_lines[i-1].replace(setxcflags_inst[0],"")
+                    nout_lines[i] = nout_lines[i].replace("subx.b","sub.b")
+
         elif finst not in ["bne","beq","bmi"] and prev_fp and prev_fp[0] == "cmp.b":
                 nout_lines[i] = '      ERROR  "review stray cmp (insert SET_X_FROM_CLEARED_C)"\n'+nout_lines[i]
 

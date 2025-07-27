@@ -18,7 +18,7 @@ while True:
 
     p = subprocess.Popen([r"make","-f",args.makefile]+args.makefile_params,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
     for line in p.stdout:
-        line = line.decode()
+        line = line.decode(errors="ignore")
         if args.print_undefined_references:
             m = undefined_re.search(line)
             if m:
