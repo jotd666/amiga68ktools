@@ -210,8 +210,6 @@ single_instructions = {"nop":"nop",  # no need to convert to no-operation
 "rti":'ERROR  "unsupported return from interrupt!"',
 "sec":"SET_XC_FLAGS",
 "clc":"CLR_XC_FLAGS",
-"sec":"SET_XC_FLAGS",
-"clc":"CLR_XC_FLAGS",
 "sei":"SET_I_FLAG",
 "cli":"CLR_I_FLAG",
 "sed":'ERROR  "TODO: unsupported set decimal mode"',
@@ -759,6 +757,17 @@ for line in out_lines:
 
     nout_lines.append(line+"\n")
 
+def replace_sub_instruction(finst,ninst,line):
+    toks = line.split(out_comment)
+    args = toks[0].split()
+    if finst == "SBC_IMM":
+        # we have to re-parse, remove macro
+
+        return f"\t{ninst}\t#{args[1]},{registers['a']}\t{out_comment}{toks[1]}"
+    else:
+        return f"\t{ninst}\t{args[1]}{out_comment}\t{toks[1]}"
+
+
 def find_sed_line(lines,start):
     for i in range(start,0,-1):
         toks = lines[i].split()
@@ -928,10 +937,10 @@ for i,line in enumerate(nout_lines):
                 if sed_line:
                     print(f"detected & removed sed instruction at line {sed_line+1}, turning subx to sbcd")
                     nout_lines[sed_line] = ""
-                    nout_lines[i] = nout_lines[i].replace("subx.b","sbcd")
+                    nout_lines[i] = replace_sub_instruction(finst,"sbcd",nout_lines[i])
                 else:
                     nout_lines[i-1] = nout_lines[i-1].replace(setxcflags_inst[0],"")
-                    nout_lines[i] = nout_lines[i].replace("subx.b","sub.b")
+                    nout_lines[i] = replace_sub_instruction(finst,"sub.b",nout_lines[i])
 
         elif finst not in ["bne","beq","bmi"] and prev_fp and prev_fp[0] == "cmp.b":
                 nout_lines[i] = '      ERROR  "review stray cmp (insert SET_X_FROM_CLEARED_C)"\n'+nout_lines[i]
