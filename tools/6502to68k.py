@@ -988,12 +988,14 @@ for line in nout_lines:
     nout_lines_2.append(line+"\n")
 
 nout_lines = []
-# ultimate pass to remove useless POP+PUSH SR
+# ultimate pass to remove useless POP+PUSH SR but not the ones from
+# the original code!
 prev_line = ""
 for line in nout_lines_2:
     if "POP_SR" in prev_line and "PUSH_SR" in line:
-        nout_lines.pop()
-        continue
+        if "plp" not in prev_line and "php" not in line:
+            nout_lines.pop()
+            continue
     nout_lines.append(line)
     prev_line = line
 
