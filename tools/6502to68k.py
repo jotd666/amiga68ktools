@@ -264,7 +264,7 @@ absolute    BIT oper    2C    3    4
 this is way too complex for a very marginal use for overflow
 """
     # hack
-    return generic_logical_op("tst",args,comment).replace(f",{registers['a']}","")
+    return generic_logical_op("BIT",args,comment).replace(f",{registers['a']}","")
 
 
 def f_lda(args,comment):
