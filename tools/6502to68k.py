@@ -506,8 +506,10 @@ def generic_cmp(args,reg,comment):
     p = args[0]
     if p[0]=='#':
         if parse_hex(p[1:],"WTF")==0:
-            # optim
-            out = f"\ttst.b\t{registers[reg]}{comment}"
+            # optim but warn, as cmp #0 is suspicious in 6502: most instructions
+            # already set the NZ flags
+            out = '\tERROR   "replacing by tst.b but check if carry is required"\n'
+            out += f"\ttst.b\t{registers[reg]}{comment}"
         else:
             out = f"\tcmp.b\t{p},{registers[reg]}{comment}"
     else:
@@ -1157,6 +1159,12 @@ if True:
 skip\\@:
 \tmove.w\t{registers['dwork1']},(sp)
 \tPOP_SR
+\t.endm
+
+* N and V flag set on bits 7 and 6 is not supported
+\t.macro    BIT    arg
+\tmove.b    {registers['a']},{registers['dwork1']}
+\tand.b    \\arg,{registers['dwork1']}
 \t.endm
 
 \t.macro CLR_XC_FLAGS
