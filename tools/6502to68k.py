@@ -200,7 +200,7 @@ single_instructions = {"nop":"nop",  # no need to convert to no-operation
 "iny":f"addq.b\t#1,{registers['y']}",
 "inc":f"addq.b\t#1,{registers['a']}",
 "pha":f"movem.w\t{registers['a']},-(sp)",  # movem preserves CCR like original 6502 inst.
-"pla":f"movem.w\t(sp)+,{registers['a']}",  # it takes more cycles but who cares?
+"pla":f"move.w\t(sp)+,{registers['a']}",  # move not movem as pla sets N and Z
 "php":"PUSH_SR",
 "plp":"POP_SR",
 "lsr":f"lsr\t#1,{registers['a']}",   # for code that doesn't use "A" parameter for shift ops
