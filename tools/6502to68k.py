@@ -932,7 +932,8 @@ for i,line in enumerate(nout_lines):
                     nout_lines[i] = nout_lines[i].replace("addx.b","add.b")
         elif finst in ["subx.b","SBC_IMM"]:
             if prev_fp == setxcflags_inst or setxcflags_inst[0] in nout_lines[i-2]:
-                # clc+sbc => sub (way simpler & faster)
+                # clc+sbc => sub (way simpler & faster) but careful: if carry is tested afterwards it
+                # will be the opposite!
                 # also try to handle previously set "sed" decimal mode
                 # we try to find the previous sed instruction
                 sed_line = find_sed_line(nout_lines,i-2)
@@ -943,6 +944,11 @@ for i,line in enumerate(nout_lines):
                 else:
                     nout_lines[i-1] = nout_lines[i-1].replace(setxcflags_inst[0],"")
                     nout_lines[i] = replace_sub_instruction(finst,"sub.b",nout_lines[i])
+                # check if next line is bcc/bcs
+                nlt = nout_lines[i+1].split(out_comment)[0].split()
+                if nlt and nlt[0] in ["bcc","bcs"]:
+                    # we have to insert carry inverse flag like SBC does
+                    nout_lines[i+1] = "\tINVERT_XC_FLAGS\n"+nout_lines[i+1]
 
         elif finst not in ["bne","beq","bmi"] and prev_fp and prev_fp[0] == "cmp.b":
                 nout_lines[i] = '      ERROR  "review stray cmp (insert SET_X_FROM_CLEARED_C)"\n'+nout_lines[i]
