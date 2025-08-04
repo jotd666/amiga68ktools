@@ -890,7 +890,11 @@ for i,line in enumerate(nout_lines):
                     nout_lines[i] = nout_lines[i].replace("\t"+finst,"\tbra.b")
                 elif prev_fp[0] == "cmp.b":
                     # we KNOW we generated it wrong as in 6502 conditions are opposed. Change to bcs
-                    nout_lines[i] = f"\t{out_start_line_comment} bcc=>bcs\n"+nout_lines[i].replace("\tbcc","\tbcs")
+                    nout_lines[i] = f"\t{out_start_line_comment} bcc=>bcs (cmp above)\n"+nout_lines[i].replace("\tbcc","\tbcs")
+                elif prev_fp[0].startswith("b"):  # okay it could be bit but BIT is macroized
+                    # there are multiple branch conditions, which means that a cmp could be hidden above
+                    if "cmp.b" in nout_lines[i-2]:  # hacky test
+                        nout_lines[i] = f"\t{out_start_line_comment} bcc=>bcs (cmp higher above)\n"+nout_lines[i].replace("\tbcc","\tbcs")
                 elif prev_fp[0] not in carry_generating_instructions and inst_no_size not in conditional_branch_instructions:
                     if not follows_sr_protected_block(nout_lines,i):
                         nout_lines[i] += '  ERROR  "warning: stray bcc test"\n'
@@ -905,6 +909,10 @@ for i,line in enumerate(nout_lines):
                 elif prev_fp[0] == "cmp.b":
                     # we KNOW we generated it wrong as in 6502 conditions are opposed. Change to bcs
                     nout_lines[i] = f"\t{out_start_line_comment} bcs=>bcc\n"+nout_lines[i].replace("\tbcs","\tbcc")
+                elif prev_fp[0].startswith("b"):  # okay it could be bit but BIT is macroized
+                    # there are multiple branch conditions, which means that a cmp could be hidden above
+                    if "cmp.b" in nout_lines[i-2]:  # hacky test
+                        nout_lines[i] = f"\t{out_start_line_comment} bcs=>bcc (cmp higher above)\n"+nout_lines[i].replace("\tbcs","\tbcc")
                 elif prev_fp[0] not in carry_generating_instructions and inst_no_size not in conditional_branch_instructions:
                    if not follows_sr_protected_block(nout_lines,i):
                         nout_lines[i] += '     ERROR "warning: review stray bcs test"\n'
