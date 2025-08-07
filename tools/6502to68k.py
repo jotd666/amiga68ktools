@@ -15,6 +15,8 @@
 # on Z80, the ld instruction acted like lea or move, and it was easier to keep separate address
 # space for RAM and ROM.
 #
+# note: the "mot" mode is outdated (macros are obsolete or missing)
+#
 # TODO:
 ##- cmp: add a FIX_CMP_CARRY after each one: INVERT_C + SET_X_FROM_C, maybe optional
 ## as bcs/bcc inversion is way faster and if beq/bne it is not immediately useful
@@ -23,7 +25,6 @@
 ##- review: php+sei
 ##- optim: grouping of simple shifts from 68k code
 ##- check cmp followed by roxr or addx/subx
-##- review: jmp/jsr ($xxx) (indirect)
 ##- review: sbc/adc after cmp without prior sec/clc/add/sub
 
 import re,itertools,os,collections,glob,io
@@ -183,30 +184,37 @@ registers = {
 "awork1":"a0"}
 inv_registers = {v:k.upper() for k,v in registers.items()}
 
-
+X = registers['x']
+Y = registers['y']
+C = registers['c']
+V = registers['v']
+A = registers['a']
+W = registers['dwork1']
+AW = registers['awork1']
+AW_PAREN = f"({AW})"
 
 single_instructions = {"nop":"nop",  # no need to convert to no-operation
 "rts":"rts",
 "txs":'ERROR   "unsupported transfer to stack register"',
 "tsx":'ERROR   "unsupported transfer from stack register"',
-"txa":f"move.b\t{registers['x']},{registers['a']}",
-"tya":f"move.b\t{registers['y']},{registers['a']}",
-"tax":f"move.b\t{registers['a']},{registers['x']}",
-"tay":f"move.b\t{registers['a']},{registers['y']}",
-"dex":f"subq.b\t#1,{registers['x']}",
-"dey":f"subq.b\t#1,{registers['y']}",
-"dec":f"subq.b\t#1,{registers['a']}",
-"inx":f"addq.b\t#1,{registers['x']}",
-"iny":f"addq.b\t#1,{registers['y']}",
-"inc":f"addq.b\t#1,{registers['a']}",
-"pha":f"movem.w\t{registers['a']},-(sp)",  # movem preserves CCR like original 6502 inst.
-"pla":f"move.w\t(sp)+,{registers['a']}",  # move not movem as pla sets N and Z
+"txa":f"move.b\t{X},{A}",
+"tya":f"move.b\t{Y},{A}",
+"tax":f"move.b\t{A},{X}",
+"tay":f"move.b\t{A},{Y}",
+"dex":f"subq.b\t#1,{X}",
+"dey":f"subq.b\t#1,{Y}",
+"dec":f"subq.b\t#1,{A}",
+"inx":f"addq.b\t#1,{X}",
+"iny":f"addq.b\t#1,{Y}",
+"inc":f"addq.b\t#1,{A}",
+"pha":f"movem.w\t{A},-(sp)",  # movem preserves CCR like original 6502 inst.
+"pla":f"move.w\t(sp)+,{A}",  # move not movem as pla sets N and Z
 "php":"PUSH_SR",
 "plp":"POP_SR",
-"lsr":f"lsr\t#1,{registers['a']}",   # for code that doesn't use "A" parameter for shift ops
-"asl":f"asl\t#1,{registers['a']}",
-"ror":f"roxr\t#1,{registers['a']}",
-"rol":f"roxl\t#1,{registers['a']}",
+"lsr":f"lsr\t#1,{A}",   # for code that doesn't use "A" parameter for shift ops
+"asl":f"asl\t#1,{A}",
+"ror":f"roxr\t#1,{A}",
+"rol":f"roxl\t#1,{A}",
 "rti":'ERROR  "unsupported return from interrupt!"',
 "sec":"SET_XC_FLAGS",
 "clc":"CLR_XC_FLAGS",
@@ -264,7 +272,7 @@ absolute    BIT oper    2C    3    4
 this is way too complex for a very marginal use for overflow
 """
     # hack
-    return generic_logical_op("BIT",args,comment).replace(f",{registers['a']}","")
+    return generic_logical_op("BIT",args,comment).replace(f",{A}","")
 
 
 def f_lda(args,comment):
@@ -306,7 +314,7 @@ def generic_shift_op(inst,args,comment):
                     # Y indirect indexed
                     arg = arg.strip("()")
                     return f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
-\t{inst}\t#1,({registers['awork1']},{index_reg}.w){out_comment} [...]"""
+\t{inst}\t#1,({AW},{index_reg}.w){out_comment} [...]"""
                 else:
                     # X indirect indexed
                     arg = arg.strip("(")
@@ -316,15 +324,15 @@ def generic_shift_op(inst,args,comment):
                         raise Exception("Unsupported indexed mode {}!=d1: {} {}".format(arg2,inst," ".join(args)))
 
                     return f"""\tGET_ADDRESS_X\t{arg}{comment}
-\t{inst}\t#1,({registers['awork1']}){out_comment} [...]"""
+\t{inst}\t#1,({AW}){out_comment} [...]"""
             else:
                 # X/Y indexed direct
                 return f"""\tGET_ADDRESS\t{arg}{comment}
-\t{inst}\t#1,({registers['awork1']},{index_reg}.w){out_comment} [...]"""
+\t{inst}\t#1,({AW},{index_reg}.w){out_comment} [...]"""
            # various optims
 
         return f"""\tGET_ADDRESS\t{arg}{comment}
-\t{inst}\t#1,({registers['awork1']}){out_comment} [...]"""
+\t{inst}\t#1,({AW}){out_comment} [...]"""
 
 def generic_logical_op(inst,args,comment):
     return generic_indexed_from(inst,'a',args,comment)
@@ -391,7 +399,7 @@ def generic_indexed_to(inst,src,args,comment):
                 # Y indirect indexed
                 arg = arg.strip("()")
                 return f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
-\t{inst}\t{regsrc},({registers['awork1']},{index_reg}.w){out_comment} [...]"""
+\t{inst}\t{regsrc},({AW},{index_reg}.w){out_comment} [...]"""
 
             else:
                 # X indirect indexed
@@ -402,14 +410,14 @@ def generic_indexed_to(inst,src,args,comment):
                     raise Exception("Unsupported indexed mode {}!=d1: {} {}".format(arg2,inst," ".join(args)))
 
                 return f"""\tGET_ADDRESS_X\t{arg}{comment}
-    {inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
+    {inst}\t{regsrc},({AW}){out_comment} [...]"""
         else:
             # X/Y indexed direct
             return f"""\tGET_ADDRESS\t{arg}{comment}
-    {inst}\t{regsrc},({registers['awork1']},{index_reg}.w){out_comment} [...]"""
+    {inst}\t{regsrc},({AW},{index_reg}.w){out_comment} [...]"""
 
     return f"""\tGET_ADDRESS\t{arg}{comment}
-\t{inst}\t{regsrc},({registers['awork1']}){out_comment} [...]"""
+\t{inst}\t{regsrc},({AW}){out_comment} [...]"""
 
 def generic_indexed_from(inst,dest,args,comment):
     arg = args[0]
@@ -425,7 +433,7 @@ def generic_indexed_from(inst,dest,args,comment):
                 # Y indirect indexed
                 arg = arg.strip("()")
                 return f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
-\t{inst}\t({registers['awork1']},{index_reg}.w),{regdst}{out_comment} [...]"""
+\t{inst}\t({AW},{index_reg}.w),{regdst}{out_comment} [...]"""
             else:
                 # X indirect indexed
                 arg = arg.strip("(")
@@ -435,11 +443,11 @@ def generic_indexed_from(inst,dest,args,comment):
                     raise Exception("Unsupported indexed mode {}!=d1: {} {}".format(arg2,inst," ".join(args)))
 
                 return f"""\tGET_ADDRESS_X\t{arg}{comment}
-\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
+\t{inst}\t({AW}),{regdst}{out_comment} [...]"""
         else:
             # X/Y indexed direct
             return f"""\tGET_ADDRESS\t{arg}{comment}
-\t{inst}\t({registers['awork1']},{index_reg}.w),{regdst}{out_comment} [...]"""
+\t{inst}\t({AW},{index_reg}.w),{regdst}{out_comment} [...]"""
        # various optims
     else:
         if arg[0]=='#':
@@ -460,19 +468,24 @@ def generic_indexed_from(inst,dest,args,comment):
             return f"\t{inst}\t{arg},{regdst}{comment}"
 
     return f"""\tGET_ADDRESS\t{arg}{comment}
-\t{inst}\t({registers['awork1']}),{regdst}{out_comment} [...]"""
+\t{inst}\t({AW}),{regdst}{out_comment} [...]"""
 
 
 
 
 def f_jmp(args,comment):
     target_address = None
-    label = arg2label(args[0])
-    if args[0] != label:
+    arg = args[0]
+    label = arg2label(arg)
+    if arg != label:
         # had to convert the address, keep original to reference it
-        target_address = args[0]
+        target_address = arg
 
-    out = f"\tjmp\t{label}{comment}"
+    out = ""
+    if "(" in arg:
+        # indirect jump: not supported direct: note the error
+        out = '\tERROR\t"indirect jmp"\n'
+    out += f"\tjmp\t{label}{comment}"
 
     if target_address is not None:
         # note down that we have to insert a label here
@@ -537,6 +550,10 @@ def f_jsr(args,comment):
     if funcc != func:
         target_address = func
     func = funcc
+
+    if "(" in func:
+        # indirect jsr: not supported direct: note the error
+        out = '\tERROR\t"indirect jsr"\n'
 
     out += f"\t{jsr_instruction}\t{func}{comment}"
 
@@ -765,7 +782,7 @@ def replace_sub_instruction(finst,ninst,line):
     if finst == "SBC_IMM":
         # we have to re-parse, remove macro
 
-        return f"\t{ninst}\t#{args[1]},{registers['a']}\t{out_comment}{toks[1]}"
+        return f"\t{ninst}\t#{args[1]},{A}\t{out_comment}{toks[1]}"
     else:
         return f"\t{ninst}\t{args[1]}{out_comment}\t{toks[1]}"
 
@@ -1009,11 +1026,71 @@ nout_lines = []
 prev_line = ""
 for line in nout_lines_2:
     if "POP_SR" in prev_line and "PUSH_SR" in line:
-        if "plp" not in prev_line and "php" not in line:
+        if "plp" not in prev_line and "php" not in line:  # don't touch original plp/php instructions
             nout_lines.pop()
             continue
     nout_lines.append(line)
     prev_line = line
+
+
+
+# last pass: optimization pass for zero page accesses. Zero page is guaranteed to be mapped
+# and at start of the address space (else my model fails). ZP is necessary to 6502 operation
+# else no pointers...
+# the idea is to pack GET_ADDRESS <zp_address> + instruction to a single read/write to (a0) macro
+# this pass was not in the previous versions of the converter.
+
+if True:   # can be turned off, code is valid without that
+    i = 0
+
+    def change_instruction(code,lines,i):
+        line = lines[i]
+        toks = line.split(out_comment)
+        if len(toks)==2:
+            toks[0] = f"\t{code}"
+            return f" {out_comment} ".join(toks)
+        return line
+
+    while i < len(nout_lines):
+        line = nout_lines[i]
+        toks = line.split()
+        if toks and toks[0] == "GET_ADDRESS":
+            value = None
+            value_str = toks[1]
+            try:
+                value = int(value_str,16)
+            except ValueError:
+                try:
+                    value = int(value_str.rsplit("_",1)[-1],16)
+                except ValueError:
+                    pass
+            if value is not None and value < 0x100:
+                # GET_ADDRESS in zero page. If we recognize the next instruction
+                # there's a way to optimize the access, as it's legal and fast
+                next_line = nout_lines[i+1]
+                toks = next_line.split(out_comment)[0].split()
+                if len(toks)==2:
+                    inst,params = toks
+                    inst = inst.split(".")[0]
+                    subparams = params.split(",")
+                    # we discard too complex moves, also moves to temp registers
+                    # as they continue with following instructions
+                    # move.b  d0,(a0) (or the other way round) is supported. So are other
+                    # instructions like cmp, add...
+                    if len(subparams)==2:
+                        src,dest = subparams
+                        if src == AW_PAREN and dest in [X,Y,A]:
+                            # read instruction
+                            line = change_instruction(f"OP_R_ON_ZP_ADDRESS\t{inst},{value_str},{dest}",nout_lines,i)
+                            nout_lines[i+1] = ""
+                        elif dest == AW_PAREN and src in [X,Y,A]:
+                            # read instruction
+                            line = change_instruction(f"OP_W_ON_ZP_ADDRESS\t{inst},{value_str},{src}",nout_lines,i)
+                            nout_lines[i+1] = ""
+        nout_lines[i] = line
+        i+=1
+
+
 
 if cli_args.spaces:
     nout_lines = [tab2space(n) for n in nout_lines]
@@ -1023,19 +1100,13 @@ f = io.StringIO()
 finc = io.StringIO()
 
 if True:
-    X = registers['x']
-    Y = registers['y']
-    C = registers['c']
-    V = registers['v']
-    A = registers['a']
-    W = registers['dwork1']
     f.write(f"""{out_start_line_comment} Converted with 6502to68k by JOTD
 {out_start_line_comment}
 {out_start_line_comment} make sure you call "cpu_init" first so bits 8-15 of data registers
 {out_start_line_comment} are zeroed out so we can use (ax,dy.w) addressing mode
 {out_start_line_comment} without systematic masking
 {out_start_line_comment}
-{out_start_line_comment} WARNING: you also have to add clr.w {registers['x']} and clr.w {registers['y']}
+{out_start_line_comment} WARNING: you also have to add clr.w {X} and clr.w {Y}
 {out_start_line_comment} at start of any interrupt you could hook
 {out_start_line_comment} we don't want to mask those at each X,Y indexed instruction
 {out_start_line_comment} for performance reasons
@@ -1096,10 +1167,18 @@ if True:
 \tmove.w\t(sp)+,ccr
 \t.endm
 
+\t.macro OP_R_ON_ZP_ADDRESS\tinst,offset,reg
+\t\\inst\\().b\t(a6,\\offset\\().W),\reg
+\t.endm
+
+\t.macro OP_W_ON_ZP_ADDRESS\tinst,offset,reg
+\t\\inst\\().b\t\\reg,(a6,\\offset\\().W)
+\t.endm
+
 \t.macro\tSBC_X\taddress
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\address
-\tmove.b\t({registers['awork1']},{X}.w),{W}
+\tmove.b\t({AW},{X}.w),{W}
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \t.endm
@@ -1107,7 +1186,7 @@ if True:
 \t.macro\tSBC_Y\taddress
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\address
-\tmove.b\t({registers['awork1']},{Y}.w),{W}
+\tmove.b\t({AW},{Y}.w),{W}
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \t.endm
@@ -1115,7 +1194,7 @@ if True:
 \t.macro\tSBC\taddress
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\address
-\tmove.b\t({registers['awork1']}),{W}
+\tmove.b\t({AW}),{W}
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \t.endm
@@ -1123,7 +1202,7 @@ if True:
 \t.macro\tSBCD_DIRECT\taddress
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\address
-\tmove.b\t({registers['awork1']}),{W}
+\tmove.b\t({AW}),{W}
 \tscbd\t{W},{A}
 \tINVERT_XC_FLAGS
 \t.endm
@@ -1177,7 +1256,7 @@ skip\\@:
 
 * N and V flag set on bits 7 and 6 is not supported
 \t.macro    BIT    arg
-\tmove.b    {registers['a']},{registers['dwork1']}
+\tmove.b    {A},{registers['dwork1']}
 \tand.b    \\arg,{registers['dwork1']}
 \t.endm
 
@@ -1206,25 +1285,25 @@ skip\\@:
 
 
 \t.macro GET_ADDRESS\toffset
-\tlea\t\offset,{registers['awork1']}
+\tlea\t\offset,{AW}
 \tjbsr\tget_address
 \t.endm
 
 \t.macro GET_ADDRESS_X\toffset
 \t.ifgt\t\\offset-0x8000
-\tlea\t\\offset,{registers['awork1']}
+\tlea\t\\offset,{AW}
 \t.else
 \tlea\t\\offset\\().w,a0
 \t.endif
 \tjbsr\tget_address
-\tlea\t({registers['awork1']},{registers['x']}.w),{registers['awork1']}
-\tREAD_LE_WORD\t{registers['awork1']}
+\tlea\t({AW},{X}.w),{AW}
+\tREAD_LE_WORD\t{AW}
 \tjbsr\tget_address
 \t.endm
 
 \t.macro GET_INDIRECT_ADDRESS\toffset
 \tGET_ADDRESS\t\\offset
-\tREAD_LE_WORD\t{registers['awork1']}
+\tREAD_LE_WORD\t{AW}
 \tjbsr\tget_address
 \t.endm
 
@@ -1236,7 +1315,7 @@ skip\\@:
         finc.write(f"""SBC_X:MACRO
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\1
-\tmove.b\t({registers['awork1']},{X}.w),{W}
+\tmove.b\t({AW},{X}.w),{W}
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \tENDM
@@ -1244,7 +1323,7 @@ skip\\@:
 SBC_Y:MACRO
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\1
-\tmove.b\t({registers['awork1']},{Y}.w),{W}
+\tmove.b\t({AW},{Y}.w),{W}
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \tENDM
@@ -1252,14 +1331,14 @@ SBC_Y:MACRO
 SBC:MACRO
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\1
-\tmove.b\t({registers['awork1']}),{W}
+\tmove.b\t({AW}),{W}
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \tENDM
 SBCD:MACRO
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\1
-\tmove.b\t({registers['awork1']}),{W}
+\tmove.b\t({AW}),{W}
 \tsbcd\t{W},{A}
 \tINVERT_XC_FLAGS
 \tENDM
@@ -1324,26 +1403,26 @@ READ_LE_WORD:MACRO
 \tENDM
 
 GET_ADDRESS:MACRO
-\tlea\t\\1,{registers['awork1']}
+\tlea\t\\1,{AW}
 \tjbsr\tget_address
 \tENDM
 
 GET_ADDRESS_X:MACRO
-\tlea\t\\1,{registers['awork1']}
+\tlea\t\\1,{AW}
 \tjbsr\tget_address
-\tlea\t({registers['awork1']},{registers['x']}.w),{registers['awork1']}
-\tREAD_LE_WORD\t{registers['awork1']}
+\tlea\t({AW},{X}.w),{AW}
+\tREAD_LE_WORD\t{AW}
 \tjbsr\tget_address
 \tENDM
 
 GET_INDIRECT_ADDRESS:MACRO
 \tGET_ADDRESS\t\\1
-\tREAD_LE_WORD\t{registers['awork1']}
+\tREAD_LE_WORD\t{AW}
 \tjbsr\tget_address
 \tENDM
 
 get_address:
-\tERROR   "TODO: implement this by adding memory base to {registers['awork1']}"
+\tERROR   "TODO: implement this by adding memory base to {AW}"
 \trts
 
 """)
