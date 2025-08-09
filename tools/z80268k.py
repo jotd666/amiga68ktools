@@ -10,6 +10,8 @@
 # solve 0x8.... !!
 # move.b    0x81D8,d0                           | [$30de
 
+# a0 then d5 or d6 referenced => error
+# a1 then d3 or d4 referenced => error
 
 import re,itertools,os,collections,glob
 import argparse
@@ -28,28 +30,35 @@ parser.add_argument("--use-bc-as-pointer",help="bc will be saved/restored as add
 parser.add_argument("-m","--memory-model",help="select memory model",choices=memory_models,default=memory_models[0])
 parser.add_argument("-c","--code-output",help="68000 source code output file",required=True)
 parser.add_argument("-d","--data-output",help="data output file")
-parser.add_argument("-r'","--ram-range",help="RAM address range in hex, required for small memory model mode. Ex: 8000-D000")
+parser.add_argument("-I","--include-output",help="include output file (only written once)")
+parser.add_argument("-r'","--small-memory-range",help="small memory address range in hex, restrics small memory model mode. Ex: 8000-D000")
 parser.add_argument("input_file")
 
 data_names = dict()
 
 cli_args = parser.parse_args()
 
+nb_errors = 0
+
 no_mame_prefixes = cli_args.no_mame_prefixes
 
 if os.path.abspath(cli_args.input_file) == os.path.abspath(cli_args.code_output):
     raise Exception("Define an output file which isn't the input file")
 
-ram_range = cli_args.ram_range
+ram_range = cli_args.small_memory_range
 if ram_range:
     ram_range = ram_range.split("-")
     if len(ram_range)!=2:
-        raise Exception("Invalid ram range: {}".format(cli_args.ram_range))
+        raise Exception("Invalid small memory range: {}".format(cli_args.ram_range))
     ram_range = [int(x,16) for x in ram_range]
 
+full_small_memory_model = False
 small_memory_model = cli_args.memory_model == "small"
 if small_memory_model and not ram_range:
-    raise Exception("If memory model is set to small, ram range must be defined")
+    # no range specified: memory is contiguous and small memory is everywhere
+    ram_range = [0,0x10000]
+if ram_range == [0,0x10000]:
+    full_small_memory_model = True
 
 if cli_args.input_mode == "mit":
     in_comment = "|"
@@ -84,9 +93,13 @@ else:
 label_counter = 0
 
 def issue_warning(msg,newline=False):
-    rval =  f'\t.error\t"review {msg}"'
+    if msg:
+        rval =  f'\tERROR\t"review {msg}"'
+    else:
+        rval = ""
     if newline:
         rval += "\n"
+
     return rval
 
 def get_mot_local_label():
@@ -265,11 +278,11 @@ def parse_hex(s,default=None):
             return default
 
 def arg2label(s):
+    """ no need to add base register as this function is only used for branches/calls
+    """
     try:
         address = parse_hex(s)
         rval = f"{lab_prefix}{address:04x}"
-        if small_memory_model and ram_range[0] <= address < ram_range[1]:
-            rval += f"({registers['base']})"
         return rval
     except ValueError:
         # already resolved as a name
@@ -686,8 +699,11 @@ def f_ld(args,comment):
             if direct:
                 source = address_to_label_out(source)
                 if small_memory_model:
-                    out = f"\tLOAD_RAM_POINTER\t{source},{dest}{comment}"
-                    review = "check if pointed value is in RAM"
+                    out = f"\tLOAD_POINTER\t{source},{dest}{comment}"
+                    if full_small_memory_model:
+                        review = ""
+                    else:
+                        review = "check if pointed value is in RAM"
                 else:
                     out = f"\tmove.l\t{source},{dest}{comment}"
                     review = "source size & alignment"
@@ -757,8 +773,11 @@ def f_ld(args,comment):
                     # store pointer as word, but only works if in RAM
                     # else manual rework is needed
                     # also uses macro to preserve endianness & support odd addresses
-                    inst = "STORE_RAM_POINTER"
-                    review_msg = "check if source is in RAM"
+                    inst = "STORE_POINTER"
+                    if full_small_memory_model:
+                        pass
+                    else:
+                        review_msg = "check if source is in RAM"
                 else:
                     inst = "move.l"
                     review_msg = "longwrite: check odd/even dest & storage room"
@@ -859,7 +878,7 @@ for i,(l,is_inst,address) in enumerate(lines):
             else:
                 if inst in special_loop_instructions:
                     special_loop_instructions_met.add(inst)  # note down that it's used
-                    out = f"\t{jsr_instruction}\t{inst}{comment}\n"+issue_warning("special instruction inputs")
+                    out = f"\t{jsr_instruction}\t{inst}{comment}\n"+issue_warning(f"special instruction inputs: {inst}")
                 else:
                     si = single_instructions.get(inst)
                     if si:
@@ -1043,6 +1062,88 @@ for i,line in enumerate(nout_lines):
         prev_fp = fp
 # post-processing
 
+register_re = re.compile(r"\b([ad]\d)\b",flags=re.I)
+reca = re.compile("(d\d) computation above")
+
+def extract_regs(line):
+    line = line.split(out_comment)[0]
+    return {x for x in register_re.findall(line)}
+
+nout_lines = "".join(nout_lines).splitlines(True)  # make one line per element, resolve multi-line/empty lines
+
+prev_line_regs = None
+
+for i,line in enumerate(nout_lines):
+    if "ERROR" in line:
+        continue
+    line_regs = extract_regs(line)
+    if prev_line_regs:
+        for hireg,lowreg in (('h','l'),('d','e'),('b','c')):
+            nfullreg = registers[hireg+lowreg]
+            nhireg = registers[hireg]
+            nlowreg = registers[lowreg]
+            if ((nfullreg in prev_line_regs and (nhireg in line_regs or nlowreg in line_regs)) or
+            (nfullreg in line_regs and (nhireg in prev_line_regs or nlowreg in prev_line_regs))):
+                if "(sp)" not in prev_line and "(sp)" not in line:
+                    nout_lines[i] = issue_warning(f"{hireg+lowreg} / {hireg} or {lowreg} mixup")+"\n"+nout_lines[i]
+
+    prev_line_regs = line_regs
+    prev_line = line
+
+# last warning stage: if HL is mentioned then H or L is mentioned, warn. Same if H/L first then HL
+# same for DE and BC
+
+# rather than trying to be smarter when issuing errors, the new version of the converter doesn't change
+# it but instead tries to post-process and automatically review & remove errors
+# this allows to maybe switch it off in the future if it causes issues
+
+def is_label(line):
+    return line.endswith(":")
+def is_return(line):
+    toks = line.split()
+    return "rts" in toks or "jmp" in toks or "jra" in toks
+
+
+for i,line in enumerate(nout_lines):
+    toks = line.split()
+    if "ERROR" in toks:
+        m = reca.search(line)
+        if m:
+            # maybe computation is OK:
+            reg = m.group(1)
+            for j in range(i-1,i-20,-1):
+                prev = nout_lines[j]
+
+                if is_return(prev):
+                    # not possible to tell
+                    break
+                if re.search(f"move\.w\t.*,{reg}",prev):
+                    # we found a word move: OK! dismiss the warning
+                    nout_lines[i] = ""
+                    break
+        elif "special instruction inputs: ld" in line:
+            # ldir/lddr: check that a move.w is performed on registers['b']
+            reg = registers['b']
+            for j in range(i-1,i-10,-1):
+                prev = nout_lines[j]
+
+                if is_return(prev):
+                    # not possible to tell
+                    break
+                if re.search(f"move\.b\t.*,{reg}",prev):
+                    # move.b encountered: not good :)
+                    break
+                if re.search(f"move\.w\t.*,{reg}",prev):
+                    # we found a word move: OK! dismiss the warning
+                    nout_lines[i] = ""
+                    break
+
+
+for i,line in enumerate(nout_lines):
+    toks = line.split()
+    if "ERROR" in toks:
+        nb_errors += 1
+
 if cli_args.spaces:
     nout_lines = [tab2space(n) for n in nout_lines]
 
@@ -1056,9 +1157,11 @@ if cli_args.data_output:
     else:
         print("use small memory model to get data output")
 
-with open(cli_args.code_output,"w") as f:
-    if cli_args.output_mode == "mit":
-        f.write("""\t.macro CLEAR_XC_FLAGS
+if cli_args.output_mode == "mit":
+    macros = """\t.macro ERROR arg
+\t.error\t\\arg
+\t.endm
+\t.macro CLEAR_XC_FLAGS
 \tmove.w\td7,-(a7)
 \tmoveq\t#0,d7
 \troxl.b\t#1,d7
@@ -1129,10 +1232,11 @@ with open(cli_args.code_output,"w") as f:
 \tror.w\t#8,d3
 \t.endm
 
-""")
-        if small_memory_model:
-            f.write(f"""
-\t.macro\tSTORE_RAM_POINTER  src,dest
+"""
+
+    if small_memory_model:
+        macros += f"""
+\t.macro\tSTORE_POINTER  src,dest
 \tmove.l\td7,-(a7)
 \tmove.l\t\\src,d7
 \tsub.l\t{registers['base']},d7
@@ -1143,7 +1247,7 @@ with open(cli_args.code_output,"w") as f:
 \tmove.l\t(a7)+,d7
 \t.endm
 
-\t.macro\tLOAD_RAM_POINTER  src,dest
+\t.macro\tLOAD_POINTER  src,dest
 \tmove.l\td7,-(a7)
 \tmoveq\t#0,d7
 \tmove.b\t1+\src,d7
@@ -1168,9 +1272,12 @@ with open(cli_args.code_output,"w") as f:
 \tmove.b\t\\src,\\dest
 \t.endm
 
-""")
+"""
     else:
-        f.write("""\tCLEAR_XC_FLAGS:MACRO
+        macros = """\tERROR:MACRO
+\t^^^ ERROR ^^^ \\1
+\tENDM
+\tCLEAR_XC_FLAGS:MACRO
 \tmoveq\t#0,d7
 \troxl.b\t#1,d7
 \tENDM
@@ -1186,9 +1293,9 @@ inv0\@:
 \tCLEAR_XC_FLAGS
 inv1\@:
 \tENDM
-""")
-        if small_memory_model:
-            f.write(f"""
+"""
+    if small_memory_model:
+        macros += f"""
 \tSTORE_RAM_POINTER  MACRO
 \tmove.l\td7,-(a7)
 \tmove.l\t\\1,d7
@@ -1199,7 +1306,21 @@ inv1\@:
 \tmove.bd7,\\2
 \tmove.l\t(a7)+,d7
 \t.endm
-""")
+"""
+
+if cli_args.include_output and not os.path.exists(cli_args.include_output):
+    print(f"Creating include file {cli_args.include_output}")
+    with open(cli_args.include_output,"w") as f:
+        f.write(macros)
+else:
+    print(f"Keeping existing include file {cli_args.include_output}")
+
+with open(cli_args.code_output,"w") as f:
+    if cli_args.include_output:
+        f.write(f'\t.include\t"{cli_args.include_output}"\n')
+    else:
+        f.write(base_macros)
+
     for i,line in enumerate(nout_lines):
         try:
             f.write(line)
@@ -1457,11 +1578,11 @@ cpdr:
     rts
 """)
 
-
+# bullshit statistics ;)
 print(f"Converted {converted} lines on {len(lines)} total, {instructions} instruction lines")
 print(f"Converted instruction ratio {converted}/{instructions} {int(100*converted/instructions)}%")
 print("\nPLEASE REVIEW THE CONVERTED CODE CAREFULLY AS IT MAY CONTAIN ERRORS!\n")
-print("(some warning review lines may have been added")
+print(f"({nb_errors} warning review lines have been added)")
 
 
 

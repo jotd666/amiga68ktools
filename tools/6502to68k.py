@@ -1168,7 +1168,7 @@ if True:
 \t.endm
 
 \t.macro OP_R_ON_ZP_ADDRESS\tinst,offset,reg
-\t\\inst\\().b\t(a6,\\offset\\().W),\reg
+\t\\inst\\().b\t(a6,\\offset\\().W),\\reg
 \t.endm
 
 \t.macro OP_W_ON_ZP_ADDRESS\tinst,offset,reg
