@@ -10,8 +10,8 @@
 # solve 0x8.... !!
 # move.b    0x81D8,d0                           | [$30de
 
-# a0 then d5 or d6 referenced => error
-# a1 then d3 or d4 referenced => error
+# stray cmp
+# addq + jcc
 
 import re,itertools,os,collections,glob
 import argparse
@@ -1159,7 +1159,7 @@ if cli_args.data_output:
 
 if cli_args.output_mode == "mit":
     macros = """\t.macro ERROR arg
-\t.error\t\\arg
+\t.error\t"\\arg"
 \t.endm
 \t.macro CLEAR_XC_FLAGS
 \tmove.w\td7,-(a7)
@@ -1294,9 +1294,9 @@ inv0\@:
 inv1\@:
 \tENDM
 """
-    if small_memory_model:
-        macros += f"""
-\tSTORE_RAM_POINTER  MACRO
+        if small_memory_model:
+            macros += f"""
+\tSTORE_POINTER  MACRO
 \tmove.l\td7,-(a7)
 \tmove.l\t\\1,d7
 \tsub.l\t{registers['base']},d7
