@@ -1084,7 +1084,11 @@ if True:   # can be turned off, code is valid without that
                             line = change_instruction(f"OP_R_ON_ZP_ADDRESS\t{inst},{value_str},{dest}",nout_lines,i)
                             nout_lines[i+1] = ""
                         elif dest == AW_PAREN and src in [X,Y,A]:
-                            # read instruction
+                            # write instruction
+                            line = change_instruction(f"OP_W_ON_ZP_ADDRESS\t{inst},{value_str},{src}",nout_lines,i)
+                            nout_lines[i+1] = ""
+                        elif dest == AW_PAREN and inst in ["addq","subq"]:
+                            # write instruction
                             line = change_instruction(f"OP_W_ON_ZP_ADDRESS\t{inst},{value_str},{src}",nout_lines,i)
                             nout_lines[i+1] = ""
         nout_lines[i] = line
