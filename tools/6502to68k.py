@@ -1258,11 +1258,28 @@ skip\\@:
 \tPOP_SR
 \t.endm
 
-* N and V flag set on bits 7 and 6 is not supported
-\t.macro    BIT    arg
-\tmove.b    {A},{registers['dwork1']}
-\tand.b    \\arg,{registers['dwork1']}
-\t.endm
+
+* N and V flag set on bits 7 and 6 is now supported
+* remove the end of the macro if the game is not using them (no bmi/bvc tests)
+    .macro    BIT    arg
+    move.b    {A},{registers['dwork1']}
+    and.b    \\arg,{registers['dwork1']}    | zero flag
+    PUSH_SR
+    move.b    \\arg,{registers['dwork1']}
+    move.w    (a7),{registers['dwork2']}
+    bclr    #3,{registers['dwork2']}
+    tst.b    {registers['dwork1']}
+    jpl        pos\\@
+    bset    #3,{registers['dwork2']}    | set N
+pos\\@:
+    bclr    #1,{registers['dwork2']}
+    btst.b    #6,{registers['dwork1']}
+    jeq        b6\\@
+    bset    #1,{registers['dwork2']}    | set V
+b6\\@:
+    move.w    {registers['dwork2']},(a7)
+    POP_SR
+    .endm
 
 \t.macro CLR_XC_FLAGS
 \tmoveq\t#0,{C}
