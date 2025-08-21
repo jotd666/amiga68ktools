@@ -195,7 +195,8 @@ AW_PAREN = f"({AW})"
 
 single_instructions = {"nop":"nop",  # no need to convert to no-operation
 "rts":"rts",
-"txs":'ERROR   "unsupported transfer to stack register"',
+#"txs":'TXS',
+"txs":'nop',
 "tsx":'ERROR   "unsupported transfer from stack register"',
 "txa":f"move.b\t{X},{A}",
 "tya":f"move.b\t{Y},{A}",
@@ -1195,6 +1196,14 @@ if True:
 \tINVERT_XC_FLAGS
 \t.endm
 \t
+\t.macro\tSBC_IND_Y\taddress
+\tINVERT_XC_FLAGS
+\tGET_INDIRECT_ADDRESS\t\\address
+\tmove.b\t({AW},{Y}.w),{W}
+\tsubx.b\t{W},{A}
+\tINVERT_XC_FLAGS
+\t.endm
+\t
 \t.macro\tSBC\taddress
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\address
@@ -1281,20 +1290,50 @@ b6\\@:
     POP_SR
     .endm
 
-\t.macro CLR_XC_FLAGS
-\tmoveq\t#0,{C}
-\troxl.b\t#1,{C}
-\t.endm
-\t.macro SET_XC_FLAGS
-\tst\t{C}
-\troxl.b\t#1,{C}
-\t.endm
 
-\t.macro CLR_V_FLAG
-\tmoveq\t#0,{V}
-\tadd.b\t{V},{V}
-\t.endm
+    .macro CLR_XC_FLAGS
+    PUSH_SR
+    move.w    (sp),{registers['dwork1']}
+    and.b    #0xEE,{registers['dwork1']}        | bit 4 = X, bit 0 = C
+    move.w    {registers['dwork1']},(sp)
+    POP_SR
+    .endm
 
+    .macro SET_XC_FLAGS
+    PUSH_SR
+    move.w    (sp),{registers['dwork1']}
+    or.b    #0x11,{registers['dwork1']}        | bit 4 = X, bit 0 = C
+    move.w    {registers['dwork1']},(sp)
+    POP_SR
+    .endm
+
+    .macro CLR_V_FLAG
+    PUSH_SR
+    move.w    (sp),{registers['dwork1']}
+    and.b    #0xFD,{registers['dwork1']}        | bit 1 = V
+    move.w    {registers['dwork1']},(sp)
+    POP_SR
+    .endm
+
+    .macro SET_V_FLAG
+    PUSH_SR
+    move.w    (sp),{registers['dwork1']}
+    or.b    #0x2,{registers['dwork1']}        | bit 1 = V
+    move.w    {registers['dwork1']},(sp)
+    POP_SR
+    .endm
+
+    .macro    SET_NV_FLAGS
+    PUSH_SR
+    move.w    (sp),{registers['dwork1']}
+    or.b    #0xA,{registers['dwork1']}        | bit 1 = V, bit 3 = N
+    move.w    {registers['dwork1']},(sp)
+    POP_SR
+    .endm
+
+\t.macro TXS
+\tERROR "TODO: insert txs handling if needed (or remove)"
+\t.endm
 \t.macro SET_I_FLAG
 \tERROR "TODO: insert interrupt disable code here"
 \t.endm
