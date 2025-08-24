@@ -881,24 +881,24 @@ for i,line in enumerate(nout_lines):
     if len(toks)==2 and toks[0].strip():
         fp = toks[0].rstrip().split()
         finst = fp[0]
-
-        if finst == "bvc":
-            if prev_fp:
-                if prev_fp == ["CLR_V_FLAG"]:
+        finst_cc = fp[0][1:]
+        if finst_cc == "vc":
+            if prev_fp and prev_fp == ["CLR_V_FLAG"]:
                     nout_lines[i-1] = f"{out_start_line_comment} clv+bvc => jra\n"
                     nout_lines[i] = nout_lines[i].replace(finst,"jra")
-                elif prev_fp[0] == "tst.b":
-                    change_tst_to_btst(nout_lines,i)
+            elif prev_fp and prev_fp[0] in ["jmi","bmi","BIT"]:
+                # overflow test after minus test (bit instruction)
+                pass
             else:
-                nout_lines[i] += "          ^^^^^^ TODO: warning: stray bvc test\n"
-        elif finst == "bvs":
-            if prev_fp:
-                if prev_fp[0] == "tst.b":
-                    change_tst_to_btst(nout_lines,i)
+                nout_lines[i] += '   ERROR "stray bvc test, check bit instruction above?"\n'
+        elif finst_cc == "vs":
+            if prev_fp and prev_fp[0] in ["jmi","bmi","BIT"]:
+                # overflow test after minus test (bit instruction)
+                pass
             else:
-                nout_lines[i] += "          ^^^^^^ TODO: warning: stray bvs test\n"
+                nout_lines[i] += '   ERROR "stray bvs test, check bit instruction above?"\n'
 
-        elif finst == "bcc":
+        elif finst_cc == "cc":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
                 inst_no_size = prev_fp[0].split(".")[0]
@@ -917,7 +917,7 @@ for i,line in enumerate(nout_lines):
                     if not follows_sr_protected_block(nout_lines,i):
                         nout_lines[i] += '  ERROR  "warning: stray bcc test"\n'
 
-        elif finst == "bcs":
+        elif finst_cc == "cs":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
                 inst_no_size = prev_fp[0].split(".")[0]
@@ -972,11 +972,11 @@ for i,line in enumerate(nout_lines):
                     nout_lines[i] = replace_sub_instruction(finst,"sub.b",nout_lines[i])
                 # check if next line is bcc/bcs
                 nlt = nout_lines[i+1].split(out_comment)[0].split()
-                if nlt and nlt[0] in ["bcc","bcs"]:
+                if nlt and nlt[0][1:] in ["cc","cs"]:
                     # we have to insert carry inverse flag like SBC does
                     nout_lines[i+1] = "\tINVERT_XC_FLAGS\n"+nout_lines[i+1]
 
-        elif finst not in ["bne","beq","bmi"] and prev_fp and prev_fp[0] == "cmp.b":
+        elif finst_cc not in ["ne","eq","mi"] and prev_fp and prev_fp[0] == "cmp.b":
                 nout_lines[i] = '      ERROR  "review stray cmp (insert SET_X_FROM_CLEARED_C)"\n'+nout_lines[i]
 
         prev_fp = fp

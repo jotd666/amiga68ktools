@@ -5,6 +5,7 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("makefile_params", nargs='*')
 parser.add_argument("-n","--noretry", help="no retry",action="store_true")
+parser.add_argument("-N","--nodelay", help="no delay on end",action="store_true")
 parser.add_argument("-u","--print-undefined-references", help="display undefined references summary",action="store_true")
 parser.add_argument("-m","--makefile", help="makefile name",default="makefile")
 args = parser.parse_args()
@@ -39,7 +40,8 @@ while True:
         break
     undef.clear()
 
-import time
-time.sleep(4)
+if not args.nodelay:
+    import time
+    time.sleep(4)
 
 sys.exit(rc)

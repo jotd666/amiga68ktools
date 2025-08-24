@@ -35,7 +35,7 @@ with open(args.asm_file) as f:
         if m:
             address = int(m.group(1),16)
             if address == capture_start_address:
-                line = f"\tENABLE_REGS_LOG   | added by add_reg_log.py\n"+line
+                line = f"\tENABLE_LOG_REGS   | added by add_reg_log.py\n"+line
 
             if start_address <= address <= end_address:
                 counter += 1
