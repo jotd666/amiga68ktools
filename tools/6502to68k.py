@@ -40,11 +40,14 @@ parser.add_argument("-o","--output-mode",help="output mode either mot style or m
 parser.add_argument("-w","--no-review",help="don't insert review lines",action="store_true")
 parser.add_argument("-s","--spaces",help="replace tabs by x spaces",type=int)
 parser.add_argument("-n","--no-mame-prefixes",help="treat as real source, not MAME disassembly",action="store_true")
+parser.add_argument("-d","--dont-optimize",help="don't try to simplify, or to invert cmp+bcs/bcc",action="store_true")
 parser.add_argument("input_file")
 parser.add_argument("output_file")
 parser.add_argument("output_include_file")
 
 cli_args = parser.parse_args()
+
+optimizer_on = not cli_args.dont_optimize
 
 no_mame_prefixes = cli_args.no_mame_prefixes
 
@@ -882,6 +885,10 @@ for i,line in enumerate(nout_lines):
         fp = toks[0].rstrip().split()
         finst = fp[0]
         finst_cc = fp[0][1:]
+        if not optimizer_on and finst == "cmp.b":
+            # invert brutally the C flag
+            nout_lines[i] += "\tINVERT_XC_FLAGS\n"
+
         if finst_cc == "vc":
             if prev_fp and prev_fp == ["CLR_V_FLAG"]:
                     nout_lines[i-1] = f"{out_start_line_comment} clv+bvc => jra\n"
@@ -903,15 +910,18 @@ for i,line in enumerate(nout_lines):
             if prev_fp:
                 inst_no_size = prev_fp[0].split(".")[0]
 
-                if prev_fp == clrxcflags_inst:
+                if optimizer_on and prev_fp == clrxcflags_inst:
                     nout_lines[i-1] = f"{out_start_line_comment} clc+bcc => bra\n"
-                    nout_lines[i] = nout_lines[i].replace("\t"+finst,"\tbra.b")
+                    # optimize but log it!
+                    nout_lines[i] = '\tERROR   "optimized clc+bcc in bra, review!"\n'+nout_lines[i].replace("\t"+finst,"\tbra.b")
                 elif prev_fp[0] == "cmp.b":
                     # we KNOW we generated it wrong as in 6502 conditions are opposed. Change to bcs
-                    nout_lines[i] = f"\t{out_start_line_comment} bcc=>bcs (cmp above)\n"+nout_lines[i].replace("\tbcc","\tbcs")
+                    if optimizer_on:
+                        nout_lines[i] = f"\t{out_start_line_comment} bcc=>bcs (cmp above)\n"+nout_lines[i].replace("\tbcc","\tbcs")
+
                 elif prev_fp[0].startswith("b"):  # okay it could be bit but BIT is macroized
                     # there are multiple branch conditions, which means that a cmp could be hidden above
-                    if "cmp.b" in nout_lines[i-2]:  # hacky test
+                    if optimizer_on and "cmp.b" in nout_lines[i-2]:  # hacky test
                         nout_lines[i] = f"\t{out_start_line_comment} bcc=>bcs (cmp higher above)\n"+nout_lines[i].replace("\tbcc","\tbcs")
                 elif prev_fp[0] not in carry_generating_instructions and inst_no_size not in conditional_branch_instructions:
                     if not follows_sr_protected_block(nout_lines,i):
@@ -921,12 +931,15 @@ for i,line in enumerate(nout_lines):
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
                 inst_no_size = prev_fp[0].split(".")[0]
-                if prev_fp == setxcflags_inst:
+                if optimizer_on and prev_fp == setxcflags_inst:
                     nout_lines[i-1] = f"{out_start_line_comment} sec+bcs => bra\n"
-                    nout_lines[i] = nout_lines[i].replace(finst,"bra.b")
+                    # optimize but log it!
+                    nout_lines[i] = '\tERROR   "optimized sec+bcs in bra, review!"\n'+nout_lines[i].replace("\t"+finst,"\tbra.b")
                 elif prev_fp[0] == "cmp.b":
-                    # we KNOW we generated it wrong as in 6502 conditions are opposed. Change to bcs
-                    nout_lines[i] = f"\t{out_start_line_comment} bcs=>bcc\n"+nout_lines[i].replace("\tbcs","\tbcc")
+                    if optimizer_on:
+                        # we KNOW we generated it wrong as in 6502 conditions are opposed. Change to bcs
+                        nout_lines[i] = f"\t{out_start_line_comment} bcs=>bcc\n"+nout_lines[i].replace("\tbcs","\tbcc")
+
                 elif prev_fp[0].startswith("b"):  # okay it could be bit but BIT is macroized
                     # there are multiple branch conditions, which means that a cmp could be hidden above
                     if "cmp.b" in nout_lines[i-2]:  # hacky test
@@ -934,7 +947,23 @@ for i,line in enumerate(nout_lines):
                 elif prev_fp[0] not in carry_generating_instructions and inst_no_size not in conditional_branch_instructions:
                    if not follows_sr_protected_block(nout_lines,i):
                         nout_lines[i] += '     ERROR "warning: review stray bcs test"\n'
-        elif finst == "rts":
+        elif finst.startswith("SBC"):
+            # check if prev instruction isn't inverted bcc/bcs induced by cmp
+            if optimizer_on:
+                if prev_fp[0].startswith("bc"):
+                    if "cmp.b" in nout_lines[i-2] or "cmp.b" in nout_lines[i-3]:
+                        nout_lines[i] += '    ERROR "check inverted C flag cmp/sbc !!"'
+
+        elif " adc " in nout_lines[i]:
+            # check if prev instruction isn't inverted bcc/bcs induced by cmp
+            if optimizer_on:
+                if prev_fp[0].startswith("bc"):
+
+                    if "cmp.b" in nout_lines[i-2] or "cmp.b" in nout_lines[i-3]:
+                        nout_lines[i] += '    ERROR "check inverted C flag cmp/adc !!"'
+                #if "cmp.b" in nout_lines[i-2]:
+
+        if finst == "rts":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
                 if prev_fp == ["movem.w","d0,-(sp)"]:
@@ -942,7 +971,7 @@ for i,line in enumerate(nout_lines):
                 elif prev_fp[0] == "cmp.b":
                     nout_lines[i] += '          ERROR  "review stray cmp (check caller)"\n'
 
-        elif finst == "addx.b":
+        elif optimizer_on and finst == "addx.b":
             if prev_fp == clrxcflags_inst or clrxcflags_inst[0] in nout_lines[i-2]:
                 # clc+adc => add (way simpler & faster)
                 # also try to handle previously set "sed" decimal mode
@@ -956,7 +985,8 @@ for i,line in enumerate(nout_lines):
                 else:
                     nout_lines[i-1] = nout_lines[i-1].replace(clrxcflags_inst[0],"")
                     nout_lines[i] = nout_lines[i].replace("addx.b","add.b")
-        elif finst in ["subx.b","SBC_IMM"]:
+
+        elif optimizer_on and finst in ["subx.b","SBC_IMM"]:
             if prev_fp == setxcflags_inst or setxcflags_inst[0] in nout_lines[i-2]:
                 # clc+sbc => sub (way simpler & faster) but careful: if carry is tested afterwards it
                 # will be the opposite!
@@ -977,7 +1007,15 @@ for i,line in enumerate(nout_lines):
                     nout_lines[i+1] = "\tINVERT_XC_FLAGS\n"+nout_lines[i+1]
 
         elif finst_cc not in ["ne","eq","mi"] and prev_fp and prev_fp[0] == "cmp.b":
-                nout_lines[i] = '      ERROR  "review stray cmp (insert SET_X_FROM_CLEARED_C)"\n'+nout_lines[i]
+
+            if optimizer_on:
+                if "=>bc" in nout_lines[i]:
+                    # normal, optimizer inverted condition
+                    pass
+                else:
+                    nout_lines[i] = '      ERROR  "review stray cmp (insert SET_X_FROM_CLEARED_C)"\n'+nout_lines[i]
+            else:
+                nout_lines[i] = '      ERROR  "review stray cmp (insert SET_X_FROM_C)"\n'+nout_lines[i]
 
         prev_fp = fp
 # post-processing
