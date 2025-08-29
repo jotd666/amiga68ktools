@@ -980,7 +980,7 @@ for i,line in enumerate(nout_lines):
                 if sed_line:
                     print(f"detected & removed sed instruction at line {sed_line+1}, turning addx to abcd")
                     # it's actually a abcd operation
-                    nout_lines[sed_line] = ""
+                    nout_lines[sed_line] = f"\tSET_Z_FLAG  {out_comment} required as abcd doesn't set Z on 0 result\n"
                     nout_lines[i] = nout_lines[i].replace("addx.b","abcd")
                 else:
                     nout_lines[i-1] = nout_lines[i-1].replace(clrxcflags_inst[0],"")
@@ -995,7 +995,7 @@ for i,line in enumerate(nout_lines):
                 sed_line = find_sed_line(nout_lines,i-2)
                 if sed_line:
                     print(f"detected & removed sed instruction at line {sed_line+1}, turning subx to sbcd")
-                    nout_lines[sed_line] = ""
+                    nout_lines[sed_line] = f"\tSET_Z_FLAG  {out_comment} required as sbcd doesn't set Z on 0 result\n"
                     nout_lines[i] = replace_sub_instruction(finst,"sbcd",nout_lines[i])
                 else:
                     nout_lines[i-1] = nout_lines[i-1].replace(setxcflags_inst[0],"")
@@ -1218,10 +1218,17 @@ if True:
 \t\\inst\\().b\t\\reg,(a6,\\offset\\().W)
 \t.endm
 
+* fast way to set Z flag. It also sets C,N so if just Z
+* must be set, use a direct ccr operation instead
+\t.macro SET_Z_FLAG
+\tcmp.b\t{W},{W}
+\t.endm
+
 \t.macro\tSBC_X\taddress
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\address
 \tmove.b\t({AW},{X}.w),{W}
+\tSET_Z_FLAG     | set Z flag, as subx doesn't set it
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \t.endm
@@ -1230,6 +1237,7 @@ if True:
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\address
 \tmove.b\t({AW},{Y}.w),{W}
+\tSET_Z_FLAG     | set Z flag, as subx doesn't set it
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \t.endm
@@ -1238,6 +1246,7 @@ if True:
 \tINVERT_XC_FLAGS
 \tGET_INDIRECT_ADDRESS\t\\address
 \tmove.b\t({AW},{Y}.w),{W}
+\tSET_Z_FLAG     | set Z flag, as subx doesn't set it
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \t.endm
@@ -1246,6 +1255,7 @@ if True:
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\address
 \tmove.b\t({AW}),{W}
+\tSET_Z_FLAG     | set Z flag, as subx doesn't set it
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \t.endm
@@ -1254,6 +1264,7 @@ if True:
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\address
 \tmove.b\t({AW}),{W}
+\tSET_Z_FLAG     | set Z flag, as subx doesn't set it
 \tscbd\t{W},{A}
 \tINVERT_XC_FLAGS
 \t.endm
@@ -1261,6 +1272,7 @@ if True:
 \t.macro\tSBC_IMM\tparam
 \tINVERT_XC_FLAGS
 \tmove.b\t#\\param,{W}
+\tSET_Z_FLAG     | set Z flag, as subx doesn't set it
 \tsubx.b\t{W},{A}
 \tINVERT_XC_FLAGS
 \t.endm
@@ -1268,6 +1280,7 @@ if True:
 \t.macro\tSBCD_IMM\tparam
 \tINVERT_XC_FLAGS
 \tmove.b\t#\\param,{W}
+\tSET_Z_FLAG     | set Z flag, as subx doesn't set it
 \tsbcd\t{W},{A}
 \tINVERT_XC_FLAGS
 \t.endm
