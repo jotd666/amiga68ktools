@@ -70,7 +70,13 @@ def dump_asm_bytes(block,f,mit_format=False,nb_elements_per_row=8,size=1):
             f.write("\t{}\t".format(array[size]))
         else:
             f.write(",")
-        f.write("{}{:0{}x}".format(hs,d,size*2))
+        if d < 0:
+            sign = "-"
+            d = -d
+        else:
+            sign = ""
+
+        f.write("{}{}{:0{}x}".format(sign,hs,d,size*2))
         c += 1
         if c == nb_elements_per_row:
             f.write("\t{} 0x{:04x}\n".format("|" if mit_format else ";",offset))
