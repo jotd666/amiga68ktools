@@ -838,6 +838,16 @@ carry_generating_instructions = {"lsr.b","asl.b","roxr.b","roxl.b","subx.b","add
 conditional_branch_instructions = {"bpl","bmi","bls","bne","beq","bhi","blo","bcc","bcs","blt","ble","bge","bgt"}
 conditional_branch_instructions.update({f"j{x[1:]}" for x in conditional_branch_instructions})
 
+def is_conditional_branch(inst):
+    return inst in conditional_branch_instructions
+
+def get_original_instruction(inst):
+    if out_comment in inst:
+        idx = inst.index(out_comment)
+        print(inst[idx+2])
+        return inst[idx+2].strip("[]")
+    return None
+
 grouping = True
 # group several same instructions like add, lsr... #1 in one go
 if grouping:
@@ -1132,6 +1142,26 @@ if True:   # can be turned off, code is valid without that
                             nout_lines[i+1] = ""
         nout_lines[i] = line
         i+=1
+
+if True:   # can be turned off, code is valid without that
+    # another last pass lol: remove PUSH/POP SR when it's absolutely sure it's not needed
+    for i,line in enumerate(nout_lines):
+        if line.strip().endswith("POP_SR"):
+            # POP_SR inserted by our converter, not a program actual "php"
+            ntoks = nout_lines[i+1].split()
+            if ntoks:
+                orig = get_original_instruction(ntoks)
+                # pop_sr+address read/write no branch instruction: we can remove it. Careful as a "cld" instruction
+                # could be inserted before a potential branch
+                if ntoks[0] in ("GET_ADDRESS","OP_R_ON_ZP_ADDRESS") or (not is_conditional_branch(ntoks[0]) and orig not in ["sed","cld","nop"]):
+                    if nout_lines[i-2].strip().endswith("PUSH_SR"):
+                        # remove useless push/pop
+                        nout_lines[i-2]+=""
+                        nout_lines[i]+=""
+                    elif nout_lines[i-3].strip().endswith("PUSH_SR"):
+                        # remove useless push/pop
+                        nout_lines[i-3]=""
+                        nout_lines[i]=""
 
 
 
