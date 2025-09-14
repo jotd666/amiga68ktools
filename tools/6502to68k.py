@@ -1373,43 +1373,23 @@ b6\\@:
 
 
     .macro CLR_XC_FLAGS
-    PUSH_SR
-    move.w    (sp),{registers['dwork1']}
-    and.b    #0xEE,{registers['dwork1']}        | bit 4 = X, bit 0 = C
-    move.w    {registers['dwork1']},(sp)
-    POP_SR
+    and.b    #0xEE,ccr        | bit 4 = X, bit 0 = C
     .endm
 
     .macro SET_XC_FLAGS
-    PUSH_SR
-    move.w    (sp),{registers['dwork1']}
-    or.b    #0x11,{registers['dwork1']}        | bit 4 = X, bit 0 = C
-    move.w    {registers['dwork1']},(sp)
-    POP_SR
+    or.b    #0x11,ccr        | bit 4 = X, bit 0 = C
     .endm
 
     .macro CLR_V_FLAG
-    PUSH_SR
-    move.w    (sp),{registers['dwork1']}
-    and.b    #0xFD,{registers['dwork1']}        | bit 1 = V
-    move.w    {registers['dwork1']},(sp)
-    POP_SR
+    and.b    #0xFD,ccr        | bit 1 = V
     .endm
 
     .macro SET_V_FLAG
-    PUSH_SR
-    move.w    (sp),{registers['dwork1']}
-    or.b    #0x2,{registers['dwork1']}        | bit 1 = V
-    move.w    {registers['dwork1']},(sp)
-    POP_SR
+    or.b    #0x2,ccr        | bit 1 = V
     .endm
 
     .macro    SET_NV_FLAGS
-    PUSH_SR
-    move.w    (sp),{registers['dwork1']}
-    or.b    #0xA,{registers['dwork1']}        | bit 1 = V, bit 3 = N
-    move.w    {registers['dwork1']},(sp)
-    POP_SR
+    or.b    #0xA,ccr        | bit 1 = V, bit 3 = N
     .endm
 
 \t.macro TXS

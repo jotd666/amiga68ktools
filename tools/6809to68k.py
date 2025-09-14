@@ -1637,27 +1637,17 @@ if True:
 \t.endm
 
 \t.macro CLR_XC_FLAGS
-\tmove.w\td7,-(a7)
-\tmoveq\t#0,{DW}
-\troxl.b\t#1,{DW}
-\tmovem.w\t(a7)+,{DW}
+\tand.b\t#0xEE,ccr\t| bit 4 = X, bit 0 = C
 \t.endm
 
 \t.macro SET_XC_FLAGS
-\tmove.w\t{DW},-(a7)
-\tst\t{DW}
-\troxl.b\t#1,{DW}
-\tmovem.w\t(a7)+,{DW}
+\tor.b\t#0x11,ccr\t| bit 4 = X, bit 0 = C
 \t.endm
 
 
 
 \t.macro INVERT_XC_FLAGS
-\tPUSH_SR
-\tmove.w\t(sp),{DW}
-\teor.b\t#0x11,{DW}
-\tmove.w\t{DW},(sp)
-\tPOP_SR
+\teor.b\t#0x11,ccr
 \t.endm
 
 {out_start_line_comment} useful to recall C from X (add then move then bcx)
