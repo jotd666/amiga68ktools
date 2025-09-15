@@ -1602,7 +1602,7 @@ if True:
 \t.macro\tABX
 \tmoveq\t#0,{DW}
 \tmove.b\t{B},{DW}
-\tadd.w\t{B},{X}
+\tadd.w\t{DW},{X}
 \t.endm
 
 
