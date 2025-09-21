@@ -844,7 +844,6 @@ def is_conditional_branch(inst):
 def get_original_instruction(inst):
     if out_comment in inst:
         idx = inst.index(out_comment)
-        print(inst[idx+2])
         return inst[idx+2].strip("[]")
     return None
 
@@ -1316,11 +1315,7 @@ if True:
 \t.endm
 
 \t.macro INVERT_XC_FLAGS
-\tPUSH_SR
-\tmove.w\t(sp),{registers['dwork1']}
-\teor.b\t#0x11,{registers['dwork1']}
-\tmove.w\t{registers['dwork1']},(sp)
-\tPOP_SR
+\teor.b\t#0x11,ccr
 \t.endm
 
 {out_start_line_comment} useful to recall C from X (add then move then bcx)
