@@ -1663,6 +1663,19 @@ if True:
 \tPOP_SR
 \t.endm
 
+* useful to store X from C (store cmp result)
+\t.macro\tSET_X_FROM_C
+\tPUSH_SR
+\tmove.w\t(sp),{DW}
+\tbset\t#4,{DW}   | set X
+\tbtst\t#0,{DW}
+\tbne.b\t0f
+\tbclr\t#4,{DW}   | C is clear: clear X
+0:
+\tmove.w\t{DW},(sp)
+\tPOP_SR
+\t.endm
+
 \t.macro\tSET_X_FROM_CLEARED_C
 \tPUSH_SR
 \tmove.w\t(sp),{DW}

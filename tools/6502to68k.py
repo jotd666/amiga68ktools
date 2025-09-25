@@ -26,6 +26,11 @@
 ##- optim: grouping of simple shifts from 68k code
 ##- check cmp followed by roxr or addx/subx
 ##- review: sbc/adc after cmp without prior sec/clc/add/sub
+##- if SBC_IMM    0x00 found later, don't optimize sbc into sub!
+##- addx: set Z flag before
+##- sbcd/abcd warning: check bpl flag afterwards, change to bcc
+##- alternating OP_W_ON_ZP_ADDRESS and OP_R_ON_ZP_ADDRESS: remove PUSH/POP SR
+##- add or addx + addq + addx without jmp/jra/rts/CLR_XC_FLAGS/lsr/lsl/asr/asl/ror/rol => error
 
 import re,itertools,os,collections,glob,io
 import argparse
@@ -192,7 +197,7 @@ Y = registers['y']
 C = registers['c']
 V = registers['v']
 A = registers['a']
-W = registers['dwork1']
+W = DW = registers['dwork1']
 AW = registers['awork1']
 AW_PAREN = f"({AW})"
 
@@ -922,7 +927,7 @@ for i,line in enumerate(nout_lines):
                 if optimizer_on and prev_fp == clrxcflags_inst:
                     nout_lines[i-1] = f"{out_start_line_comment} clc+bcc => bra\n"
                     # optimize but log it!
-                    nout_lines[i] = '\tERROR   "optimized clc+bcc in bra, review!"\n'+nout_lines[i].replace("\t"+finst,"\tbra.b")
+                    nout_lines[i] = '\tERROR   "optimized clc+bcc in bra, review!"\n'+nout_lines[i].replace("\t"+finst,"\tjra")
                 elif prev_fp[0] == "cmp.b":
                     # we KNOW we generated it wrong as in 6502 conditions are opposed. Change to bcs
                     if optimizer_on:
@@ -943,7 +948,7 @@ for i,line in enumerate(nout_lines):
                 if optimizer_on and prev_fp == setxcflags_inst:
                     nout_lines[i-1] = f"{out_start_line_comment} sec+bcs => bra\n"
                     # optimize but log it!
-                    nout_lines[i] = '\tERROR   "optimized sec+bcs in bra, review!"\n'+nout_lines[i].replace("\t"+finst,"\tbra.b")
+                    nout_lines[i] = '\tERROR   "optimized sec+bcs in bra, review!"\n'+nout_lines[i].replace("\t"+finst,"\tjra")
                 elif prev_fp[0] == "cmp.b":
                     if optimizer_on:
                         # we KNOW we generated it wrong as in 6502 conditions are opposed. Change to bcs
@@ -1321,25 +1326,38 @@ if True:
 {out_start_line_comment} useful to recall C from X (add then move then bcx)
 \t.macro\tSET_C_FROM_X
 \tPUSH_SR
-\tmove.w\t(sp),{registers['dwork1']}
-\tbset\t#0,{registers['dwork1']}   | set C
-\tbtst\t#4,{registers['dwork1']}
+\tmove.w\t(sp),{DW}
+\tbset\t#0,{DW}   | set C
+\tbtst\t#4,{DW}
 \tbne.b\t0f
-\tbclr\t#0,{registers['dwork1']}   | X is clear: clear C
+\tbclr\t#0,{DW}   | X is clear: clear C
 0:
-\tmove.w\t{registers['dwork1']},(sp)
+\tmove.w\t{DW},(sp)
+\tPOP_SR
+\t.endm
+
+* useful to store X from C (store cmp result)
+\t.macro\tSET_X_FROM_C
+\tPUSH_SR
+\tmove.w\t(sp),{DW}
+\tbset\t#4,{DW}   | set X
+\tbtst\t#0,{DW}
+\tbne.b\t0f
+\tbclr\t#4,{DW}   | C is clear: clear X
+0:
+\tmove.w\t{DW},(sp)
 \tPOP_SR
 \t.endm
 
 \t.macro\tSET_X_FROM_CLEARED_C
 \tPUSH_SR
-\tmove.w\t(sp),{registers['dwork1']}
-\tbset\t#4,{registers['dwork1']}   | set X
-\tbtst\t#0,{registers['dwork1']}
+\tmove.w\t(sp),{DW}
+\tbset\t#4,{DW}   | set X
+\tbtst\t#0,{DW}
 \tbeq.b\tskip\\@
-\tbclr\t#4,{registers['dwork1']}   | C is set: clear X
+\tbclr\t#4,{DW}   | C is set: clear X
 skip\\@:
-\tmove.w\t{registers['dwork1']},(sp)
+\tmove.w\t{DW},(sp)
 \tPOP_SR
 \t.endm
 
@@ -1347,18 +1365,18 @@ skip\\@:
 * N and V flag set on bits 7 and 6 is now supported
 * remove the end of the macro if the game is not using them (no bmi/bvc tests)
     .macro    BIT    arg
-    move.b    {A},{registers['dwork1']}
-    and.b    \\arg,{registers['dwork1']}    | zero flag
+    move.b    {A},{DW}
+    and.b    \\arg,{DW}    | zero flag
     PUSH_SR
-    move.b    \\arg,{registers['dwork1']}
+    move.b    \\arg,{DW}
     move.w    (a7),{registers['dwork2']}
     bclr    #3,{registers['dwork2']}
-    tst.b    {registers['dwork1']}
+    tst.b    {DW}
     jpl        pos\\@
     bset    #3,{registers['dwork2']}    | set N
 pos\\@:
     bclr    #1,{registers['dwork2']}
-    btst.b    #6,{registers['dwork1']}
+    btst.b    #6,{DW}
     jeq        b6\\@
     bset    #1,{registers['dwork2']}    | set V
 b6\\@:
@@ -1510,11 +1528,11 @@ POP_SR:MACRO
 
 READ_LE_WORD:MACRO
 \tPUSH_SR
-\tmoveq\t#0,{registers['dwork1']}
-\tmove.b\t(1,\\1),{registers['dwork1']}
-\tlsl.w\t#8,{registers['dwork1']}
-\tmove.b\t(\\1),{registers['dwork1']}
-\tmove.l\t{registers['dwork1']},\\1
+\tmoveq\t#0,{DW}
+\tmove.b\t(1,\\1),{DW}
+\tlsl.w\t#8,{DW}
+\tmove.b\t(\\1),{DW}
+\tmove.l\t{DW},\\1
 \tPOP_SR
 \tENDM
 
