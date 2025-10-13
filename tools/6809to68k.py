@@ -44,6 +44,8 @@ import re,itertools,os,collections,glob,io
 import argparse
 #import simpleeval # get it on pypi (pip install simpleeval)
 
+tool_version = "1.1"
+
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
 parser.add_argument("-i","--input-mode",help="input mode either mot style (comments: ;, hex: $)\n"
@@ -1513,6 +1515,11 @@ if optimize_dp:
     # rationale: if they're using direct page they want speed. We may as well
     # try to optimize that access, without changing the other GET_ADDRESS and others as this
     # would create so many macros and ... I really don't want to dig into this
+    #
+    # also we have to limit the use to instructions that can handle (ax,dy) as destination
+    # so goodbye optimizations on {"roxr","roxl","ror","rol","lsr","asl"} else the post-processing generates wrong code
+    # reusing an old AW address to store the result
+
     for i,line in enumerate(nout_lines):
         line = line.rstrip()
         toks = line.split()
@@ -1526,20 +1533,36 @@ if optimize_dp:
             if len(ntoks)>1:
                 # only on some instructions, or it's going to be a pain to check stray jcc, ...
                 if ntoks[0] in {"move.b","clr.b","add.b","addq.b","sub.b","subq.b","cmp.b","tst.b"}:
-                    inst = ntoks[0].split(".")[0]
-                    if ntoks[1]==f"({AW})":
-                        # one operand
-                        ninst = f"\tOP_1_ON_DP_ADDRESS\t{inst},{toks[1]}"
-                    else:
-                        subtoks = ntoks[1].split(",")
-                        if len(subtoks)==2:
-                            # two operands: which is source?
-                            if subtoks[0]==f"({AW})":
-                                # read
-                                ninst = f"\tOP_R_ON_DP_ADDRESS\t{inst},{toks[1]},{subtoks[1]}"
-                            else:
-                                # write
-                                ninst = f"\tOP_W_ON_DP_ADDRESS\t{inst},{toks[1]},{subtoks[0]}"
+                    # extra check: see if the move destination is not a data work register, which means that
+                    # the instruction is actually a shift/eor instruction, which would be killed by the optimization
+                    # below as the rest of the block uses work address register which is not loaded when optimizing
+                    # consider this code:
+#    GET_DP_ADDRESS    0x5c                        | [$a64b: asl    $5c]
+#    move.b    (a0),d6    | [$a64b: asl    $5c]
+#    asl.b    #1,d6                              | [$a64b: asl    $5c]
+#    move.b    d6,(a0)    | [$a64b: asl    $5c]
+                    # if we optimize it we get:
+#    OP_R_ON_DP_ADDRESS    move,0x5c,d6         | [$a64b: asl    $5c]
+#    asl.b    #1,d6                              | [$a64b: asl    $5c]
+#    move.b    d6,(a0)    | [$a64b: asl    $5c]  <==== WRONG!!
+# because with OP_R_ON_DP_ADDRESS a0 isn't changed thus doesn't point on the proper address!!!
+                    inst_args = ntoks[1].split(",")
+                    if inst_args[-1]!=DW:
+                        # okay, the next instruction doesn't work on work data register: we can optimize
+                        inst = ntoks[0].split(".")[0]
+                        if ntoks[1]==f"({AW})":
+                            # one operand
+                            ninst = f"\tOP_1_ON_DP_ADDRESS\t{inst},{toks[1]}"
+                        else:
+                            subtoks = ntoks[1].split(",")
+                            if len(subtoks)==2:
+                                # two operands: which is source?
+                                if subtoks[0]==f"({AW})":
+                                    # read
+                                    ninst = f"\tOP_R_ON_DP_ADDRESS\t{inst},{toks[1]},{subtoks[1]}"
+                                else:
+                                    # write
+                                    ninst = f"\tOP_W_ON_DP_ADDRESS\t{inst},{toks[1]},{subtoks[0]}"
                 if ninst:
                     nout_lines[i] = replace_instruction(ninst,line)+'\n'
                     nout_lines[i+1] = ""
@@ -1558,7 +1581,7 @@ if True:
     B = registers['b']
     DP = registers['dp_base']
 
-    f.write(f"""{out_start_line_comment} Converted with 6809to68k by JOTD
+    f.write(f"""{out_start_line_comment} Converted with 6809to68k v{tool_version} by JOTD
 {out_start_line_comment}
 {out_start_line_comment} make sure you call "cpu_init" first so all bits of data registers
 {out_start_line_comment} are zeroed out so we can use add.l dy,ax with dy > 0x7FFF
