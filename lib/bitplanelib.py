@@ -597,6 +597,7 @@ def palette_image2attached_sprites(input_image,output_filename,palette,
                 except KeyError:
                     # try to suggest close colors
                     approx = tuple(x&0xFE for x in p)
+
                     close_colors = [c for c in palette_dict if tuple(x&0xFE for x in c)==approx]
 
                     msg = "{}: (x={},y={}) rounded color {} not found, orig color {}, maybe try adjusting precision mask (current: 0x{:x})".format(

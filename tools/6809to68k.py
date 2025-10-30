@@ -4,10 +4,10 @@
 # this code has been used to convert the following games
 #
 # - Gyruss (small coordinate transformation code)
-# - Track'N'Field (the whole game)
-# - Hyper Sports (the whole game)
-# - Jailbreak (the whole game)
-
+# - Track'N'Field
+# - Hyper Sports
+# - Jailbreak
+# - DigDug 2
 
 # you'll have to implement the macro GET_ADDRESS_FUNC to return pointer on memory layout
 # to replace lea/move/... in memory
@@ -38,13 +38,14 @@
 # - inca/deca should trigger MAKE_D
 # - post_proc: tst.w + GET_.*ADDRESS => remove tst.w
 # - cmpd generates cmp.w which is not 68000 friendly (odd adress)
-#
+# rol    ,x+ generates wrong code
+# std    [,x] generates wrong code
 
 import re,itertools,os,collections,glob,io
 import argparse
 #import simpleeval # get it on pypi (pip install simpleeval)
 
-tool_version = "1.1"
+tool_version = "1.2"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -251,8 +252,8 @@ single_instructions = {"nop":"nop",
 "asrb":f"asr.b\t#1,{registers['b']}",
 "tsta":f"tst.b\t{registers['a']}",
 "tstb":f"tst.b\t{registers['b']}",
-"coma":f"not.b\t{registers['a']}",
-"comb":f"not.b\t{registers['b']}",
+"coma":f"COM\t{registers['a']}",
+"comb":f"COM\t{registers['b']}",
 "rora":f"roxr.b\t#1,{registers['a']}",
 "rola":f"roxl.b\t#1,{registers['a']}",
 "rorb":f"roxr.b\t#1,{registers['b']}",
@@ -1622,16 +1623,25 @@ if True:
 \tjbsr\tget_address
 \t.endm
 
+
 \t.macro\tABX
 \tmoveq\t#0,{DW}
 \tmove.b\t{B},{DW}
 \tadd.w\t{DW},{X}
 \t.endm
 
+\t.macro\tCHECK_MAX\treg,arg
+\tERROR  "insert check max table function index here"
+\t.endm
+
+\t.macro\tCOM\treg
+\tnot.b\t\\reg
+\tSET_XC_FLAGS
+\t.endm
 
 \t.macro\tSEX
 \tmove.b\t{B},{A}
-\text.b\t{A}
+\text.w\t{A}
 \t.endm
 
 \t.macro\tMAKE_D
@@ -1724,15 +1734,17 @@ if True:
 
 * 68020 compliant & optimized
 
-    .macro    JXX_A_INDEXED    inst,reg
-    and.w    #0xFF,{A}  | mask 8 bits
-    \\inst    ([\\reg,{A}.W*2])
-    .endm
+\t.macro    JXX_A_INDEXED    inst,reg,nb_cases
+\tand.w    #0xFF,{A}  | mask 8 bits
+\tCHECK_MAX    {A},\\nb_cases
+\t\\inst    ([\\reg,{A}.W*2])
+\t.endm
 
-    .macro    JXX_B_INDEXED    inst,reg
-    and.w    #0xFF,{B}  | mask 8 bits
-    \\inst    ([\\reg,{B}.W*2])
-    .endm
+\t.macro    JXX_B_INDEXED    inst,reg,nb_cases
+\tand.w    #0xFF,{B}  | mask 8 bits
+\tCHECK_MAX    {B},\\nb_cases
+\t\\inst    ([\\reg,{B}.W*2])
+\t.endm
 
 \t.macro DO_EXTB\treg
 \textb.l\t\\reg
@@ -1754,13 +1766,13 @@ if True:
 \tcmp.w    (\\src),\\dest
 \t.endm
 
-    .macro    ADD_W_TO_REG    src,dest
-    add.w    (\src),\dest
-    .endm
+\t.macro    ADD_W_TO_REG    src,dest
+\tadd.w    (\src),\dest
+\t.endm
 
-    .macro    SUB_W_TO_REG    src,dest
-    sub.w    (\src),\dest
-    .endm
+\t.macro    SUB_W_TO_REG    src,dest
+\tsub.w    (\src),\dest
+\t.endm
 
 
 \t.macro\tMOVE_W_FROM_REG    src,dest
@@ -1779,16 +1791,18 @@ if True:
 
 * 68000 compliant
 
-    .macro    JXX_A_INDEXED    inst,reg
+    .macro    JXX_A_INDEXED    inst,reg,nb_cases
     and.w    #0xFF,{A}  | mask 8 bits
+    CHECK_MAX   {A},\\nb_cases
     add.w    {A},{A}    | *2 (16 -> 32 bits)
     move.l    (\\reg,{A}.w),\\reg
     \\inst    (\\reg)
     .endm
 
-    .macro    JXX_B_INDEXED    inst,reg
+    .macro    JXX_B_INDEXED    inst,reg,nb_cases
     and.w    #0xFF,{B}  | mask 8 bits
-    add.w    {A},{B}    | *2 (16 -> 32 bits)
+    CHECK_MAX   {B},\\nb_cases
+    add.w    {B},{B}    | *2 (16 -> 32 bits)
     move.l    (\\reg,{B}.w),\\reg
     \\inst    (\\reg)
     .endm
@@ -1877,13 +1891,13 @@ if True:
 \tlea\t({DP},\\offset\\().W),{AW}
 \t.endm
 
-# optimzed DP operations
+* optimized DP operations
 .macro OP_1_ON_DP_ADDRESS    inst,offset
 \t\\inst\\().b    ({DP},\\offset\\().W)
 .endm
 
 .macro OP_R_ON_DP_ADDRESS    inst,offset,reg
-\t\\inst\\().b    ({DP},\\offset\\().W),\reg
+\t\\inst\\().b    ({DP},\\offset\\().W),\\reg
 .endm
 
 .macro OP_W_ON_DP_ADDRESS    inst,offset,reg

@@ -209,6 +209,7 @@ class Template:
         self.__input_lines = [self.__LAB_RE.sub(lambda m : "ExecBase"
         if m.group(1) in execbase_copies else m.group(1),line) for line in self.__input_lines]
 
+
     def __load_known_libs(self):
         for line in self.__input_lines:
             if line.startswith(";!"):
