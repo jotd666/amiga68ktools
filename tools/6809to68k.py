@@ -38,8 +38,7 @@
 # - inca/deca should trigger MAKE_D
 # - post_proc: tst.w + GET_.*ADDRESS => remove tst.w
 # - cmpd generates cmp.w which is not 68000 friendly (odd adress)
-# rol    ,x+ generates wrong code
-# std    [,x] generates wrong code
+
 
 import re,itertools,os,collections,glob,io
 import argparse
@@ -555,9 +554,17 @@ def generic_shift_op(inst,reg,args,comment):
 
         offset = arg or "0"
         reg = args[1]
+        increments = reg.count("+")
+        decrements = reg.count("-")
+        reg = reg.strip("+-")
 
         rval = f"\tGET_REG_ADDRESS\t{offset},{reg}{comment}\n"
         rval += f"\t{inst}\t#1,({registers['awork1']}){comment}"
+        if increments:
+            rval += f"\n\taddq\t#{increments},{reg}{comment}"
+        if decrements:
+            rval += f"\n\tsubq\t#{decrements},{reg}{comment}"
+
         return rval
 
     # sole argument: maybe can be register
@@ -693,7 +700,7 @@ def generic_indexed_to(inst,src,args,comment,word=False):
     if regsrc:
         regsrc+=","
 
-    if len(args)>1:
+    if len(args)>1 and not arg.startswith(OPENING_BRACKET):
         # register indexed. There are many modes!
         index_reg = args[1]
         empty_first_arg = not args[0]
@@ -745,12 +752,19 @@ def generic_indexed_to(inst,src,args,comment,word=False):
 
 
 
-    else:
+    elif len(args)==1:
         if arg.startswith(OPENING_BRACKET):
             # indirect
             arg = arg.strip(BRACKETS)
+
             return f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
 \t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}"""
+    elif arg == '[':
+
+        # 2 arguments: process only if first is empty: ex STD [,X]
+        return f"""\tGET_REG_INDIRECT_ADDRESS\t0,{regsrc.strip(',')}
+\t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}"""
+
 
     gaf,arg,value = get_get_address_function(arg)
 
