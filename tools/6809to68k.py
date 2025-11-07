@@ -760,9 +760,10 @@ def generic_indexed_to(inst,src,args,comment,word=False):
             return f"""\tGET_INDIRECT_ADDRESS\t{arg}{comment}
 \t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}"""
     elif arg == '[':
+        index_reg = args[1]
 
         # 2 arguments: process only if first is empty: ex STD [,X]
-        return f"""\tGET_REG_INDIRECT_ADDRESS\t0,{regsrc.strip(',')}
+        return f"""\tGET_REG_INDIRECT_ADDRESS\t0,{index_reg.strip(',]')}{comment}
 \t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}"""
 
 
