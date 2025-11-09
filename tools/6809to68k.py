@@ -561,9 +561,9 @@ def generic_shift_op(inst,reg,args,comment):
         rval = f"\tGET_REG_ADDRESS\t{offset},{reg}{comment}\n"
         rval += f"\t{inst}\t#1,({registers['awork1']}){comment}"
         if increments:
-            rval += f"\n\taddq\t#{increments},{reg}{comment}"
+            rval += f"\n\taddq.w\t#{increments},{reg}{comment}"
         if decrements:
-            rval += f"\n\tsubq\t#{decrements},{reg}{comment}"
+            rval += f"\n\tsubq.w\t#{decrements},{reg}{comment}"
 
         return rval
 
@@ -1921,8 +1921,11 @@ if True:
 
 
 \t.macro SET_DP_FROM_A
+\tswap\td0    | would be catastrophic if D0 msw != 0
+\tclr.w\td0   | can happen with the use of subq
+\tswap\td0    | even if now I have set .w on all addq/subq
 \tlsl.w    #8,{registers['a']}
-\tmove.l    {registers['a']},{AW}
+\tmove.l    {registers['a']},{AW}  | remove MSB clear & change to move.w if always < 0x8000
 \tGET_ADDRESS_FUNC
 \tmove.l\t{AW},{registers['dp_base']}
 \tmove.l\t{registers['dp_base']},m6809_direct_page_pointer
