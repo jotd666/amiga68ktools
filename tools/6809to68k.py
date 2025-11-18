@@ -153,7 +153,7 @@ error = "ERROR"
 if no_mame_prefixes:
     instruction_re = re.compile("\s+(\S.*)")
 else:
-    instruction_re = re.compile("([0-9A-F]{4}):( [0-9A-F]{2}){1,}\s+(\S.*)")
+    instruction_re = re.compile("([0-9A-F]{4}):(( [0-9A-F]{2}){1,})\s+(\S.*)")
 
 addresses_to_reference = set()
 
@@ -167,6 +167,9 @@ for input_file in input_files:
     with open(input_file,"rb") as f:
         if len(input_files)>1:
             lines.append((f"{out_start_line_comment} input file {os.path.basename(input_file)}",False,None))
+        prev_address = None
+        previous_nb_bytes = None
+
         for i,line in enumerate(f):
             is_inst = False
             address = None
@@ -192,7 +195,12 @@ for input_file in input_files:
                         instruction = m.group(1)
                     else:
                         address = int(m.group(1),0x10)
-                        instruction = m.group(3)
+
+                        if prev_address and (address < prev_address+previous_nb_bytes):
+                            print(f"Warning: instruction overlap at ${address:04x}, prev inst at ${prev_address:04x}, prev len = {previous_nb_bytes} bytes")
+                        previous_nb_bytes = len(m.group(2).split())
+                        prev_address = address
+                        instruction = m.group(4)
                     address_lines[address] = i
                     txt = instruction.rstrip()
                     is_inst = True
