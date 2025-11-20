@@ -486,16 +486,12 @@ def f_tfr(args,comment):
     if dstreg in ["d"]:
         dest_d = True
         dstreg=registers['b']
-    abregs = [registers['a'],registers['b']]
 
     # condition flags not affected!
     out += f"\tmove.{ext}\t{srcreg},{dstreg}{comment}\n"
     if dest_d:
         rorreg = f"\tror.w\t#8,{srcreg}{continuation_comment}\n"
         out += f"{rorreg}\tmove.b\t{srcreg},{registers['a']}{continuation_comment} set MSB\n{rorreg}"
-    if dstreg in abregs:
-        # if a or b is changed then recompute d
-        out += MAKE_D_PREFIX
     out += "\tPOP_SR"
     return out
 
@@ -989,16 +985,10 @@ def f_cmpy(args,comment):
     return generic_cmp(args,'y',comment,word=True)
 
 def f_exg(args,comment):
-    # not as simple as it seems
     arg0 = args[0]
     arg1 = args[1]
-    out = ""
-    # D register is not supported ATM, never encountered EXG with D
-    abregs = [registers['a'],registers['b']]
-    out += f"\texg\t{arg0},{arg1}{comment}\n"
-    if arg1 in abregs or arg0 in abregs:
-        # we have to recompute D
-        out += f"\tPUSH_SR\n{MAKE_D_PREFIX}\tPOP_SR\n"
+
+    out = f"\texg\t{arg0},{arg1}{comment}\n"
 
     return out
 def f_bsr(args,comment):
