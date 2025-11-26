@@ -99,7 +99,6 @@ else:
     branch_prefix = "b"
 
 continuation_comment = f"{out_comment} [...]"
-mask_out_comment = f"{out_comment} [masking out]"
 MAKE_D_PREFIX = f"\tMAKE_D\t{continuation_comment}\n"
 
 # input & output comments are "*" and "|" (MIT syntax)
@@ -696,12 +695,13 @@ def get_substitution_extended_reg(arg):
 
 
 def generic_indexed_to(inst,src,args,comment,word=False):
-    arg = args[0]
     size = 2 if word else 1
     suffix = ".w" if word else ".b"
     if inst.islower():
         inst += suffix
 
+    arg = args[0]
+    rval,arg = get_substitution_extended_reg(arg) # from now on use work register, only first 8 bits are active
 
     regsrc = registers.get(src,src)
     if regsrc:
@@ -716,9 +716,9 @@ def generic_indexed_to(inst,src,args,comment,word=False):
             increment = args[1].count("+")
             decrement = args[1].count("-")
             sa = index_reg.strip("+-")
-            rval = ""
+
             if decrement:
-                rval = f"\tsubq.w\t#{decrement},{sa}{continuation_comment}\n"
+                rval += f"\tsubq.w\t#{decrement},{sa}{continuation_comment}\n"
             rval += f"\tGET_REG_ADDRESS\t0,{sa}{comment}\n"
             if increment:
                 rval += f"\taddq.w\t#{increment},{sa}{continuation_comment}\n"
@@ -738,7 +738,6 @@ def generic_indexed_to(inst,src,args,comment,word=False):
 
             z80_reg = arg
 
-            rval = ""
             if arg in registers or arg=='d':
                 fromreg = "_FROM_REG"
 
@@ -747,9 +746,6 @@ def generic_indexed_to(inst,src,args,comment,word=False):
                     arg = registers['b']
                 else:
                     arg = registers[arg]
-
-                and_value = "FF" if z80_reg in ["a","b"] else "FFFF"
-                rval  = f"\tand.l\t#{out_hex_sign}{and_value},{arg}{mask_out_comment}\n"
 
             rval += f"\tGET_REG_ADDRESS{fromreg}\t{arg},{sa}{comment}\n"
 
@@ -842,8 +838,6 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
                     arg = registers['b']
                 else:
                     arg = registers[arg]
-                #and_value = "FF" if z80_reg in ["a","b"] else "FFFF"
-                #prefix += f"\tand.l\t#{out_hex_sign}{and_value},{arg}{mask_out_comment}\n"
 
 
             rval += f"\tGET_REG_ADDRESS{fromreg}\t{arg},{index_reg}{comment}"
