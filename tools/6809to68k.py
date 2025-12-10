@@ -1774,9 +1774,6 @@ if True:
 \t.macro PUSH_SR
 \tmove.w\tccr,-(sp)
 \t.endm
-\t.macro POP_SR
-\tmove.w\t(sp)+,ccr
-\t.endm
 
 
 \t.macro\tMOVE_W_TO_REG\tsrc,dest
@@ -1836,9 +1833,6 @@ if True:
 \t.macro PUSH_SR
 \tmove.w\tsr,-(sp)
 \t.endm
-\t.macro POP_SR
-\tmove.w\t(sp)+,sr
-\t.endm
 
 \t.macro\tMOVE_W_TO_REG    src,dest
 \tror.w\t#8,\\dest
@@ -1884,6 +1878,10 @@ if True:
 
 \t.endif
 
+* same for 68000 and 68020+
+\t.macro POP_SR
+\tmove.w\t(sp)+,ccr
+\t.endm
 
     .macro    JSR_A_INDEXED    reg
     JXX_A_INDEXED\tjsr,\\reg
@@ -2037,6 +2035,10 @@ CLR_V_FLAG:MACRO
 \tadd.b\t{V},{V}
 \tENDM
 
+POP_SR:MACRO
+\tmove.w\t(sp)+,ccr
+\tENDM
+
 SET_I_FLAG:MACRO
 ^^^^ TODO: insert interrupt disable code here
 \tENDM
@@ -2049,15 +2051,13 @@ CLR_I_FLAG:MACRO
 \tPUSH_SR:MACRO
 \tmove.w\tccr,-(sp)
 \tENDM
-POP_SR:MACRO
-\tmove.w\t(sp)+,ccr
-\tENDM
+
 \t.else
 PUSH_SR:MACRO
 \tmove.w\tsr,-(sp)
 \tENDM
 POP_SR:MACRO
-\tmove.w\t(sp)+,sr
+\tmove.w\t(sp)+,ccr
 \tENDM
 \tENDC
 
