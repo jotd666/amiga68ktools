@@ -1,7 +1,7 @@
 #
 # 6809 to 680x0 converter by JOTD (c) 2025
 #
-# this code has been used to convert the following games
+# this code has been successfully used to convert the following games
 #
 # - Gyruss (small coordinate transformation code)
 # - Track'N'Field
@@ -12,7 +12,7 @@
 # you'll have to implement the macro GET_ADDRESS_FUNC to return pointer on memory layout
 # to replace lea/move/... in memory
 # extract RAM memory constants as defines, not variables
-# work like an emulator
+# works like an emulator
 #
 # this is completely different from Z80. Easier for registers, but harder
 # for memory because of those indirect indexed modes that read pointers from memory
@@ -28,7 +28,7 @@
 # that aren't really needed. But it's accurate at least and code runs without need for
 # complete RE + debug...
 #
-# what I'm advising is that after the code works 100%, profile it using MAME trace and scripts
+# what I'm advising is that ONLY AFTER THE CODE WORKS 100%, profile it using MAME trace and scripts
 # (there are python scripts that do that in that repository) and concentrate on the 68k code
 # in regions where the code is often called, optimize manually, and never re-generate
 #
@@ -44,7 +44,7 @@ import re,itertools,os,collections,glob,io
 import argparse
 #import simpleeval # get it on pypi (pip install simpleeval)
 
-tool_version = "1.2"
+tool_version = "1.3"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
