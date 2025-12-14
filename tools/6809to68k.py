@@ -279,12 +279,10 @@ single_instructions = {"nop":"nop",
 "pshb":f"move.w\t{registers['b']},-(sp)",
 "pshx":f"move.w\t{registers['x']},-(sp)",
 "pshy":f"move.w\t{registers['y']},-(sp)",
-"pshu":f"move.w\t{registers['u']},-(sp)",
 "pula":f"movem.w\t(sp)+,{registers['a']}",
 "pulb":f"movem.w\t(sp)+,{registers['b']}",
 "pulx":f"movem.w\t(sp)+,{registers['x']}",
 "puly":f"movem.w\t(sp)+,{registers['y']}",
-"pulu":f"movem.w\t(sp)+,{registers['u']}",
 
 
 "clv":f"CLR_V_FLAG",
@@ -367,6 +365,7 @@ def f_asl(args,comment):
 def decode_movem(args):
     return_afterwards = False
     cc_move = False
+    dp_handled = False
 
     toks = set(args)
 
@@ -377,11 +376,13 @@ def decode_movem(args):
         toks.add(registers['b'])
     if "pc" in toks:
         toks.discard("pc")
-        return_afterwards = True
+    if "dp" in toks:
+        toks.discard("dp")
+        dp_handled = True
     if "cc" in toks:
         toks.discard("cc")
         cc_move = True
-    return "/".join(sorted(toks)),"movem" if len(toks)>1 else "move",return_afterwards,must_make_d,cc_move
+    return "/".join(sorted(toks)),"movem" if len(toks)>1 else "move",return_afterwards,dp_handled,must_make_d,cc_move
 
 
 
@@ -390,22 +391,27 @@ def decode_movem(args):
 # it would be okay if all addresses were below 7FFF but most 6809 code
 # uses addresses above 7FFF
 def f_pshs(args,comment):
-    move_params,inst,_,_,cc_move= decode_movem(args)
+    move_params,inst,_,dp_handled,_,cc_move= decode_movem(args)
     rval = ""
     if cc_move:
-        rval = f"\tPUSH_SR{comment}"
+        rval += f"\tPUSH_SR{comment}"
     if move_params:
         rval += f"\n\t{inst}.l\t{move_params},-(sp){comment}"
     else:
         rval += "\n"
+    if dp_handled:
+        rval += f"\tmove.l\t{registers['dp_base']},-(sp)"   # save DP
     return rval
 
 def f_puls(args,comment):
-    move_params,inst,return_afterwards,must_make_d,cc_move = decode_movem(args)
+    move_params,inst,return_afterwards,dp_handled,must_make_d,cc_move = decode_movem(args)
+    rval = ""
+    if dp_handled:
+        rval += f"\tmove.l\t(sp)+,{registers['dp_base']}\n\tSTORE_DP_IN_MEMORY\n"   # restore DP
+
     if move_params:
-        rval = f"\tmovem.l\t(sp)+,{move_params}{comment}"  # always movem to preserve flags by default
-    else:
-        rval = ""
+        rval += f"\tmovem.l\t(sp)+,{move_params}{comment}"  # always movem to preserve flags by default
+
     if must_make_d:
         # A was just restored: we have to rebuild D
         if cc_move:
@@ -1952,6 +1958,9 @@ if True:
 \t\\inst\\().b    \\reg,({DP},\\offset\\().W)
 .endm
 
+\t.macro\tSTORE_DP_IN_MEMORY
+\tmove.l\t{registers['dp_base']},m6809_direct_page_pointer
+\t.endm
 
 \t.macro SET_DP_FROM_A
 \tswap\td0    | would be catastrophic if D0 msw != 0
@@ -1961,7 +1970,7 @@ if True:
 \tmove.l    {registers['a']},{AW}  | remove MSB clear & change to move.w if always < 0x8000
 \tGET_ADDRESS_FUNC
 \tmove.l\t{AW},{registers['dp_base']}
-\tmove.l\t{registers['dp_base']},m6809_direct_page_pointer
+\tSTORE_DP_IN_MEMORY
 \tlsr.w    #8,{registers['a']}
 \t.endm
 
