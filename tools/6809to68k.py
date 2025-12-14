@@ -55,6 +55,7 @@ parser.add_argument("-o","--output-mode",help="output mode either mot style or m
 parser.add_argument("-w","--no-review",help="don't insert review lines",action="store_true")
 parser.add_argument("-s","--spaces",help="replace tabs by x spaces",type=int)
 parser.add_argument("-n","--no-mame-prefixes",help="treat as real source, not MAME disassembly",action="store_true")
+parser.add_argument("-l","--label-prefix",help="useful with multiple banks. default 'l_'", default='l_')
 parser.add_argument("-c","--code-output",help="68000 source code output file",required=True)
 parser.add_argument("-d","--data-output",help="data output file")
 parser.add_argument("-I","--include-output",help="include output file",required=True)
@@ -65,6 +66,8 @@ OPENING_BRACKET = ('(','[')
 BRACKETS = "[]()"
 
 cli_args = parser.parse_args()
+
+lab_prefix = cli_args.label_prefix
 
 no_mame_prefixes = cli_args.no_mame_prefixes
 
@@ -239,6 +242,7 @@ single_instructions = {"nop":"nop",
 "sex":"SEX",
 "daa":"DAA",
 "abx":"ABX",
+"aba":"ABA",
 "mul":"jbsr\tmultiply_ab",
 "nega":f"neg.b\t{registers['a']}",
 "negb":f"neg.b\t{registers['b']}",
@@ -248,6 +252,13 @@ single_instructions = {"nop":"nop",
 "decb":f"subq.b\t#1,{registers['b']}",
 "inca":f"addq.b\t#1,{registers['a']}",
 "incb":f"addq.b\t#1,{registers['b']}",
+"tba":"TBA",
+"inx":f"addq.w\t#1,{registers['x']}",  # those INC and DEC affect X & C flags on 68000
+"iny":f"addq.w\t#1,{registers['y']}",  # so it could have a negative effect on the code
+"inu":f"addq.w\t#1,{registers['u']}",
+"dex":f"subq.w\t#1,{registers['x']}",
+"dey":f"subq.w\t#1,{registers['y']}",
+"deu":f"subq.w\t#1,{registers['u']}",
 "lsra":f"lsr.b\t#1,{registers['a']}",   # for code that doesn't use "A" parameter for shift ops
 "lsrb":f"lsr.b\t#1,{registers['b']}",   # for code that doesn't use "A" parameter for shift ops
 "lsla":f"lsl.b\t#1,{registers['a']}",   # for code that doesn't use "A" parameter for shift ops
@@ -264,6 +275,16 @@ single_instructions = {"nop":"nop",
 "rola":f"roxl.b\t#1,{registers['a']}",
 "rorb":f"roxr.b\t#1,{registers['b']}",
 "rolb":f"roxl.b\t#1,{registers['b']}",
+"psha":f"move.w\t{registers['a']},-(sp)",
+"pshb":f"move.w\t{registers['b']},-(sp)",
+"pshx":f"move.w\t{registers['x']},-(sp)",
+"pshy":f"move.w\t{registers['y']},-(sp)",
+"pshu":f"move.w\t{registers['u']},-(sp)",
+"pula":f"movem.w\t(sp)+,{registers['a']}",
+"pulb":f"movem.w\t(sp)+,{registers['b']}",
+"pulx":f"movem.w\t(sp)+,{registers['x']}",
+"puly":f"movem.w\t(sp)+,{registers['y']}",
+"pulu":f"movem.w\t(sp)+,{registers['u']}",
 
 
 "clv":f"CLR_V_FLAG",
@@ -275,7 +296,7 @@ DW = registers['dwork1']
 m68_regs = set(registers.values())
 
 
-lab_prefix = "l_"
+
 
 def add_entrypoint(address):
     addresses_to_reference.add(address)
@@ -1649,6 +1670,14 @@ if True:
 \tmoveq\t#0,{DW}
 \tmove.b\t{B},{DW}
 \tadd.w\t{DW},{X}
+\t.endm
+
+\t.macro\tABA
+\tadd.b\t{B},{A}
+\t.endm
+
+\t.macro\tTBA
+\tmove.b\t{B},{A}
 \t.endm
 
 \t.macro\tCHECK_MAX\treg,arg
