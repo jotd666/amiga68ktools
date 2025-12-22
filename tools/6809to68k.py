@@ -534,6 +534,15 @@ def generic_lea(dest,args,comment):
     rval,first_arg = get_substitution_extended_reg(first_arg)     # from now on use work register, only first 8 bits are active
 
     inst = "add"
+
+    try:
+        first_arg_offset = int(first_arg,16)
+        if first_arg_offset == 0:
+            # no need to add/sub afterwards
+            inst = None
+    except ValueError:
+        pass
+
     if first_arg.startswith("-"):
         first_arg = first_arg[1:]
         inst = "sub"
@@ -566,7 +575,7 @@ def generic_lea(dest,args,comment):
     else:
         dest_68k = registers[dest]
         rval += f"\tmove.w\t{args[1]},{dest_68k}{comment}\n"
-        if first_arg:
+        if first_arg and inst:
             rval += f"\t{inst}{quick}.w\t{first_arg},{dest_68k}{comment}"
 
     return rval
@@ -652,7 +661,6 @@ def f_andcc(args,comment):
         elif v==0xEF:
             rval = f"\tCLR_I_FLAG{comment}"
 
-
     return rval or unsupported_instruction("andcc",args,comment)
 
 def f_orcc(args,comment):
@@ -664,7 +672,7 @@ def f_orcc(args,comment):
         if v==0x1:
             # immediate value to mask out carry
             rval = f"\tSET_XC_FLAGS{comment}"
-        elif v==0x10:
+        elif v in [0x10,0x40,0x50]:  # IRQ or/and FIRQ (approximative)
             rval = f"\tSET_I_FLAG{comment}"
 
     return rval or unsupported_instruction("orcc",args,comment)
@@ -937,7 +945,11 @@ def get_get_address_function(arg):
 
 def f_jmp(args,comment):
     target_address = None
-    if not args[0] or args[0][0] in BRACKETS:
+    func = args[0]
+    if not func:
+        # empty indexed
+        return(f'\tERROR\t"direct jsr"\t{comment}')
+    if func[0] in BRACKETS:
         return(f'\tERROR\t"indirect jmp"\t{comment}')
     label = arg2label(args[0])
     if args[0] != label:
@@ -1019,7 +1031,10 @@ def f_jsr(args,comment):
     func = args[0]
     out = ""
     target_address = None
-    if args[0][0] in BRACKETS:
+    if not func:
+        # empty indexed
+        return(f'\tERROR\t"direct jsr"\t{comment}')
+    if func[0] in BRACKETS:
         return(f'\tERROR\t"indirect jsr"\t{comment}')
 
     funcc = arg2label(func)
