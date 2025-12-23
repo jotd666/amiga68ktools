@@ -228,6 +228,7 @@ registers = {
 "dwork1":"d6",
 "dwork2":"d7",
 "awork1":"a0",
+"awork2":"a1",
 #"p":"sr",
 "dp_base":"a5",
 "":""
@@ -390,6 +391,75 @@ def decode_movem(args):
 # data registers, which then causes trouble when using long adds.
 # it would be okay if all addresses were below 7FFF but most 6809 code
 # uses addresses above 7FFF
+#
+#  ATM it has a lot of limitations
+#  - pshu/pulu push word addresses (even for A,B) so U memory must be
+#    aligned on 68000 with the current implementation, if the game
+#    doesn't respect that, then it will crash on 68000/68010
+#  - pulu pops word addresses but will sign-extend registers
+#  - DP/CC/PC aren't supported (yet, not until I need it for a game)
+
+def f_pshu(args,comment):
+    move_params,inst,_,dp_handled,_,cc_move= decode_movem(args)
+
+    reg = registers['u']
+    awork = registers['awork1']
+
+    # load U register in work address register, sub address to register
+    rval = f"\tGET_REG_ADDRESS\t0,{reg}{comment}\n\tsub.l\t{awork},{reg}\n"
+
+    if cc_move:
+        raise Exception("Unsupported pshu with CC")  # TODO later if needed
+        rval += f"\tPUSH_SR{comment}"
+    if move_params:
+        # use word size as we're working in target memory
+        rval += f"\n\t{inst}.W\t{move_params},-({awork}){comment}"
+    else:
+        rval += "\n"
+    if dp_handled:
+        raise Exception("DP in pshu")  # we'll handle it if needed
+        rval += f"\tmove.W\t{registers['dp_base']},-({awork})"   # save DP
+    # update U accordignly by adding new address value to register to reflect displacement
+    # of the possibly multiple stores
+    rval += f"\n\tadd.l\t{awork},{reg}\n"
+    return rval
+
+def f_pulu(args,comment):
+    move_params,_,return_afterwards,dp_handled,must_make_d,cc_move = decode_movem(args)
+    reg = registers['u']
+    awork = registers['awork1']
+
+    # load U register in work address register
+    rval = f"\tGET_REG_ADDRESS\t0,{reg}{comment}\n\tsub.l\t{awork},{reg}\n"
+
+    if dp_handled:
+        raise Exception("Unsupported pulu with CC")  # TODO later if needed
+        rval += f"\tmove.W\t({awork})+,{registers['dp_base']}\n\tSTORE_DP_IN_MEMORY\n"   # restore DP
+
+    if move_params:
+        rval += f"\tmovem.W\t({awork})+,{move_params}{comment}"  # always movem to preserve flags by default
+
+    if must_make_d:
+        # A was just restored: we have to rebuild D
+        if cc_move:
+            # cc is restored afterwards, no need to push/pop
+            rval += f"\n{MAKE_D_PREFIX}".rstrip()
+        else:
+            rval += f"\n\tPUSH_SR{continuation_comment}\n{MAKE_D_PREFIX}\tPOP_SR{continuation_comment}"
+    if cc_move:
+        raise Exception("Unsupported pulu with CC")  # TODO later if needed
+        rval += f"\n\tPOP_SR{comment}"
+
+    # update U accordignly by adding new address value to register to reflect displacement
+    # of the possibly multiple stores
+    rval += f"\n\tadd.l\t{awork},{reg}\n"
+    if return_afterwards:
+        raise Exception("Unsupported pulu with PC")  # TODO later if needed, need to encode PC in 16 bits
+        # pulling PC triggers a RTS (seen in Joust)
+        rval += f"\n\trts{continuation_comment}"
+
+    return rval
+
 def f_pshs(args,comment):
     move_params,inst,_,dp_handled,_,cc_move= decode_movem(args)
     rval = ""
@@ -425,7 +495,6 @@ def f_puls(args,comment):
     if return_afterwards:
         # pulling PC triggers a RTS (seen in Joust)
         rval += f"\n\trts{continuation_comment}"
-
 
     return rval
 
@@ -543,6 +612,9 @@ def generic_lea(dest,args,comment):
     except ValueError:
         pass
 
+    post_increment = 0
+    pre_decrement = 0
+
     if first_arg.startswith("-"):
         first_arg = first_arg[1:]
         inst = "sub"
@@ -552,6 +624,8 @@ def generic_lea(dest,args,comment):
     elif first_arg and first_arg[0] in BRACKETS:
         # get address in memory
         args = [x.strip(BRACKETS) for x in args]
+
+
         # if 8 bit register, mask first
         rval = ""
         for arg in args:
@@ -560,7 +634,7 @@ def generic_lea(dest,args,comment):
                 rval += f"\tand.l\t#{out_hex_sign}{mask},{arg}{out_comment} mask register before add\n"
 
         if args[0] == 'd':
-            args[0] = 'd0'
+            args[0] = registers['b']
 
         rval += f"\tGET_INDIRECT_ADDRESS_REGS\t{args[0]},{args[1]},{registers[dest]}{comment}"
         return rval
@@ -569,15 +643,30 @@ def generic_lea(dest,args,comment):
         quick = "q" if can_be_quick(first_arg) else ""
         first_arg = f'#{first_arg}'
 
-    if args[1]==registers[dest]:
+    # watch out for pre/post incrementation of second parameter
+    second_arg = args[1]
+    post_increment = second_arg.count("+")
+    pre_decrement = second_arg.count("-")
+    second_arg = second_arg.strip("+-")   # remove signs
+    regsize = "w"  # I think only word size for increment, as only X,Y,U can be used as sources
+
+    if pre_decrement:
+        # TODO: test & remove exception when we encounter this. I don't want
+        # to code it wrong
+        raise Exception("Unsupported pre-decrement")
+        rval += f"\n\tsubq.{regsize}\t#{pre_increment},{second_arg}{comment}"
+
+    if second_arg==registers[dest]:
         if first_arg:
-            rval += f"\t{inst}{quick}.w\t{first_arg},{args[1]}{comment}"
+            rval += f"\t{inst}{quick}.w\t{first_arg},{second_arg}{comment}"
     else:
         dest_68k = registers[dest]
-        rval += f"\tmove.w\t{args[1]},{dest_68k}{comment}\n"
+        rval += f"\tmove.w\t{second_arg},{dest_68k}{comment}\n"
         if first_arg and inst:
             rval += f"\t{inst}{quick}.w\t{first_arg},{dest_68k}{comment}"
 
+    if post_increment:
+        rval += f"\n\taddq.{regsize}\t#{post_increment},{second_arg}{comment}"
     return rval
 
 def unsupported_instruction(inst,args,comment):
@@ -948,7 +1037,7 @@ def f_jmp(args,comment):
     func = args[0]
     if not func:
         # empty indexed
-        return(f'\tERROR\t"direct jsr"\t{comment}')
+        return(f'\tERROR\t"direct jmp"\t{comment}')
     if func[0] in BRACKETS:
         return(f'\tERROR\t"indirect jmp"\t{comment}')
     label = arg2label(args[0])
@@ -1018,11 +1107,18 @@ def f_cmpy(args,comment):
     return generic_cmp(args,'y',comment,word=True)
 
 def f_exg(args,comment):
+    for i,arg in enumerate(args):
+        if arg=='d':
+            args[i] = registers['b']
+            must_make_a = True
+
+
     arg0 = args[0]
     arg1 = args[1]
 
     out = f"\texg\t{arg0},{arg1}{comment}\n"
-
+    if must_make_a:
+        out += "\tMAKE_A\n"
     return out
 def f_bsr(args,comment):
     return f_jsr(args,comment)
@@ -1166,6 +1262,7 @@ for i,(l,is_inst,address) in enumerate(lines):
                 inst = inst[1:]   # merge long and short branches
             # other instructions, not single, not implicit a
             conv_func = globals().get(f"f_{inst}")
+
 
             def switch_reg(m):
                 g1,g2 = m.groups()
@@ -1347,6 +1444,7 @@ setxcflags_inst = ["SET_XC_FLAGS"]
 carry_generating_instructions = {"add","sub","cmp","CMP_W_TO_REG","ADD_W_TO_REG","SUB_W_TO_REG","lsr","lsl","asl","asr","roxr","roxl","subx","addx","abcd","CLR_XC_FLAGS","SET_XC_FLAGS"}
 conditional_branch_instructions = {"bpl","bmi","bls","bne","beq","bhi","blo","bcc","bcs","blt","ble","bge","bgt"}
 conditional_branch_instructions.update({f"j{x[1:]}" for x in conditional_branch_instructions})
+routine_call_instructions = {"bsr","jbsr","jsr"}
 
 # post-processing phase is crucial here, as the converted code is guaranteed to be WRONG
 # as opposed to Z80 conversion where it could be optimizations or warnings about well-known
@@ -1561,7 +1659,9 @@ for i,line in enumerate(nout_lines):
                 # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
                 if prev_fp:
                     inst_no_size = prev_fp[0].split(".")[0]
-                    if inst_no_size not in carry_generating_instructions and inst_no_size not in conditional_branch_instructions:
+                    # also consider that jsr + jcc is not a problem. A lot of programs use C flag as return code
+                    if (inst_no_size not in carry_generating_instructions and
+                    inst_no_size not in conditional_branch_instructions and inst_no_size not in routine_call_instructions):
                         if not follows_sr_protected_block(nout_lines,i):
                             nout_lines[i] += issue_warning("stray bcc/bcs test",newline=True)
         prev_fp = fp
@@ -1667,7 +1767,7 @@ if True:
 \t.global\tm6809_direct_page_pointer
 
 \t.macro\tERROR\targ
-\t.error\t"\\arg"     | comment out to disable errors
+\t.error\t"\\arg"     | comment out or replace by ".warning" to disable errors
 \t.endm
 
 \t.macro\tVIDEO_BYTE_DIRTY
