@@ -8,7 +8,7 @@ import getopt,traceback,codecs,itertools
 import fnmatch,shutil
 
 class Template:
-    __VERSION_NUMBER = "1.1"
+    __VERSION_NUMBER = "1.2"
     __MODULE_FILE = __file__
     __PROGRAM_NAME = os.path.basename(__MODULE_FILE)
     __PROGRAM_DIR = os.path.abspath(os.path.dirname(__MODULE_FILE))
@@ -184,8 +184,8 @@ class Template:
     __SYSCALL_RE = re.compile("(JMP|JSR)\s+(-\d+)\(A6\)",flags=re.I)
     __SYSCALL_RE2 = re.compile("(JMP|JSR)\s+\((-\d+),A6\)",flags=re.I)
     __SYSCALL_RE3 = re.compile("(JMP|JSR)\s+(-\$[\dA-F]+)\(A6\)",flags=re.I)
-    __VALID_BASE = re.compile("([\-\w]{3,}(\(A\d\))?)",flags=re.I)
-    __VALID_BASE_020 = re.compile("\(([\-\w]{3,},A\d\))",flags=re.I)
+    __VALID_BASE = re.compile(r"([\-\$\w]{3,}(\(A\d\))?)",flags=re.I)
+    __VALID_BASE_020 = re.compile(r"\(([\-\$\w]{3,},A\d\))",flags=re.I)
     __ADDRESS_REG_RE = re.compile("A([0-6])",flags=re.I)
     __DCL_RE = re.compile("\s+DC\.L\s+(\w+)",flags=re.I)
     __RETURN_RE = re.compile(r"\b(RT[SED])\b",flags=re.I)
