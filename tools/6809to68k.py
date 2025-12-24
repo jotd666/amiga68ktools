@@ -228,9 +228,8 @@ registers = {
 "dwork1":"d6",
 "dwork2":"d7",
 "awork1":"a0",
-"awork2":"a1",
-#"p":"sr",
 "dp_base":"a5",
+"mem_base":"a6",
 "":""
 }
 inv_registers = {v:k.upper() for k,v in registers.items()}
@@ -291,6 +290,7 @@ single_instructions = {"nop":"nop",
 
 AW = registers['awork1']
 DW = registers['dwork1']
+MEMBASE = registers['mem_base']
 
 m68_regs = set(registers.values())
 
@@ -1778,14 +1778,16 @@ if True:
 \t{out_comment} called when a word write was done in {AW}
 \t.endm
 
+* the function that accesses all memory (except banks)
+* without any check
+\t.macro\tGET_UNCHECKED_ADDRESS_FUNC
+\tlea\t({MEMBASE},{AW}.l),{AW}
+\t.endm
+
+
 \t.macro\tGET_ADDRESS_FUNC
 \tjbsr\tget_address
 \t.endm
-
-\t.macro\tGET_UNCHECKED_ADDRESS_FUNC
-\tjbsr\tget_address
-\t.endm
-
 
 \t.macro\tABX
 \tmoveq\t#0,{DW}
