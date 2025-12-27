@@ -422,7 +422,7 @@ def f_pshu(args,comment):
     # update U accordignly by adding new address value to register to reflect displacement
     # of the possibly multiple stores
     rval += f"\n\tadd.l\t{awork},{reg}\n"
-    return rval
+    return '\tERROR\t"review pshu instruction"\n' + rval
 
 def f_pulu(args,comment):
     move_params,_,return_afterwards,dp_handled,must_make_d,cc_move = decode_movem(args)
@@ -458,7 +458,7 @@ def f_pulu(args,comment):
         # pulling PC triggers a RTS (seen in Joust)
         rval += f"\n\trts{continuation_comment}"
 
-    return rval
+    return '\tERROR\t"review pulu instruction"\n' + rval
 
 def f_pshs(args,comment):
     move_params,inst,_,dp_handled,_,cc_move= decode_movem(args)
@@ -550,7 +550,7 @@ def f_leay(args,comment):
 def f_leau(args,comment):
     return generic_lea('u',args,comment)
 def f_leas(args,comment):
-    return generic_lea('s',args,comment)
+    return f'\tERROR\t"review stack set from register"\t{comment}\n' + generic_lea('s',args,comment)
 
 def f_ldy(args,comment):
     return generic_load('y',args,comment, word=True)

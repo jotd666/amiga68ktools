@@ -53,9 +53,10 @@ def get_offset(line):
             else:
                 size *= args.count(",")+1
         else:
-            m = re.match("lb_(\w+)",line)
+            m = re.match("(lb|ptr)_(\w+)",line)
             if m:
-                offset = m.group(1)
+                offset = m.group(2)
+
 
     if offset is None:
         raise AsmException("Cannot compute offset for line: {}".format(line))
