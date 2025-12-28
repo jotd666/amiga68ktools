@@ -38,7 +38,17 @@
 # - inca/deca should trigger MAKE_D
 # - post_proc: tst.w + GET_.*ADDRESS => remove tst.w
 # - cmpd generates cmp.w which is not 68000 friendly (odd adress)
-
+#
+# limitations:
+#
+# the main limitation is the inability to stick to the stack model. pulu/pshu are possible but
+# often need rework. pshs/puls work okay but don't respect original stack structure, they are using
+# the host 68k stack, also using long pushes to avoid sign extension when popping (movem.w sign extends!)
+# there's a virtual stack register D5 that we let the game set, but it's limited in its use. Fortunately
+# lots of games don't use it directly. The ones which do use it use it as local variable allocation, and it works
+# to some extent. The limitation in this limitation is that on irq entry, the game relies on the value of S (aka D5)
+# but should not. In Ghosts'n'Goblins conversion, we set D5 to 0x4000, as area below it is mapped on host
+# but not on target. That will avoid that game is interrupted in non-6809 code with a completely irrelevant D5 value
 
 import re,itertools,os,collections,glob,io
 import argparse

@@ -1,8 +1,12 @@
 # add "LOG_REGS" macro call in the specified address range with a specified period
 # in order to compare cpu traces with MAME cpu traces when porting games to 68k
 #
-# very specific tool!
-{}
+# very specific tool that helps to make sure 6502/Z80/6809 code and 68000 code are equivalent
+# when debugging code converted by 6502to68K.py, 6809to68k.py, z80to68k.py
+#
+# most of the ports where debugged with the help of this script that auto-instruments the code
+# so you're never lost in the virtual PCs. Timesaver, lifesaver.
+
 import re,itertools,os,collections
 import argparse
 
@@ -27,6 +31,7 @@ else:
     capture_start_address = -1
 
 counter = 0
+prev_address = 0
 
 lines = []
 with open(args.asm_file) as f:
@@ -37,12 +42,14 @@ with open(args.asm_file) as f:
             if address == capture_start_address:
                 line = f"\tENABLE_LOG_REGS   | added by add_reg_log.py\n"+line
 
-            if start_address <= address <= end_address:
+            if start_address <= address <= end_address and address != prev_address:
                 counter += 1
                 if counter == args.period:
                     counter = 0
                     # time to insert a log regs
                     line = f"\tLOG_REGS\t{address:x}   | added by add_reg_log.py\n"+line
+                # avoid logging "inside" a complex instruction with repeated PC
+                prev_address = address
         lines.append(line)
 
 print(f"updating asm file {args.asm_file}...")
