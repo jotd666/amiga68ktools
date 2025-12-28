@@ -363,7 +363,7 @@ def f_asl(args,comment):
 ##def f_lsr(args,comment):
 ##    return generic_indexed_to("lsr","",args,comment)
 
-def decode_movem(args):
+def decode_movem(args,save_d_alone=False):
     return_afterwards = False
     cc_move = False
     dp_handled = False
@@ -373,10 +373,12 @@ def decode_movem(args):
     must_make_d = registers['a'] in toks
     if "d" in toks:
         toks.discard("d")
-        toks.add(registers['a'])
+        if not save_d_alone:
+            toks.add(registers['a'])
         toks.add(registers['b'])
     if "pc" in toks:
         toks.discard("pc")
+        return_afterwards = True
     if "dp" in toks:
         toks.discard("dp")
         dp_handled = True
@@ -400,7 +402,7 @@ def decode_movem(args):
 #  - DP/CC/PC aren't supported (yet, not until I need it for a game)
 
 def f_pshu(args,comment):
-    move_params,inst,_,dp_handled,_,cc_move= decode_movem(args)
+    move_params,inst,_,dp_handled,_,cc_move= decode_movem(args,save_d_alone=True)
 
     reg = registers['u']
     awork = registers['awork1']
@@ -425,7 +427,7 @@ def f_pshu(args,comment):
     return '\tERROR\t"review pshu instruction"\n' + rval
 
 def f_pulu(args,comment):
-    move_params,_,return_afterwards,dp_handled,must_make_d,cc_move = decode_movem(args)
+    move_params,_,return_afterwards,dp_handled,must_make_d,cc_move = decode_movem(args,save_d_alone=True)
     reg = registers['u']
     awork = registers['awork1']
 
@@ -550,7 +552,7 @@ def f_leay(args,comment):
 def f_leau(args,comment):
     return generic_lea('u',args,comment)
 def f_leas(args,comment):
-    return f'\tERROR\t"review stack set from register"\t{comment}\n' + generic_lea('s',args,comment)
+    return f'\tERROR\t"review stack set from register"\n' + generic_lea('s',args,comment)
 
 def f_ldy(args,comment):
     return generic_load('y',args,comment, word=True)
