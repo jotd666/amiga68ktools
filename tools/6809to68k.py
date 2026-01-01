@@ -1231,6 +1231,7 @@ instructions = 0
 out_lines = []
 unknown_instructions = set()
 
+
 for i,(l,is_inst,address) in enumerate(lines):
     out = ""
     old_out = l
@@ -1238,7 +1239,7 @@ for i,(l,is_inst,address) in enumerate(lines):
         instructions += 1
         # try to convert
         toks = l.split(in_comment,maxsplit=1)
-        # add original z80 instruction
+        # add original 6809 instruction
         inst = toks[0].strip().lower()
 
         if no_mame_prefixes:
@@ -1263,6 +1264,7 @@ for i,(l,is_inst,address) in enumerate(lines):
             inst = itoks[0]
             args = itoks[1:]
             sole_arg = args[0].replace(" ","")
+
             # pre-process instruction to remove spaces
             # (only required when source is manually reworked, not in MAME dumps)
             #sole_arg = re.sub("(\(.*?\))",lambda m:m.group(1).replace(" ",""),sole_arg)
@@ -1282,6 +1284,7 @@ for i,(l,is_inst,address) in enumerate(lines):
 
             if conv_func:
                 jargs = sole_arg.split(",")
+
                 # switch registers now, warning, avoid changing $a by 0xd0!!
                 hex_esc = re.escape(in_hex_sign)
                 jargs = [re.sub(rf"({hex_esc}\w+)|(\b\w+)\b",switch_reg,a) for a in jargs]
@@ -1300,6 +1303,19 @@ for i,(l,is_inst,address) in enumerate(lines):
                 except Exception as e:
                     print(f"Problem parsing: {l}, args={jargs}")
                     raise
+                # warn about manual usage for s register
+                # most of the time pshs and puls are used and can be replaced by move/movem+rts
+                # but sometimes there can be a mix of pshs and direct access to the stack.
+                # as we cannot map the stack on host stack (alignment & size issues) we have 2 stacks
+                #
+                # sp: host stack: used to store return addresses and pshs args
+                # d5: target stack: used to store game "auto" variables. No need to align
+                # mixing both stack usages in a routine is a recipe for disaster
+                #
+                # we have to warn the user systematically when a ",s" is used
+                #
+                if registers['s'] in jargs:
+                    out = f'\t{error}\t"check explicit S usage"\n'+ out
             else:
                 if inst.startswith("."):
                     # as-is
@@ -1458,34 +1474,14 @@ conditional_branch_instructions = {"bpl","bmi","bls","bne","beq","bhi","blo","bc
 conditional_branch_instructions.update({f"j{x[1:]}" for x in conditional_branch_instructions})
 routine_call_instructions = {"bsr","jbsr","jsr"}
 
-# post-processing phase is crucial here, as the converted code is guaranteed to be WRONG
-# as opposed to Z80 conversion where it could be optimizations or warnings about well-known
-# problematic constructs
-
-
 for i,line in enumerate(nout_lines):
     line = line.rstrip()
     toks = line.split("|",maxsplit=1)
     if len(toks)==2:
         fp = toks[0].rstrip().split()
         finst = fp[0]
-        if finst == "bvc":
-            if prev_fp:
-                if prev_fp == ["CLR_V_FLAG"]:
-                    nout_lines[i-1] = f"{out_start_line_comment} clv+bvc => jra\n"
-                    nout_lines[i] = nout_lines[i].replace(finst,"jra")
-                elif prev_fp[0] == "tst.b":
-                    change_tst_to_btst(nout_lines,i)
-            else:
-                nout_lines[i] += issue_warning("stray bvc test",newline=True)
-        elif finst == "bvs":
-            if prev_fp:
-                if prev_fp[0] == "tst.b":
-                    change_tst_to_btst(nout_lines,i)
-            else:
-                nout_lines[i] += issue_warning("stray bvs test",newline=True)
 
-        elif finst == "DAA" and prev_fp:
+        if finst == "DAA" and prev_fp:
             # try to match add/sub + DAA and replace by abcd
 
             prev_inst = prev_fp[0]
