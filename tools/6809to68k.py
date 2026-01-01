@@ -113,6 +113,7 @@ else:
 
 continuation_comment = f"{out_comment} [...]"
 MAKE_D_PREFIX = f"\tMAKE_D\t{continuation_comment}\n"
+MAKE_A_PREFIX = f"\tMAKE_A\t{continuation_comment}\n"
 
 # input & output comments are "*" and "|" (MIT syntax)
 # some day I may set as as an option...
@@ -377,15 +378,16 @@ def decode_movem(args,save_d_alone=False):
     return_afterwards = False
     cc_move = False
     dp_handled = False
-
+    must_make_a = False
     toks = set(args)
 
     must_make_d = registers['a'] in toks
     if "d" in toks:
         toks.discard("d")
+        must_make_a = True
         if not save_d_alone:
-            toks.add(registers['a'])
-        toks.add(registers['b'])
+            toks.add(registers['a'].upper())
+        toks.add(registers['b'].upper()) # make a casing difference, we can use that later!
     if "pc" in toks:
         toks.discard("pc")
         return_afterwards = True
@@ -395,7 +397,7 @@ def decode_movem(args,save_d_alone=False):
     if "cc" in toks:
         toks.discard("cc")
         cc_move = True
-    return "/".join(sorted(toks)),"movem" if len(toks)>1 else "move",return_afterwards,dp_handled,must_make_d,cc_move
+    return "/".join(sorted(toks)),"movem" if len(toks)>1 else "move",return_afterwards,dp_handled,must_make_d,must_make_a,cc_move
 
 
 
@@ -412,34 +414,55 @@ def decode_movem(args,save_d_alone=False):
 #  - DP/CC/PC aren't supported (yet, not until I need it for a game)
 
 def f_pshu(args,comment):
-    move_params,inst,_,dp_handled,_,cc_move= decode_movem(args,save_d_alone=True)
+    move_params,_,_,dp_handled,must_make_d,_,cc_move= decode_movem(args,save_d_alone=True)
+    # move_params joined is OK for pshs but for pshu we need to decompose
+    pushed = move_params.split("/")
 
     reg = registers['u']
     awork = registers['awork1']
 
+    rval = ""
+    # saving D means we must build it first
+    if must_make_d:
+        rval = MAKE_D_PREFIX
+
     # load U register in work address register, sub address to register
-    rval = f"\tGET_REG_ADDRESS\t0,{reg}{comment}\n\tsub.l\t{awork},{reg}\n"
+    rval += f"\tGET_REG_ADDRESS\t0,{reg}{comment}\n\tsub.l\t{awork},{reg}\n"
 
     if cc_move:
         raise Exception("Unsupported pshu with CC")  # TODO later if needed
         rval += f"\tPUSH_SR{comment}"
     if move_params:
-        # use word size as we're working in target memory
-        rval += f"\n\t{inst}.W\t{move_params},-({awork}){comment}"
+        # short regs match d0 d1 in lowercase. If D is pushed decode_movem will return D1 uppercase
+        # dirty but works
+        short_regs = [registers['a'],registers['b']]
+        for p in pushed:
+            # MAME disassembly shows multiple pushes with proper order, so if we decompose
+            # the pushes we get the exact frame. As PSHU is used to construct structures, it's
+            # really better to respect the push order & size
+            if p in short_regs:
+                rval += f"\n\tmove.b\t{p},-({awork}){comment}"
+            else:
+                # can't use pre-decrement, as post-process will add macro to avoid odd-aligned pushes
+                rval += f"\n\tsubq\t#2,{awork}\n\tmove.w\t{p.lower()},({awork}){comment}"
+
     else:
         rval += "\n"
     if dp_handled:
         raise Exception("DP in pshu")  # we'll handle it if needed
-        rval += f"\tmove.W\t{registers['dp_base']},-({awork})"   # save DP
+        rval += f"\n\tsubq\t#2,{awork}\n\tmove.w\t{registers['dp_base']},({awork})"   # save DP
     # update U accordignly by adding new address value to register to reflect displacement
     # of the possibly multiple stores
     rval += f"\n\tadd.l\t{awork},{reg}\n"
-    return '\tERROR\t"review pshu instruction"\n' + rval
+    # always report pshu instructions
+    return f'\t{error}\t"review pshu instruction"\n' + rval
 
 def f_pulu(args,comment):
-    move_params,_,return_afterwards,dp_handled,must_make_d,cc_move = decode_movem(args,save_d_alone=True)
+    move_params,_,return_afterwards,dp_handled,must_make_d,must_make_a,cc_move = decode_movem(args,save_d_alone=True)
     reg = registers['u']
     awork = registers['awork1']
+    # move_params joined is OK for pshs but for pshu we need to decompose
+    pulled = move_params.split("/")
 
     # load U register in work address register
     rval = f"\tGET_REG_ADDRESS\t0,{reg}{comment}\n\tsub.l\t{awork},{reg}\n"
@@ -449,13 +472,31 @@ def f_pulu(args,comment):
         rval += f"\tmove.W\t({awork})+,{registers['dp_base']}\n\tSTORE_DP_IN_MEMORY\n"   # restore DP
 
     if move_params:
-        rval += f"\tmovem.W\t({awork})+,{move_params}{comment}"  # always movem to preserve flags by default
+        short_regs = [registers['a'],registers['b']]
+        # short regs match d0 d1 in lowercase. If D is pulled decode_movem will return D1 uppercase
+        # dirty but works
+        for p in pulled:
+            # MAME disassembly shows multiple pulls with proper order, so if we decompose
+            # the pulls we get the exact frame. As PULU is used to construct structures, it's
+            # really better to respect the push order & size
+            if p in short_regs:
+                rval += f"\n\tmove.b\t({awork})+,{p}{comment}"
+            else:
+                # can't use post-increment, as post-process will add macro to avoid odd-aligned pushes
+                rval += f"\n\tmove.w\t({awork}),{p.lower()}{comment}\n\taddq\t#2,{awork}"
 
     if must_make_d:
         # A was just restored: we have to rebuild D
         if cc_move:
             # cc is restored afterwards, no need to push/pop
             rval += f"\n{MAKE_D_PREFIX}".rstrip()
+        else:
+            rval += f"\n\tPUSH_SR{continuation_comment}\n{MAKE_D_PREFIX}\tPOP_SR{continuation_comment}"
+    if must_make_a:
+        # D was just restored: we have to rebuild A
+        if cc_move:
+            # cc is restored afterwards, no need to push/pop
+            rval += f"\n{MAKE_A_PREFIX}".rstrip()
         else:
             rval += f"\n\tPUSH_SR{continuation_comment}\n{MAKE_D_PREFIX}\tPOP_SR{continuation_comment}"
     if cc_move:
@@ -470,10 +511,10 @@ def f_pulu(args,comment):
         # pulling PC triggers a RTS (seen in Joust)
         rval += f"\n\trts{continuation_comment}"
 
-    return '\tERROR\t"review pulu instruction"\n' + rval
+    return f'\t{error}\t"review pulu instruction"\n' + rval
 
 def f_pshs(args,comment):
-    move_params,inst,_,dp_handled,_,cc_move= decode_movem(args)
+    move_params,inst,_,dp_handled,_,_,cc_move= decode_movem(args)
     rval = ""
     if cc_move:
         rval += f"\tPUSH_SR{comment}"
@@ -486,7 +527,7 @@ def f_pshs(args,comment):
     return rval
 
 def f_puls(args,comment):
-    move_params,inst,return_afterwards,dp_handled,must_make_d,cc_move = decode_movem(args)
+    move_params,inst,return_afterwards,dp_handled,must_make_d,_,cc_move = decode_movem(args)
     rval = ""
     if dp_handled:
         rval += f"\tmove.l\t(sp)+,{registers['dp_base']}\n\tSTORE_DP_IN_MEMORY\n"   # restore DP
