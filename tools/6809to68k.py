@@ -498,7 +498,7 @@ def f_pulu(args,comment):
             # cc is restored afterwards, no need to push/pop
             rval += f"\n{MAKE_A_PREFIX}".rstrip()
         else:
-            rval += f"\n\tPUSH_SR{continuation_comment}\n{MAKE_D_PREFIX}\tPOP_SR{continuation_comment}"
+            rval += f"\n\tPUSH_SR{continuation_comment}\n{MAKE_A_PREFIX}\tPOP_SR{continuation_comment}"
     if cc_move:
         raise Exception("Unsupported pulu with CC")  # TODO later if needed
         rval += f"\n\tPOP_SR{comment}"
@@ -508,7 +508,7 @@ def f_pulu(args,comment):
     rval += f"\n\tadd.l\t{awork},{reg}\n"
     if return_afterwards:
         raise Exception("Unsupported pulu with PC")  # TODO later if needed, need to encode PC in 16 bits
-        # pulling PC triggers a RTS (seen in Joust)
+        # pulling PC triggers a RTS (widely used)
         rval += f"\n\trts{continuation_comment}"
 
     return f'\t{error}\t"review pulu instruction"\n' + rval
@@ -586,6 +586,8 @@ def f_sta(args,comment):
     return generic_store('a',args,comment)
 def f_stu(args,comment):
     return generic_store('u',args,comment,word=True)
+def f_sts(args,comment):
+    return f'\tERROR\t"review stack save"\n' + generic_store('s',args,comment,word=True)
 def f_std(args,comment):
     return MAKE_D_PREFIX+generic_store('b',args,comment,word=True)
 def f_stb(args,comment):
