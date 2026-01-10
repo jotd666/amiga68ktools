@@ -54,7 +54,7 @@ import re,itertools,os,collections,glob,io
 import argparse
 #import simpleeval # get it on pypi (pip install simpleeval)
 
-tool_version = "1.3"
+tool_version = "1.4"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -1864,8 +1864,8 @@ if True:
 \t.endm
 
 \t.macro\tSEX
-\tmove.b\t{B},{A}
-\text.w\t{A}
+\text.w\t{B}
+\tMAKE_A
 \t.endm
 
 \t.macro\tMAKE_D
