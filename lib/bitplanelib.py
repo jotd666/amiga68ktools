@@ -219,6 +219,7 @@ def palette_toehb(palette):
 def round_color(rgb,mask):
     return tuple(p & mask for p in rgb)
 
+
 def to_rgb4_color(rgb):
     return (round4(rgb[0])<<8) + (round4(rgb[1])<<4) + round4(rgb[2])
 
@@ -462,8 +463,12 @@ MASK_NONE = 0
 MASK_ON = 1
 MASK_INVERTED = 2
 
+BLIT_NO_PAD = 0
+BLIT_SHIFT_PAD = 1
+BLIT_ALIGN_PAD = 2
+
 def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,forced_nb_planes=None,
-                    palette_precision_mask=0xFF,generate_mask=MASK_NONE,blit_pad=False,mask_color=(0,0,0)):
+                    palette_precision_mask=0xFF,generate_mask=MASK_NONE,blit_pad=BLIT_NO_PAD,mask_color=(0,0,0)):
     """ rebuild raw bitplanes with palette (ordered) and any image which has
     the proper number of colors and color match
     pass None as output_filename to avoid writing to file
@@ -481,10 +486,14 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
     width,height = imgorg.size
 
     if blit_pad:
+        # align to closest multiple of 16 (in case pic width is odd in bytes)
         r = width % 16
         if r:
             width += 16-r
-        width += 16
+        if blit_pad == BLIT_SHIFT_PAD:
+            # legacy mode that wastes a lot of room
+            width += 16
+
     mask_color_rgb = "#{:02x}{:02x}{:02x}".format(*mask_color)
 
     img = PIL.Image.new('RGB', (width,height), mask_color_rgb)

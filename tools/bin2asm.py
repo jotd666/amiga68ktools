@@ -213,8 +213,7 @@ class Template:
 {0}:
 """.format(outbase))
             else:
-                fw.write(""".section .rodata
-.align 8
+                fw.write("""
 .globl {0}
 .globl {0}_end
 {0}:

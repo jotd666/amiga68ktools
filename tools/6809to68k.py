@@ -8,6 +8,8 @@
 # - Hyper Sports
 # - Jailbreak
 # - DigDug 2
+# - Ghosts'N'Goblins
+# - Double Dragon
 
 # you'll have to implement the macro GET_ADDRESS_FUNC to return pointer on memory layout
 # to replace lea/move/... in memory
@@ -54,7 +56,7 @@ import re,itertools,os,collections,glob,io
 import argparse
 #import simpleeval # get it on pypi (pip install simpleeval)
 
-tool_version = "1.4"
+tool_version = "1.5"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -156,7 +158,8 @@ def compose_instruction(inst,regdst):
     return out
 
 
-
+def warn(m):
+    print(f"warning: {m}")
 
 address_re = re.compile("^([0-9A-F]{4}):")
 label_re = re.compile("^(\w+):")
@@ -182,6 +185,7 @@ for input_file in input_files:
             lines.append((f"{out_start_line_comment} input file {os.path.basename(input_file)}",False,None))
         prev_address = None
         previous_nb_bytes = None
+        instruction = None
 
         for i,line in enumerate(f):
             is_inst = False
@@ -209,11 +213,20 @@ for input_file in input_files:
                     else:
                         address = int(m.group(1),0x10)
 
-                        if prev_address and (address < prev_address+previous_nb_bytes):
-                            print(f"Warning: instruction overlap at ${address:04x}, prev inst at ${prev_address:04x}, prev len = {previous_nb_bytes} bytes")
+                        if prev_address:
+                            if address < prev_address+previous_nb_bytes:
+                                warn(f"instruction overlap at ${address:04x}, prev inst at ${prev_address:04x}, prev len = {previous_nb_bytes} bytes")
+                            elif address > prev_address+previous_nb_bytes:
+                                itoks = instruction.split()
+                                fitok = itoks[0]
+                                if fitok in ["RTS","BRA","JMP"] or (fitok=="PULS" and "PC" in itoks[1]):
+                                    pass
+                                else:
+                                    warn(f"instruction discontinuity at ${address:04x}, prev inst at ${prev_address:04x}")
                         previous_nb_bytes = len(m.group(2).split())
                         prev_address = address
                         instruction = m.group(4)
+
                     address_lines[address] = i
                     txt = instruction.rstrip()
                     is_inst = True
