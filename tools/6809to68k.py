@@ -2116,7 +2116,7 @@ if True:
 * registers must be masked out to proper size before use
 \t.macro\tGET_INDIRECT_ADDRESS_REGS\treg1,reg2,destreg
 \tmove.l\t\\reg1,{AW}
-\tadd.l\t\\reg2,{AW}
+\tlea\t({AW},\\reg2\\().l),{AW}
 \tGET_ADDRESS_FUNC
 \tMOVE_W_TO_REG\t{AW},\\destreg
 \t.endm
@@ -2171,7 +2171,7 @@ if True:
 \tmove.l\t\\reg,{AW}
 \t.else
 \tlea\t\\offset,{AW}
-\tadd.l\t\\reg,{AW}
+\tlea\t({AW},\\reg\\().l),{AW}
 \t.endif
 \tGET_{unchecked}ADDRESS_FUNC
 \t.endm
@@ -2192,7 +2192,7 @@ if True:
 
 \t.macro GET_REG_{unchecked}ADDRESS_FROM_REG\treg,reg2
 \tmove.l\t\\reg,{AW}
-\tadd.l\t\\reg2,{AW}
+\tlea\t({AW},\\reg2\\().l),{AW}
 \tGET_{unchecked}ADDRESS_FUNC
 \t.endm
 
