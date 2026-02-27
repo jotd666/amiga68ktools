@@ -10,6 +10,7 @@
 # - DigDug 2
 # - Ghosts'N'Goblins
 # - Double Dragon
+# - Mappy
 
 # you'll have to implement the macro GET_ADDRESS_FUNC to return pointer on memory layout
 # to replace lea/move/... in memory
@@ -56,7 +57,7 @@ import re,itertools,os,collections,glob,io
 import argparse
 #import simpleeval # get it on pypi (pip install simpleeval)
 
-tool_version = "1.5"
+tool_version = "1.6"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -1086,7 +1087,7 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
     return out
 
 def get_get_address_function(arg):
-    darg = arg.strip(">")
+    darg = arg.strip("<>")
     try:
         value = parse_hex(darg)
     except ValueError:
@@ -1097,6 +1098,10 @@ def get_get_address_function(arg):
     if arg[0] == ">":
         # not direct mode, forced
         return "GET_ADDRESS",darg,value
+    elif arg[0] == "<":
+        # direct mode, forced
+        return "GET_DP_ADDRESS",darg,value
+    # else choose according to value size
     return ("GET_ADDRESS" if value >= 0x100 else "GET_DP_ADDRESS"),darg,value
 
 
