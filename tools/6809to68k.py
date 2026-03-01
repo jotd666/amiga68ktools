@@ -832,6 +832,8 @@ def f_orcc(args,comment):
             rval = f"\tSET_XC_FLAGS{comment}"
         elif v in [0x10,0x40,0x50]:  # IRQ or/and FIRQ (approximative)
             rval = f"\tSET_I_FLAG{comment}"
+        elif v == 0xFF:  # set all I flags plus carry (approximative) seen in mappy
+            rval = f"\tSET_I_FLAG{comment}\n\tSET_XC_FLAGS{comment}"
 
     return rval or unsupported_instruction("orcc",args,comment)
 
@@ -957,9 +959,9 @@ def generic_indexed_to(inst,src,args,comment,word=False):
 \t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}"""
     elif arg[0] == '[':
         index_reg = args[1]
-
-        # 2 arguments: process only if first is empty: ex STD [,X]
-        return f"""\tGET_REG_INDIRECT_ADDRESS\t0,{index_reg.strip(',]')}{comment}
+        offset = arg.strip("[,]") or "0"
+        # 2 arguments: process if first is empty: ex STD [,X] or not STD [2,X]
+        return f"""\tGET_REG_INDIRECT_ADDRESS\t{offset},{index_reg.strip(',]')}{comment}
 \t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}"""
 
 
