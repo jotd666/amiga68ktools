@@ -57,7 +57,114 @@ import re,itertools,os,collections,glob,io
 import argparse
 #import simpleeval # get it on pypi (pip install simpleeval)
 
-tool_version = "1.6"
+def remcomments(line):
+    return re.sub("[\|\*].*","",line)
+
+def remove_continuing_lines(lines,i):
+    for j in range(i+1,i+4):
+        if "[...]" in lines[j]:
+            lines[j] = ""
+        else:
+            break
+
+def change_instruction(code,lines,i,continuing_lines=True):
+    line = lines[i]
+    toks = line.split(out_comment)
+    if len(toks)==2:
+        toks[0] = f"\t{code}"
+        if continuing_lines:
+            remove_continuing_lines(lines,i)
+        return f" {out_comment} ".join(toks)
+    return line
+
+breaking_instructions = {"rts","jmp","bra","jra","JSR_B_INDEXED","JSR_A_INDEXED","jbsr"}
+
+def optimize(lines,verbose=False):
+    nb = 0
+    prev_loaded = None
+
+
+    for i,org_line in enumerate(lines):
+        line = remcomments(org_line)  # remove comments
+        toks = line.split()
+        if toks and "MOVE_W" in toks[0]:
+            prev_line = remcomments(lines[i-1])
+            prev_toks = prev_line.split()
+            if len(prev_toks)==2 and prev_toks[0]=="GET_ADDRESS":
+                try:
+                    address = int(prev_toks[1],16)
+                except ValueError:
+                    address = int(prev_toks[1].split("_")[-1],16)
+                if address%2 == 0:
+                    # even: remove macro use move.w (faster on 68000/68010, no effect on 68020+)
+                    args = toks[1].split(",")
+                    arg = f"{args[0]},({args[1]})" if toks[0]=="MOVE_W_FROM_REG" else f"({args[0]}),{args[1]}"
+                    lines[i] = change_instruction(f"move.w\t{arg}",lines,i,False)
+
+
+    new_lines = []
+    for i,org_line in enumerate(lines):
+        line = remcomments(org_line)  # remove comments
+        toks = line.split()
+        if "GET_ADDRESS" in toks or "GET_UNCHECKED_ADDRESS" in toks:
+            value = toks[1]
+            if prev_loaded == value and i-prev_line < 6:
+                print(f"Prev loaded: {prev_loaded} line {i+1} loaded at line {prev_line+1}")
+                org_line = re.sub(".*\|","\t|",org_line)
+                nb += 1
+            prev_line = i
+            prev_loaded = value
+        if any(x in toks for x in breaking_instructions) or any(x.startswith("GET_") for x in toks):
+            prev_loaded = None
+        if re.match("\w+:",line):
+            prev_loaded = None
+
+
+        new_lines.append(org_line)
+
+    #GET_REG_ADDRESS    0x4,d3
+    prev_lineno = -1
+    prev_toks = []
+
+    new_lines2 = []
+    for i,org_line in enumerate(new_lines):
+        line = remcomments(org_line)  # remove comments
+        toks = line.split()
+        if toks and toks[0] == "GET_REG_ADDRESS":
+            if prev_toks == toks:
+                # 2 same GET_REG_ADDRESS. Check register
+                reg = toks[1].split(",")[1]
+                # now check if register is referenced between the lines
+                reg_re = re.compile(fr"\b{reg}\b")
+                label_found = False
+                for j in range(prev_lineno+1,i):
+                    if reg_re.search(lines[j]):
+                        break
+                    toks2 = lines[j].split()
+                    if any(x in toks2 for x in breaking_instructions) or any(x.startswith("GET_") for x in toks2):
+                        label_found = True
+                    if re.match("\w+:",lines[j]):
+                        label_found = True
+                else:
+                    if not label_found:
+                        nb += 1
+                        if verbose:
+                            print(f"Prev loaded: {toks}: line {i+1} (loaded at line {prev_lineno+1})")
+                        org_line = re.sub(".*\|","\t|",org_line)
+            prev_lineno = i
+            prev_toks = toks
+
+        new_lines2.append(org_line)
+
+    if verbose:
+        if nb:
+            print(f"found {nb} GET_ADDRESS useless occs")
+        else:
+            print("Nothing found")
+
+    return new_lines2
+
+tool_version = "1.7"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -71,6 +178,7 @@ parser.add_argument("-n","--no-mame-prefixes",help="treat as real source, not MA
 parser.add_argument("-l","--label-prefix",help="useful with multiple banks. default 'l_'", default='l_')
 parser.add_argument("-c","--code-output",help="68000 source code output file",required=True)
 parser.add_argument("-d","--data-output",help="data output file")
+parser.add_argument("-O","--optimize",help="remove redundant address loads",action="store_true")
 parser.add_argument("-I","--include-output",help="include output file",required=True)
 parser.add_argument("input_file")
 
@@ -1182,6 +1290,7 @@ def f_cmpy(args,comment):
     return generic_cmp(args,'y',comment,word=True)
 
 def f_exg(args,comment):
+    must_make_a = False
     for i,arg in enumerate(args):
         if arg=='d':
             args[i] = registers['b']
@@ -1592,6 +1701,8 @@ for i,line in enumerate(nout_lines):
         prev_fp = fp
 
 
+
+
 # post-processing
 grouping = True
 if grouping:
@@ -1628,7 +1739,26 @@ if grouping:
         prev_toks = toks
         last_line = i
 
+# specific test for abcd/add/sub sandwich. In ALL games there's a scoring problem because of the way
+# the converter post/pre in/decrements registers without systematically pushing/poping SR (because it generally
+# isn't useful and wastes cycles). Detect it here
 
+prev_carry_altering_inst = False
+
+nout_lines = "\n".join(nout_lines).splitlines()
+
+for i,line in enumerate(nout_lines):
+    toks = line.split()
+    if toks:
+        inst = toks[0]
+        if inst in ["CLR_XC_FLAGS","SET_XC_FLAGS"] or inst in breaking_instructions:
+            # carry won't propagate
+            prev_carry_altering_inst = False
+        elif inst in ["subq.w","addq.w"]:
+            prev_carry_altering_inst = True
+        elif inst in ["abcd","sbcd","addx.b","subx.b"] and prev_carry_altering_inst:
+            nout_lines[i] = f'\t{error} "subq/addq + abcd/sbcd/subx/addx mix"\n'+nout_lines[i]
+            prev_carry_altering_inst = False
 
 # the generator assumed that rol, ror... a lot of operations can work directly on non-data registers
 # for simplicity's sake, now we post-process the generator to insert read to reg/op with reg/write to mem
@@ -2347,6 +2477,12 @@ if cli_args.no_review:
     nout_lines = [line for line in buffer.splitlines(True) if "{error}" not in line]
 else:
     nout_lines = [line for line in buffer.splitlines(True)]
+
+
+if cli_args.output_mode and cli_args.optimize:
+    # can optimize
+    print("Optimization phase")
+    nout_lines = optimize(nout_lines)
 
 with open(cli_args.code_output,"w") as f:
     f.writelines(nout_lines)
