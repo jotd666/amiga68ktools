@@ -164,7 +164,7 @@ def optimize(lines,verbose=False):
 
     return new_lines2
 
-tool_version = "1.7"
+tool_version = "1.8"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -639,13 +639,13 @@ def f_pshs(args,comment):
     move_params,inst,_,dp_handled,_,_,cc_move= decode_movem(args)
     rval = ""
     if cc_move:
-        rval += f"\tPUSH_SR{comment}"
+        rval += f"\tPUSH_SR{comment}\n"
     if move_params:
-        rval += f"\n\t{inst}.l\t{move_params},-(sp){comment}"
-    else:
-        rval += "\n"
+        rval += f"\t{inst}.l\t{move_params},-(sp){comment}\n"
+
     if dp_handled:
-        rval += f"\tmove.l\t{registers['dp_base']},-(sp)"   # save DP
+        rval += f"\tmove.l\t{registers['dp_base']},-(sp){comment}\n"   # save DP
+
     return rval
 
 def f_puls(args,comment):
@@ -1068,8 +1068,12 @@ def generic_indexed_to(inst,src,args,comment,word=False):
     elif arg[0] == '[':
         index_reg = args[1]
         offset = arg.strip("[,]") or "0"
+        if offset in inv_registers:
+            macro = "GET_REG_REG_INDIRECT_ADDRESS"
+        else:
+            macro = "GET_REG_INDIRECT_ADDRESS"
         # 2 arguments: process if first is empty: ex STD [,X] or not STD [2,X]
-        return f"""\tGET_REG_INDIRECT_ADDRESS\t{offset},{index_reg.strip(',]')}{comment}
+        return f"""\t{macro}\t{offset},{index_reg.strip(',]')}{comment}
 \t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}"""
 
 
@@ -1641,6 +1645,7 @@ setxcflags_inst = ["SET_XC_FLAGS"]
 
 # sub/add aren't included as they're the translation of dec/inc which don't affect C
 # those are 68000 instructions (used in post-processing)
+
 carry_generating_instructions = {"add","sub","cmp","CMP_W_TO_REG","ADD_W_TO_REG","SUB_W_TO_REG","lsr","lsl","asl","asr","roxr","roxl","subx","addx","abcd","CLR_XC_FLAGS","SET_XC_FLAGS"}
 conditional_branch_instructions = {"bpl","bmi","bls","bne","beq","bhi","blo","bcc","bcs","blt","ble","bge","bgt"}
 conditional_branch_instructions.update({f"j{x[1:]}" for x in conditional_branch_instructions})
@@ -1751,10 +1756,12 @@ for i,line in enumerate(nout_lines):
     toks = line.split()
     if toks:
         inst = toks[0]
-        if inst in ["CLR_XC_FLAGS","SET_XC_FLAGS"] or inst in breaking_instructions:
-            # carry won't propagate
+        if inst in ["CLR_XC_FLAGS","SET_XC_FLAGS","add.w","sub.w","add.b","sub.b"] or inst in breaking_instructions:
+            # carry won't propagate / is under control by original game code
             prev_carry_altering_inst = False
         elif inst in ["subq.w","addq.w"]:
+            # conversion added increments/decrements which affect X
+            # doesn't usually matter except when using carry-based add/subs or BCD'
             prev_carry_altering_inst = True
         elif inst in ["abcd","sbcd","addx.b","subx.b"] and prev_carry_altering_inst:
             nout_lines[i] = f'\t{error} "subq/addq + abcd/sbcd/subx/addx mix"\n'+nout_lines[i]
