@@ -1689,16 +1689,11 @@ for i,line in enumerate(nout_lines):
                 elif prev_fp[0] == "cmp.b":
                     nout_lines[i] += issue_warning("stray cmp (check caller)",newline=True)
 
-        elif finst == "addx.b":
-            if prev_fp == clrxcflags_inst:
-                # clc+adc => add (way simpler & faster)
-                nout_lines[i-1] = nout_lines[i-1].replace(clrxcflags_inst[0],"")
-                nout_lines[i] = nout_lines[i].replace("addx.b","add.b")
-        elif finst == "subx.b":
-            if prev_fp == setxcflags_inst:
-                # clc+adc => add (way simpler & faster)
-                nout_lines[i-1] = nout_lines[i-1].replace(setxcflags_inst[0],"")
-                nout_lines[i] = nout_lines[i].replace("subx.b","sub.b")
+        elif finst in ["addx.b","subx.b","abcd","sbcd"]:
+            if fp[1][0]=="#":
+                # can't have immediate mode for those, use a work register to make it legal
+                src=fp[1].split(",")[0]
+                nout_lines[i] = f"\tmove.b\t{src},{registers['dwork1']} {continuation_comment}\n"+nout_lines[i].replace(src,registers['dwork1'])
         elif finst not in conditional_branch_instructions and finst != "PUSH_SR" and prev_fp and prev_fp[0] == "cmp.b":
                 nout_lines[i] = issue_warning("review stray cmp (insert SET_X_FROM_CLEARED_C)",newline=True)+nout_lines[i]
 
@@ -1756,7 +1751,7 @@ for i,line in enumerate(nout_lines):
     toks = line.split()
     if toks:
         inst = toks[0]
-        if inst in ["CLR_XC_FLAGS","SET_XC_FLAGS","add.w","sub.w","add.b","sub.b"] or inst in breaking_instructions:
+        if inst in ["CLR_XC_FLAGS","SET_XC_FLAGS","add.w","sub.w","add.b","sub.b","asl.b","lsr.b","asr.b","lsl.b"] or inst in breaking_instructions:
             # carry won't propagate / is under control by original game code
             prev_carry_altering_inst = False
         elif inst in ["subq.w","addq.w"]:
