@@ -77,7 +77,6 @@ def change_instruction(code,lines,i,continuing_lines=True):
         return f" {out_comment} ".join(toks)
     return line
 
-breaking_instructions = {"rts","jmp","bra","jra","JSR_B_INDEXED","JSR_A_INDEXED","jbsr"}
 
 def optimize(lines,verbose=False):
     nb = 0
@@ -212,6 +211,7 @@ if cli_args.output_mode == "mit":
     out_word_decl = ".word"
     out_long_decl = ".long"
     jsr_instruction = "jbsr"
+    jmp_instruction = "jra"
     branch_prefix = "j"
 else:
     out_comment = ";"
@@ -220,7 +220,10 @@ else:
     out_byte_decl = "dc.b"
     out_long_decl = "dc.l"
     jsr_instruction = "jsr"
+    jmp_instruction = "jmp"
     branch_prefix = "b"
+
+breaking_instructions = {"rts",jmp_instruction,"bra","JSR_B_INDEXED","JSR_A_INDEXED",jsr_instruction}
 
 continuation_comment = f"{out_comment} [...]"
 MAKE_D_PREFIX = f"\tMAKE_D\t{continuation_comment}\n"
@@ -1232,7 +1235,7 @@ def f_jmp(args,comment):
         # had to convert the address, keep original to reference it
         target_address = args[0]
 
-    out = f"\tjmp\t{label}{comment}"
+    out = f"\t{jmp_instruction}\t{label}{comment}"
 
     if target_address is not None:
         # note down that we have to insert a label here
@@ -1500,6 +1503,11 @@ for i,(l,is_inst,address) in enumerate(lines):
                     out = f"\n"+unsupported_instruction(inst,args,comment)
     else:
         out=address_re.sub(rf"{lab_prefix}\1:",l)
+        # convert in comments by out comments in label comments (was unsupported)
+        if ":" in out and in_comment in out:
+            toks = out.split(in_comment)
+            out = out_comment.join(toks)
+
         if not re.search(r"\bdc.[bwl]",out,flags=re.I) and not out.strip().startswith((out_start_line_comment,out_comment)):
             # convert tables like xx yy aa bb with .byte
             out = re.sub(r"\s+([0-9A-F][0-9A-F])\b",r",{}\1".format(out_hex_sign),out,flags=re.I)
