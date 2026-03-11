@@ -53,7 +53,7 @@
 # but should not. In Ghosts'n'Goblins conversion, we set D5 to 0x4000, as area below it is mapped on host
 # but not on target. That will avoid that game is interrupted in non-6809 code with a completely irrelevant D5 value
 
-import re,itertools,os,collections,glob,io
+import re,itertools,os,collections,glob,io,pathlib,sys
 import argparse
 #import simpleeval # get it on pypi (pip install simpleeval)
 
@@ -176,7 +176,7 @@ parser.add_argument("-s","--spaces",help="replace tabs by x spaces",type=int)
 parser.add_argument("-n","--no-mame-prefixes",help="treat as real source, not MAME disassembly",action="store_true")
 parser.add_argument("-l","--label-prefix",help="useful with multiple banks. default 'l_'", default='l_')
 parser.add_argument("-c","--code-output",help="68000 source code output file",required=True)
-parser.add_argument("-d","--data-output",help="data output file")
+parser.add_argument("-d","--date-check",help="convert only if input file is more recent than output",action="store_true")
 parser.add_argument("-O","--optimize",help="remove redundant address loads",action="store_true")
 parser.add_argument("-I","--include-output",help="include output file",required=True)
 parser.add_argument("input_file")
@@ -191,8 +191,19 @@ lab_prefix = cli_args.label_prefix
 
 no_mame_prefixes = cli_args.no_mame_prefixes
 
-if os.path.abspath(cli_args.input_file) == os.path.abspath(cli_args.code_output):
+cli_args.input_file = pathlib.Path(cli_args.input_file)
+cli_args.code_output = pathlib.Path(cli_args.code_output)
+
+if cli_args.input_file.absolute() == cli_args.code_output.absolute():
     raise Exception("Define an output file which isn't the input file")
+
+if cli_args.date_check:
+    try:
+        if cli_args.input_file.stat().st_mtime < cli_args.code_output.stat().st_mtime:
+            print(f"{cli_args.code_output} is newer than {cli_args.input_file}, ignore")
+            sys.exit(0)
+    except OSError:
+        pass
 
 if cli_args.input_mode == "mit":
     in_comment = "|"
@@ -287,7 +298,7 @@ addresses_to_reference = set()
 
 address_lines = {}
 lines = []
-input_files = glob.glob(cli_args.input_file)
+input_files = glob.glob(str(cli_args.input_file))
 if not input_files:
     raise Exception(f"{cli_args.input_file}: no match")
 
@@ -2274,17 +2285,17 @@ if True:
 \t.endm
 
 * optimized DP operations
-.macro OP_1_ON_DP_ADDRESS    inst,offset
+\t.macro OP_1_ON_DP_ADDRESS    inst,offset
 \t\\inst\\().b    ({DP},\\offset\\().W)
-.endm
+\t.endm
 
-.macro OP_R_ON_DP_ADDRESS    inst,offset,reg
+\t.macro OP_R_ON_DP_ADDRESS    inst,offset,reg
 \t\\inst\\().b    ({DP},\\offset\\().W),\\reg
-.endm
+\t.endm
 
-.macro OP_W_ON_DP_ADDRESS    inst,offset,reg
+\t.macro OP_W_ON_DP_ADDRESS    inst,offset,reg
 \t\\inst\\().b    \\reg,({DP},\\offset\\().W)
-.endm
+\t.endm
 
 \t.macro\tSTORE_DP_IN_MEMORY
 \tmove.l\t{registers['dp_base']},m6809_direct_page_pointer

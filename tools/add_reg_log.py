@@ -17,6 +17,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-s","--start-address",required=True)
 parser.add_argument("-e","--end-address",required=True)
 parser.add_argument("-p","--period",required=True,type=int)
+parser.add_argument("-b","--bank-number",type=int)
 parser.add_argument("-c","--capture-start-address")
 parser.add_argument("asm_file")
 
@@ -47,7 +48,10 @@ with open(args.asm_file) as f:
                 if counter == args.period:
                     counter = 0
                     # time to insert a log regs
-                    line = f"\tLOG_REGS\t{address:x}   | added by add_reg_log.py\n"+line
+                    bank_arg = "" if args.bank_number is None else f",{args.bank_number}"
+
+                    line = f"\tLOG_REGS\t{address:x}{bank_arg}   | added by add_reg_log.py\n"+line
+
                 # avoid logging "inside" a complex instruction with repeated PC
                 prev_address = address
         lines.append(line)
