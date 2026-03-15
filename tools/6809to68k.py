@@ -163,7 +163,7 @@ def optimize(lines,verbose=False):
 
     return new_lines2
 
-tool_version = "1.8"
+tool_version = "1.9"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -422,14 +422,19 @@ single_instructions = {"nop":"nop",
 "rola":f"roxl.b\t#1,{registers['a']}",
 "rorb":f"roxr.b\t#1,{registers['b']}",
 "rolb":f"roxl.b\t#1,{registers['b']}",
+# better performance using .w
 "psha":f"move.w\t{registers['a']},-(sp)",
 "pshb":f"move.w\t{registers['b']},-(sp)",
 "pshx":f"move.w\t{registers['x']},-(sp)",
 "pshy":f"move.w\t{registers['y']},-(sp)",
-"pula":f"movem.w\t(sp)+,{registers['a']}",
-"pulb":f"movem.w\t(sp)+,{registers['b']}",
-"pulx":f"movem.w\t(sp)+,{registers['x']}",
-"puly":f"movem.w\t(sp)+,{registers['y']}",
+# used to be movem.w not performant, and sign
+# extend issue which is super annoying
+# replace by movem
+# by post processing if there's a CC flags issue
+"pula":f"move.w\t(sp)+,{registers['a']}",
+"pulb":f"move.w\t(sp)+,{registers['b']}",
+"pulx":f"move.w\t(sp)+,{registers['x']}",
+"puly":f"move.w\t(sp)+,{registers['y']}",
 
 
 "clv":f"CLR_V_FLAG",
@@ -1703,7 +1708,7 @@ for i,line in enumerate(nout_lines):
         elif finst == "rts":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
-                if prev_fp == ["movem.l","d0,-(sp)"]:
+                if prev_fp[0] == "movem.l" and "-(sp)" in prev_fp[1]:
                     nout_lines[i] += issue_warning("push to stack+return",newline=True)
                 elif prev_fp[0] == "cmp.b":
                     nout_lines[i] += issue_warning("stray cmp (check caller)",newline=True)
