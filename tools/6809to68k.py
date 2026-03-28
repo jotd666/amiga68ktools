@@ -2286,6 +2286,9 @@ if True:
 
 
 \t.macro GET_DP_ADDRESS\toffset
+\t.if\t\\offset>0xFF
+\t.error\t"offset \\offset > 0xFF"
+\t.endif
 \tlea\t({DP},\\offset\\().W),{AW}
 \t.endm
 
