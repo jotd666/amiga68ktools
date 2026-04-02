@@ -831,6 +831,7 @@ def generic_lea(dest,args,comment):
 
         if args[0] == 'd':
             args[0] = registers['b']
+            rval += "\tMAKE_D\n"
 
         rval += f"\tGET_INDIRECT_ADDRESS_REGS\t{args[0]},{args[1]},{registers[dest]}{comment}"
         return rval
@@ -1674,6 +1675,7 @@ carry_generating_instructions = {"add","sub","cmp","CMP_W_TO_REG","ADD_W_TO_REG"
 conditional_branch_instructions = {"bpl","bmi","bls","bne","beq","bhi","blo","bcc","bcs","blt","ble","bge","bgt"}
 conditional_branch_instructions.update({f"j{x[1:]}" for x in conditional_branch_instructions})
 routine_call_instructions = {"bsr","jbsr","jsr"}
+cmp_instructions = ["cmp.b","CMP_W_TO_REG"]
 
 for i,line in enumerate(nout_lines):
     line = line.rstrip()
@@ -1710,7 +1712,7 @@ for i,line in enumerate(nout_lines):
             if prev_fp:
                 if prev_fp[0] == "movem.l" and "-(sp)" in prev_fp[1]:
                     nout_lines[i] += issue_warning("push to stack+return",newline=True)
-                elif prev_fp[0] == "cmp.b":
+                elif prev_fp[0] in cmp_instructions:
                     nout_lines[i] += issue_warning("stray cmp (check caller)",newline=True)
 
         elif finst in ["addx.b","subx.b","abcd","sbcd"]:
@@ -1718,7 +1720,7 @@ for i,line in enumerate(nout_lines):
                 # can't have immediate mode for those, use a work register to make it legal
                 src=fp[1].split(",")[0]
                 nout_lines[i] = f"\tmove.b\t{src},{registers['dwork1']} {continuation_comment}\n"+nout_lines[i].replace(src,registers['dwork1'])
-        elif finst not in conditional_branch_instructions and finst != "PUSH_SR" and prev_fp and prev_fp[0] == "cmp.b":
+        elif finst not in conditional_branch_instructions and finst != "PUSH_SR" and prev_fp and prev_fp[0] in cmp_instructions:
                 nout_lines[i] = issue_warning("review stray cmp (insert SET_X_FROM_CLEARED_C)",newline=True)+nout_lines[i]
 
 

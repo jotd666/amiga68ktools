@@ -19,6 +19,7 @@ parser.add_argument("-e","--end-address",required=True)
 parser.add_argument("-p","--period",required=True,type=int)
 parser.add_argument("-b","--bank-number",type=int)
 parser.add_argument("-c","--capture-start-address")
+parser.add_argument("-C","--capture-end-address")
 parser.add_argument("asm_file")
 
 
@@ -30,6 +31,10 @@ if args.capture_start_address is not None:
     capture_start_address = int(args.capture_start_address,16)
 else:
     capture_start_address = -1
+if args.capture_end_address is not None:
+    capture_end_address = int(args.capture_end_address,16)
+else:
+    capture_end_address = -1
 
 counter = 0
 prev_address = 0
@@ -42,6 +47,8 @@ with open(args.asm_file) as f:
             address = int(m.group(1),16)
             if address == capture_start_address:
                 line = f"\tENABLE_LOG_REGS   | added by add_reg_log.py\n"+line
+            elif address == capture_end_address:
+                line = f"\tDISABLE_LOG_REGS   | added by add_reg_log.py\n"+line
 
             if start_address <= address <= end_address and address != prev_address:
                 counter += 1
