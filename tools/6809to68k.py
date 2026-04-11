@@ -515,6 +515,10 @@ def f_asl(args,comment):
 ##def f_lsr(args,comment):
 ##    return generic_indexed_to("lsr","",args,comment)
 
+def register_order(r):
+    rd = {'d0':1,'d1':2,'d2':3,'d3':4,'d4':5}
+    return rd[r]
+
 def decode_movem(args,save_d_alone=False):
     return_afterwards = False
     cc_move = False
@@ -538,7 +542,9 @@ def decode_movem(args,save_d_alone=False):
     if "cc" in toks:
         toks.discard("cc")
         cc_move = True
-    return "/".join(sorted(toks)),"movem" if len(toks)>1 else "move",return_afterwards,dp_handled,must_make_d,must_make_a,cc_move
+
+    toks = sorted(toks,key=register_order)
+    return "/".join(toks),"movem" if len(toks)>1 else "move",return_afterwards,dp_handled,must_make_d,must_make_a,cc_move
 
 
 
@@ -557,7 +563,8 @@ def decode_movem(args,save_d_alone=False):
 def f_pshu(args,comment):
     move_params,_,_,dp_handled,must_make_d,_,cc_move= decode_movem(args,save_d_alone=True)
     # move_params joined is OK for pshs but for pshu we need to decompose
-    pushed = move_params.split("/")
+    # also reverse order for push
+    pushed = move_params.split("/")[::-1]
 
     reg = registers['u']
     awork = registers['awork1']
@@ -605,7 +612,7 @@ def f_pulu(args,comment):
     # move_params joined is OK for pshs but for pshu we need to decompose
     # move_params is the sorted list
     # we must invert the order vs pushu as we perform multiple unitary pushes
-    pulled = move_params.split("/")[::-1]
+    pulled = move_params.split("/")
 
     # load U register in work address register
     rval = f"\tGET_REG_ADDRESS\t0,{reg}{comment}\n\tsub.l\t{awork},{reg}\n"
