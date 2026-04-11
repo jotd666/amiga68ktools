@@ -603,7 +603,9 @@ def f_pulu(args,comment):
     reg = registers['u']
     awork = registers['awork1']
     # move_params joined is OK for pshs but for pshu we need to decompose
-    pulled = move_params.split("/")
+    # move_params is the sorted list
+    # we must invert the order vs pushu as we perform multiple unitary pushes
+    pulled = move_params.split("/")[::-1]
 
     # load U register in work address register
     rval = f"\tGET_REG_ADDRESS\t0,{reg}{comment}\n\tsub.l\t{awork},{reg}\n"
@@ -2307,8 +2309,12 @@ if True:
 \t\\inst\\().b    \\reg,({DP},\\offset\\().W)
 \t.endm
 
+* you can remove PUSH/POP if you don't need them, but on
+* Double Dragon, the move corrupted CC and it led to nasty bugs
 \t.macro\tSTORE_DP_IN_MEMORY
+\tPUSH_SR
 \tmove.l\t{registers['dp_base']},m6809_direct_page_pointer
+\tPOP_SR
 \t.endm
 
 \t.macro SET_DP_FROM_A
