@@ -517,6 +517,7 @@ def f_asl(args,comment):
 
 def register_order(r):
     rd = {'d0':1,'d1':2,'d2':3,'d3':4,'d4':5}
+    rd.update({k.upper():v for k,v in rd.items()})
     return rd[r]
 
 def decode_movem(args,save_d_alone=False):
@@ -1332,8 +1333,11 @@ def f_exg(args,comment):
 
     arg0 = args[0]
     arg1 = args[1]
+    out = ""
 
-    out = f"\texg\t{arg0},{arg1}{comment}\n"
+    if must_make_a:
+        out += "\tMAKE_D\n"
+    out += f"\texg\t{arg0},{arg1}{comment}\n"
     if must_make_a:
         out += "\tMAKE_A\n"
     return out
