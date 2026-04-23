@@ -1845,13 +1845,24 @@ for line in nout_lines:
 nout_lines = []
 # ultimate passes to process POP+PUSH
 # remove PUSH following POP
+# and trickier remove PUSH_SR / POP_SR block if following
+# instruction is not a conditional branch or rts (rts: we don't know how the cc will be used)
 prev_line = ""
 last_get_address = None
 last_dir = None
+push_sr_in_block = False
 
 for line in nout_lines_2:
+    if label_re.match(line):
+        push_sr_in_block = False
+
     toks = line.split()
     if toks:
+        if toks[0] == "PUSH_SR":
+            if "POP_SR" in prev_line:
+                nout_lines.pop()
+                continue
+            push_sr_in_block = True
         if toks[0] in ("GET_ADDRESS",):   # do NOT put GET_DP_ADDRESS in list as last optimizer pass needs it
             if last_get_address == toks[1] and last_dir == toks[0]:
                 line = remove_instruction(line)
@@ -1863,13 +1874,10 @@ for line in nout_lines_2:
         if toks[0] == "nop":
             line = remove_instruction(line)
 
-    if "POP_SR" in prev_line and "PUSH_SR" in line:
-        # remove both
-        nout_lines.pop()
-        continue
-    if "LOAD_D" in prev_line and "MAKE_D" in line:
-        # remove MAKE_D
-        continue
+
+        if "LOAD_D" in prev_line and toks[0]=="MAKE_D":
+            # remove MAKE_D
+            continue
 
     # if move.w in line and (ax) replace move.w by cpu-dependent macro
     if "move.w" in line and f"({AW})" in line:
