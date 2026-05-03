@@ -2157,19 +2157,13 @@ if True:
 
 * 68020 compliant & optimized
 
-\t.macro    JXX_A_INDEXED    inst,reg,nb_cases
-\tmoveq\t#0,{DW}
-\tmove.b\t{A},{DW}  | mask 8 bits
-\tCHECK_MAX    {DW},\\nb_cases
-\t\\inst    ([\\reg,{DW}.W*2])
-\t.endm
+    .macro    JXX_X_INDEXED    inst,reg,nb_cases,ab
+    moveq    #0,{DW}
+    move.b    \\ab,{DW}  | mask 8 bits
+    CHECK_MAX    {DW},\\nb_cases
+    \\inst    ([\\reg,{DW}.W*2])
+    .endm
 
-\t.macro    JXX_B_INDEXED    inst,reg,nb_cases
-\tmoveq\t#0,{DW}
-\tmove.b\t{B},{DW}  | mask 8 bits
-\tCHECK_MAX    {DW},\\nb_cases
-\t\\inst    ([\\reg,{DW}.W*2])
-\t.endm
 
 \t.macro DO_EXTB\treg
 \textb.l\t\\reg
@@ -2179,21 +2173,8 @@ if True:
 \tmove.w\tccr,-(sp)
 \t.endm
 
-
-\t.macro\tMOVE_W_TO_REG\tsrc,dest
-\tmove.w\t(\\src),\\dest
-\t.endm
-
-\t.macro    CMP_W_TO_REG    src,dest
-\tcmp.w    (\\src),\\dest
-\t.endm
-
-\t.macro    ADD_W_TO_REG    src,dest
-\tadd.w    (\src),\dest
-\t.endm
-
-\t.macro    SUB_W_TO_REG    src,dest
-\tsub.w    (\src),\dest
+\t.macro    INST_W_TO_REG    inst,src,dest
+\t\\inst\\().w    (\\src),\\dest
 \t.endm
 
 
@@ -2223,13 +2204,6 @@ if True:
     \inst    (\\reg)
     .endm
 
-    .macro    JXX_A_INDEXED    inst,reg,nb_cases
-    JXX_X_INDEXED    \\inst,\\reg,\\nb_cases,{A}
-    .endm
-
-    .macro    JXX_B_INDEXED    inst,reg,nb_cases
-    JXX_X_INDEXED    \\inst,\\reg,\\nb_cases,{B}
-    .endm
 
 
 \t.macro DO_EXTB\treg
@@ -2241,38 +2215,23 @@ if True:
 \tmove.w\tsr,-(sp)
 \t.endm
 
-\t.macro\tMOVE_W_TO_REG    src,dest
-\tror.w\t#8,\\dest
-\tmove.b\t(\\src),\\dest
-\tror.w\t#8,\\dest
-\tmove.b\t(1,\\src),\\dest
-\t.endm
+
 
 \t.macro\tMOVE_W_FROM_REG    src,dest
 \tror.w\t#8,\\src
 \tmove.b\t\\src,(\\dest)
 \tror.w\t#8,\\src
 \tmove.b\t\\src,(1,\\dest)
+\ttst.w\t\\src
 \t.endm
 
     .macro    INST_W_TO_REG    inst,src,dest
     move.b    (\\src),{DW}
     ror.w    #8,{DW}
     move.b    (1,\\src),{DW}
-    \\inst\().w    {DW},\\dest
+    \\inst\\().w    {DW},\\dest
     .endm
 
-    .macro    SUB_W_TO_REG    src,dest
-    INST_W_TO_REG   sub,\\src,\\dest
-    .endm
-
-    .macro    ADD_W_TO_REG    src,dest
-    INST_W_TO_REG   add,\\src,\\dest
-    .endm
-
-    .macro    CMP_W_TO_REG    src,dest
-    INST_W_TO_REG   cmp,\\src,\\dest
-    .endm
 
 
 \t.macro READ_BE_WORD\tsrcreg
@@ -2289,6 +2248,30 @@ if True:
 \t.macro POP_SR
 \tmove.w\t(sp)+,ccr
 \t.endm
+
+    .macro    MOVE_W_TO_REG    src,dest
+    INST_W_TO_REG   move,\\src,\\dest
+    .endm
+
+    .macro    SUB_W_TO_REG    src,dest
+    INST_W_TO_REG   sub,\\src,\\dest
+    .endm
+
+    .macro    ADD_W_TO_REG    src,dest
+    INST_W_TO_REG   add,\\src,\\dest
+    .endm
+
+    .macro    CMP_W_TO_REG    src,dest
+    INST_W_TO_REG   cmp,\\src,\\dest
+    .endm
+
+    .macro    JXX_A_INDEXED    inst,reg,nb_cases
+    JXX_X_INDEXED    \\inst,\\reg,\\nb_cases,{A}
+    .endm
+
+    .macro    JXX_B_INDEXED    inst,reg,nb_cases
+    JXX_X_INDEXED    \\inst,\\reg,\\nb_cases,{B}
+    .endm
 
     .macro    JSR_A_INDEXED    reg
     JXX_A_INDEXED\tjsr,\\reg
