@@ -200,7 +200,9 @@ for i,line in enumerate(lines):
         m = local_label_re.match(line)
         if m:
             # note down the line
-            local_labels[current_label][m.group(1)] = i
+            local_labels[m.group(1)]["line"] = i
+
+
 
 label_list = sorted(local_labels.items(),key=lambda c:c[1]["line"])
 label_list.append(("",{'line':len(lines)}))   # last fake label

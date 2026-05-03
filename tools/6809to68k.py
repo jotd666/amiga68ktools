@@ -2158,15 +2158,17 @@ if True:
 * 68020 compliant & optimized
 
 \t.macro    JXX_A_INDEXED    inst,reg,nb_cases
-\tand.w    #0xFF,{A}  | mask 8 bits
-\tCHECK_MAX    {A},\\nb_cases
-\t\\inst    ([\\reg,{A}.W*2])
+\tmoveq\t#0,{DW}
+\tmove.b\t{A},{DW}  | mask 8 bits
+\tCHECK_MAX    {DW},\\nb_cases
+\t\\inst    ([\\reg,{DW}.W*2])
 \t.endm
 
 \t.macro    JXX_B_INDEXED    inst,reg,nb_cases
-\tand.w    #0xFF,{B}  | mask 8 bits
-\tCHECK_MAX    {B},\\nb_cases
-\t\\inst    ([\\reg,{B}.W*2])
+\tmoveq\t#0,{DW}
+\tmove.b\t{B},{DW}  | mask 8 bits
+\tCHECK_MAX    {DW},\\nb_cases
+\t\\inst    ([\\reg,{DW}.W*2])
 \t.endm
 
 \t.macro DO_EXTB\treg
@@ -2211,21 +2213,24 @@ if True:
 
 * 68000 compliant
 
+   .macro    JXX_X_INDEXED    inst,reg,nb_cases,ab
+    moveq    #0,{DW}   | scratch register
+    move.b   \\ab,{DW}  | mask 8 bits
+    CHECK_MAX    {DW},\\nb_cases
+    * original register is not changed (could cause issues)
+    add.w    d6,d6    | *2 (16 -> 32 bits)
+    move.l    (\\reg,{DW}.w),\\reg
+    \inst    (\\reg)
+    .endm
+
     .macro    JXX_A_INDEXED    inst,reg,nb_cases
-    and.w    #0xFF,{A}  | mask 8 bits
-    CHECK_MAX   {A},\\nb_cases
-    add.w    {A},{A}    | *2 (16 -> 32 bits)
-    move.l    (\\reg,{A}.w),\\reg
-    \\inst    (\\reg)
+    JXX_X_INDEXED    \\inst,\\reg,\\nb_cases,{A}
     .endm
 
     .macro    JXX_B_INDEXED    inst,reg,nb_cases
-    and.w    #0xFF,{B}  | mask 8 bits
-    CHECK_MAX   {B},\\nb_cases
-    add.w    {B},{B}    | *2 (16 -> 32 bits)
-    move.l    (\\reg,{B}.w),\\reg
-    \\inst    (\\reg)
+    JXX_X_INDEXED    \\inst,\\reg,\\nb_cases,{B}
     .endm
+
 
 \t.macro DO_EXTB\treg
 \text\t\\reg
