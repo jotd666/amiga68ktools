@@ -342,7 +342,7 @@ for input_file in input_files:
                             elif address > prev_address+previous_nb_bytes:
                                 itoks = instruction.split()
                                 fitok = itoks[0]
-                                if fitok in ["RTS","BRA","JMP"] or (fitok=="PULS" and "PC" in itoks[1]):
+                                if fitok in ["RTS","BRA","JMP","LBRA"] or (fitok=="PULS" and "PC" in itoks[1]):
                                     pass
                                 else:
                                     warn(f"instruction discontinuity at ${address:04x}, prev inst at ${prev_address:04x}")
