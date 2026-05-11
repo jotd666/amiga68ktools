@@ -342,7 +342,7 @@ for input_file in input_files:
                             elif address > prev_address+previous_nb_bytes:
                                 itoks = instruction.split()
                                 fitok = itoks[0]
-                                if fitok in ["RTS","BRA","JMP","LBRA"] or (fitok=="PULS" and "PC" in itoks[1]):
+                                if fitok in ["RTS","BRA","JMP","LBRA","RTI"] or (fitok=="PULS" and "PC" in itoks[1]):
                                     pass
                                 else:
                                     warn(f"instruction discontinuity at ${address:04x}, prev inst at ${prev_address:04x}")
@@ -806,6 +806,12 @@ def generic_lea(dest,args,comment):
     quick = ""
     # add or sub
     first_arg = args[0]
+    if len(args)==2 and args[1]=="pcr":
+        # PC-relative, we don't care, remove
+        dest_68k = registers[dest]
+        rval = f"\tmove.w\t#{args[0]},{dest_68k}"
+        return rval
+
     rval,first_arg = get_substitution_extended_reg(first_arg)     # from now on use work register, only first 8 bits are active
 
     inst = "add"
@@ -2273,17 +2279,17 @@ if True:
     JXX_X_INDEXED    \\inst,\\reg,\\nb_cases,{B}
     .endm
 
-    .macro    JSR_A_INDEXED    reg
-    JXX_A_INDEXED\tjsr,\\reg
+    .macro    JSR_A_INDEXED    reg,nb_cases
+    JXX_A_INDEXED\tjsr,\\reg,\\nb_cases
     .endm
-    .macro    JMP_A_INDEXED    reg
-    JXX_A_INDEXED\tjmp,\\reg
+    .macro    JMP_A_INDEXED    reg,nb_cases
+    JXX_A_INDEXED\tjmp,\\reg,\\nb_cases
     .endm
-    .macro    JSR_B_INDEXED    reg
-    JXX_B_INDEXED\tjsr,\\reg
+    .macro    JSR_B_INDEXED    reg,nb_cases
+    JXX_B_INDEXED\tjsr,\\reg,\\nb_cases
     .endm
-    .macro    JMP_B_INDEXED    reg
-    JXX_B_INDEXED\tjmp,\\reg
+    .macro    JMP_B_INDEXED    reg,nb_cases
+    JXX_B_INDEXED\tjmp,\\reg,\\nb_cases
     .endm
 
 
