@@ -1,5 +1,5 @@
 #
-# 6809 to 680x0 converter by JOTD (c) 2025
+# 6809 to 680x0 converter by JOTD (c) 2025-2026
 #
 # this code has been successfully used to convert the following games
 #
@@ -163,7 +163,7 @@ def optimize(lines,verbose=False):
 
     return new_lines2
 
-tool_version = "1.9"
+tool_version = "1.10"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -809,7 +809,7 @@ def generic_lea(dest,args,comment):
     if len(args)==2 and args[1]=="pcr":
         # PC-relative, we don't care, remove
         dest_68k = registers[dest]
-        rval = f"\tmove.w\t#{args[0]},{dest_68k}"
+        rval = f"\tmove.w\t#{args[0]},{dest_68k}{comment}"
         return rval
 
     rval,first_arg = get_substitution_extended_reg(first_arg)     # from now on use work register, only first 8 bits are active
@@ -1468,14 +1468,15 @@ for i,(l,is_inst,address) in enumerate(lines):
 
 
         # now we can split according to remaining spaces
-        itoks = inst.split(maxsplit=1)
+        itoks = inst.split()
+
         if len(itoks)==1:
             si = single_instructions.get(inst)
             if si:
                 out = f"\t{si}{comment}"
             else:
                 out = unsupported_instruction(inst,"",comment)
-        else:
+        elif len(itoks)==2:
             inst = itoks[0]
             args = itoks[1:]
             sole_arg = args[0].replace(" ","")
@@ -1537,6 +1538,11 @@ for i,(l,is_inst,address) in enumerate(lines):
                     out = l
                 else:
                     out = f"\n"+unsupported_instruction(inst,args,comment)
+        else:
+            # without this, if a spurious token is present after the instruction, the conversion collates it
+            # and it can be incorrect. Lost a few hours because of that in Ghosts'N'Goblins final level bug
+            # $ca34: addd   #$0010  10  => add.w    #0x001010,d1 !!!!
+            raise Exception(f"Problem parsing: {l}: too many whitespace-separated tokens")
     else:
         out=address_re.sub(rf"{lab_prefix}\1:",l)
         # convert in comments by out comments in label comments (was unsupported)
