@@ -161,6 +161,30 @@ def optimize(lines,verbose=False):
         else:
             print("Nothing found")
 
+    # simplify PUSH/MAKE_A/POP/MAKE_D pattern, PUSH/POP are useless in that case
+    for i,org_line in enumerate(new_lines2):
+        line = remcomments(org_line)  # remove comments
+        if "MAKE_D" in line and "MAKE_A" in new_lines2[i-2] and "PUSH_SR" in new_lines2[i-3] and "POP_SR" in new_lines2[i-1]:
+            new_lines2[i-1]= ""
+            new_lines2[i-3]= ""
+
+    # remove empty so previous pass helps next pass
+    new_lines2 = [n for n in new_lines2 if n]
+
+    # remove "MAKE_D" if immediately follows assignation/modification to D
+    move_w_to_d1 = False
+    cd1 = f",{registers['b']}"
+    dc1 = f"{registers['b']},"
+    for i,org_line in enumerate(new_lines2):
+        line = remcomments(org_line)  # remove comments
+        if "MAKE_A" in line:
+            continue   # disregard, has no effect, don't reset move_w_to_d1 flag
+        if "MAKE_D" in line and move_w_to_d1:
+            new_lines2[i] = ""
+        move_w_to_d1 = (cd1 in line and (".w" in line or "TO_REG" in line)) or (dc1 in line and "FROM_REG" in line)
+
+    # remove empty
+    new_lines2 = [n for n in new_lines2 if n]
     return new_lines2
 
 tool_version = "1.10"
@@ -2100,7 +2124,7 @@ if True:
 
 \t.macro\tLOAD_D
 \tmove.b\t({AW}),d0
-\tmove.b\t(1,{AW}),d1
+\tmove.b\t(1,{AW}),{B}
 \tMAKE_D
 \t.endm
 
