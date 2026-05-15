@@ -11,6 +11,7 @@
 # - Ghosts'N'Goblins
 # - Double Dragon
 # - Mappy
+# - Roc'NRope
 
 # you'll have to implement the macro GET_ADDRESS_FUNC to return pointer on memory layout
 # to replace lea/move/... in memory
@@ -750,8 +751,12 @@ def f_ldd(args,comment):
         out += f"\n\tLOAD_D{comment}"
     return out
 
+def f_xnc(args,comment):
+    return generic_indexed_to("XNC","",args,comment)
+
 def f_com(args,comment):
-    return generic_indexed_to("not","",args,comment)
+    rval = generic_indexed_to("not","",args,comment)
+    rval += "\tSET_XC_FLAGS\n"
 def f_neg(args,comment):
     return generic_indexed_to("neg","",args,comment)
 
@@ -1554,7 +1559,8 @@ for i,(l,is_inst,address) in enumerate(lines):
                 #
                 # we have to warn the user systematically when a ",s" is used
                 #
-                if registers['s'] in jargs:
+                stripped_jargs = [j.strip("+-") for j in jargs]
+                if registers['s'] in stripped_jargs:
                     out = f'\t{error}\t"check explicit S usage"\n'+ out
             else:
                 if inst.startswith("."):
@@ -2091,6 +2097,18 @@ if True:
 
 \t.macro\tCHECK_MAX\treg,arg
 \tERROR  "insert check max table function index here"
+\t.endm
+
+* undocumented instruction
+* if C=0 do NEG else do COM
+\t.macro\tXNC\top
+\tjcc\tcclear\\@
+\tnot.b\t\\op
+\tSET_XC_FLAGS
+\tjra\tout\\@
+cclear\\@:
+neg.b\t\\op
+out\\@:
 \t.endm
 
 \t.macro\tCOM\treg
