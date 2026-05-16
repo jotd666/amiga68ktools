@@ -601,7 +601,7 @@ def f_pshu(args,comment):
         rval = MAKE_D_PREFIX
 
     # load U register in work address register, sub address to register
-    rval += f"\tGET_REG_ADDRESS\t0,{reg}{comment}\n\tsub.l\t{awork},{reg}\n"
+    rval += f"\tGET_REG_ADDRESS\t0,{reg}{comment}\n\tsub.l\t{awork},{reg}{continuation_comment}\n"
 
     if cc_move:
         raise Exception("Unsupported pshu with CC")  # TODO later if needed
@@ -615,19 +615,19 @@ def f_pshu(args,comment):
             # the pushes we get the exact frame. As PSHU is used to construct structures, it's
             # really better to respect the push order & size
             if p in short_regs:
-                rval += f"\n\tmove.b\t{p},-({awork}){comment}"
+                rval += f"\n\tmove.b\t{p},-({awork}){continuation_comment}"
             else:
                 # can't use pre-decrement, as post-process will add macro to avoid odd-aligned pushes
-                rval += f"\n\tsubq\t#2,{awork}\n\tmove.w\t{p.lower()},({awork}){comment}"
+                rval += f"\n\tsubq\t#2,{awork}{continuation_comment}\n\tmove.w\t{p.lower()},({awork}){continuation_comment}"
 
     else:
         rval += "\n"
     if dp_handled:
         raise Exception("DP in pshu")  # we'll handle it if needed
-        rval += f"\n\tsubq\t#2,{awork}\n\tmove.w\t{registers['dp_base']},({awork})"   # save DP
+        rval += f"\n\tsubq\t#2,{awork}{continuation_comment}\n\tmove.w\t{registers['dp_base']},({awork}){continuation_comment}"   # save DP
     # update U accordignly by adding new address value to register to reflect displacement
     # of the possibly multiple stores
-    rval += f"\n\tadd.l\t{awork},{reg}\n"
+    rval += f"\n\tadd.l\t{awork},{reg}{continuation_comment}\n"
     # always report pshu instructions
     return f'\t{error}\t"review pshu instruction"\n' + rval
 
@@ -641,11 +641,11 @@ def f_pulu(args,comment):
     pulled = move_params.split("/")
 
     # load U register in work address register
-    rval = f"\tGET_REG_ADDRESS\t0,{reg}{comment}\n\tsub.l\t{awork},{reg}\n"
+    rval = f"\tGET_REG_ADDRESS\t0,{reg}{comment}\n\tsub.l\t{awork},{reg}{continuation_comment}\n"
 
     if dp_handled:
         raise Exception("Unsupported pulu with CC")  # TODO later if needed
-        rval += f"\tmove.W\t({awork})+,{registers['dp_base']}\n\tSTORE_DP_IN_MEMORY\n"   # restore DP
+        rval += f"\tmove.W\t({awork})+,{registers['dp_base']}{continuation_comment}\n\tSTORE_DP_IN_MEMORY{continuation_comment}\n"   # restore DP
 
     if move_params:
         short_regs = [registers['a'],registers['b']]
@@ -656,10 +656,10 @@ def f_pulu(args,comment):
             # the pulls we get the exact frame. As PULU is used to construct structures, it's
             # really better to respect the push order & size
             if p in short_regs:
-                rval += f"\n\tmove.b\t({awork})+,{p}{comment}"
+                rval += f"\n\tmove.b\t({awork})+,{p}{continuation_comment}"
             else:
                 # can't use post-increment, as post-process will add macro to avoid odd-aligned pushes
-                rval += f"\n\tmove.w\t({awork}),{p.lower()}{comment}\n\taddq\t#2,{awork}"
+                rval += f"\n\tmove.w\t({awork}),{p.lower()}{continuation_comment}\n\taddq\t#2,{awork}{continuation_comment}"
 
     if must_make_d:
         # A was just restored: we have to rebuild D
