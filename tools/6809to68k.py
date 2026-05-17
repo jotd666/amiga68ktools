@@ -188,7 +188,7 @@ def optimize(lines,verbose=False):
     new_lines2 = [n for n in new_lines2 if n]
     return new_lines2
 
-tool_version = "1.10"
+tool_version = "1.11"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -1843,6 +1843,27 @@ for i,line in enumerate(nout_lines):
             nout_lines[i] = f'\t{error} "subq/addq + abcd/sbcd/subx/addx mix"\n'+nout_lines[i]
             prev_carry_altering_inst = False
 
+# try to swap if push_sr and move
+prev_inst = None
+
+# remove empty lines ... again
+nout_lines = [line for line in nout_lines if line]
+
+for i,line in enumerate(nout_lines):
+    toks = line.split()
+    if toks:
+        inst = toks[0]
+
+        if inst=="PUSH_SR" and prev_inst == "move.b":
+            # code intention is to save registers but move destroys carry
+            # so code will probably be wrong. Revert lines and warn
+            line += f'\n\t{error} "move + push cc had to be swapped, check that it\'s correct"'
+            nout_lines[i] = nout_lines[i-1]
+            nout_lines[i-1] = line
+
+        prev_inst = inst
+    else:
+        prev_inst = None
 # the generator assumed that rol, ror... a lot of operations can work directly on non-data registers
 # for simplicity's sake, now we post-process the generator to insert read to reg/op with reg/write to mem
 
