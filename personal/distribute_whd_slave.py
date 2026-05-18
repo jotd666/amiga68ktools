@@ -109,7 +109,8 @@ try:
         print("Creating archive, make sure that WinUAE is running and unpaused...")
         if os.path.exists(tmpdir):
             shutil.rmtree(tmpdir)
-        shutil.copytree(usrdir,tmpdir)
+        os.mkdir(tmpdir)
+        shutil.copytree(usrdir,os.path.join(tmpdir,f"{gamename}Install"))
         arcname = gamename+".lha"
         arcfile = os.path.join(temp,arcname)
         if os.path.exists(arcfile):
@@ -121,14 +122,15 @@ try:
         if full_chain_mode:
             pass
         else:
-            shell_name = "amigash"
-            temp_shell = os.path.join(os.getenv("TEMP"),shell_name)
-            with open(temp_shell,"wb") as f:
-                f.write("""cd DOWNLOAD:whdload\nlha a -r "{0}.lha" "{0}Install"\n""".format(gamename).encode())
-            subprocess.check_output(["squirt","localhost",temp_shell])
-            subprocess.check_output(["squirt_exec","localhost","execute","T:"+shell_name])
-            if os.path.exists(arcfile):
-                print("{} created on the amiga side!!".format(arcfile))
+##            shell_name = "amigash"
+##            temp_shell = os.path.join(os.getenv("TEMP"),shell_name)
+##            with open(temp_shell,"wb") as f:
+##                f.write("""cd DOWNLOAD:whdload\nlha a -r "{0}.lha" "{0}Install"\n""".format(gamename).encode())
+##            subprocess.check_output(["squirt","localhost",temp_shell])
+##            subprocess.check_output(["squirt_exec","localhost","execute","T:"+shell_name])
+##            if os.path.exists(arcfile):
+##                print("{} created on the amiga side!!".format(arcfile))
+            subprocess.run(["lha","-r","a",f"{gamename}.lha",f"{gamename}Install/*"],cwd=temp,check=True)
     if send_mail:
         # send by e-mail
 
@@ -178,6 +180,12 @@ try:
 except OSError as e:
     c = colorama.Fore.LIGHTRED_EX
     print("Error: {}{}{}".format(c,e,colorama.Fore.RESET))
+
+# cleanup
+if os.path.exists(tmpdir):
+    shutil.rmtree(tmpdir)
+
+os.startfile(temp)
 
 #print("{}Press a key to exit{}".format(c,colorama.Fore.RESET))
 #input()
