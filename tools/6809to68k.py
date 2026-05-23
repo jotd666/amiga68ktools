@@ -541,7 +541,7 @@ def f_asl(args,comment):
 ##    return generic_indexed_to("lsr","",args,comment)
 
 def register_order(r):
-    rd = {'d0':1,'d1':2,'d2':3,'d3':4,'d4':5}
+    rd = {'d0':1,'d1':2,'d2':3,'d3':4,'d4':5,'d5':6}
     rd.update({k.upper():v for k,v in rd.items()})
     return rd[r]
 
@@ -604,7 +604,6 @@ def f_pshu(args,comment):
     rval += f"\tGET_REG_ADDRESS\t0,{reg}{comment}\n\tsub.l\t{awork},{reg}{continuation_comment}\n"
 
     if cc_move:
-        raise Exception("Unsupported pshu with CC")  # TODO later if needed
         rval += f"\tPUSH_SR{comment}"
     if move_params:
         # short regs match d0 d1 in lowercase. If D is pushed decode_movem will return D1 uppercase
@@ -623,7 +622,6 @@ def f_pshu(args,comment):
     else:
         rval += "\n"
     if dp_handled:
-        raise Exception("DP in pshu")  # we'll handle it if needed
         rval += f"\n\tsubq\t#2,{awork}{continuation_comment}\n\tmove.w\t{registers['dp_base']},({awork}){continuation_comment}"   # save DP
     # update U accordignly by adding new address value to register to reflect displacement
     # of the possibly multiple stores
@@ -644,7 +642,6 @@ def f_pulu(args,comment):
     rval = f"\tGET_REG_ADDRESS\t0,{reg}{comment}\n\tsub.l\t{awork},{reg}{continuation_comment}\n"
 
     if dp_handled:
-        raise Exception("Unsupported pulu with CC")  # TODO later if needed
         rval += f"\tmove.W\t({awork})+,{registers['dp_base']}{continuation_comment}\n\tSTORE_DP_IN_MEMORY{continuation_comment}\n"   # restore DP
 
     if move_params:
@@ -676,7 +673,6 @@ def f_pulu(args,comment):
         else:
             rval += f"\n\tPUSH_SR{continuation_comment}\n{MAKE_A_PREFIX}\tPOP_SR{continuation_comment}"
     if cc_move:
-        raise Exception("Unsupported pulu with CC")  # TODO later if needed
         rval += f"\n\tPOP_SR{comment}"
 
     # update U accordignly by adding new address value to register to reflect displacement
@@ -1271,8 +1267,16 @@ def get_get_address_function(arg):
         value = parse_hex(darg)
     except ValueError:
         # identifier has been renamed: split and get the value
-        value = int(darg.rsplit("_",1)[-1],16)
-
+        suffix = darg.rsplit("_",1)[-1]
+        toks = suffix.split("+")
+        if len(toks)==1:
+            value = int(suffix,16)
+        elif len(toks)==2:
+            # support for simple add
+            offset = int(toks[1])
+            value = int(toks[0],16)+offset
+        else:
+            raise Exception(f"Expression {arg} is too complex")
 
     if arg[0] == ">":
         # not direct mode, forced

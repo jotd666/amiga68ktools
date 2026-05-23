@@ -308,6 +308,7 @@ def palette_to_image(palette,output):
         x += sqs
 
     if output:
+        #img.convert("P",dither=0).save(output)
         img.save(output)
     return img
 
