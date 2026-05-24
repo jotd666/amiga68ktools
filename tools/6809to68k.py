@@ -753,6 +753,8 @@ def f_xnc(args,comment):
 def f_com(args,comment):
     rval = generic_indexed_to("not","",args,comment)
     rval += "\tSET_XC_FLAGS\n"
+    return rval
+
 def f_neg(args,comment):
     return generic_indexed_to("neg","",args,comment)
 
@@ -2132,7 +2134,7 @@ if True:
 \tSET_XC_FLAGS
 \tjra\tout\\@
 cclear\\@:
-neg.b\t\\op
+\tneg.b\t\\op
 out\\@:
 \t.endm
 
