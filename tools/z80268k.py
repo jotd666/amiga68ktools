@@ -380,6 +380,7 @@ registers = {
 "awork1":"a0",
 "awork2":"a1",
 "mem_base":"a6",
+"sp":"a5",
 "":""
 }
 inv_registers = {v:k.upper() for k,v in registers.items()}
@@ -490,284 +491,275 @@ def f_ldd(args,comment):
         out += f"\n\tLOAD_D{comment}"
     return out
 
-def f_com(args,comment):
-    rval = generic_indexed_to("not","",args,comment)
-    rval += "\tSET_XC_FLAGS\n"
-    return rval
+def f_call(args,comment):
+    func = args[0]
+    out = ""
+    target_address = None
+    if not func:
+        # empty indexed
+        return(f'\tERROR\t"direct jsr"\t{comment}')
+    if func[0] in BRACKETS:
+        return(f'\tERROR\t"indirect jsr"\t{comment}')
 
-def f_neg(args,comment):
-    return generic_indexed_to("neg","",args,comment)
+    funcc = arg2label(func)
+    if funcc != func:
+        target_address = func
+    func = funcc
 
-def f_ldb(args,comment):
-    return generic_load('b',args,comment)
-def f_sta(args,comment):
-    return generic_store('a',args,comment)
-def f_stu(args,comment):
-    return generic_store('u',args,comment,word=True)
-def f_sts(args,comment):
-    return f'\tERROR\t"review stack save"\n' + generic_store('s',args,comment,word=True)
-def f_std(args,comment):
-    return MAKE_D_PREFIX+generic_store('b',args,comment,word=True)
-def f_stb(args,comment):
-    return generic_store('b',args,comment)
-def f_stx(args,comment):
-    return generic_store('x',args,comment,word=True)
-def f_sty(args,comment):
-    return generic_store('y',args,comment,word=True)
-def f_ldx(args,comment):
-    return generic_load('x',args,comment, word=True)
-def f_leax(args,comment):
-    return generic_lea('x',args,comment)
-def f_leay(args,comment):
-    return generic_lea('y',args,comment)
-def f_leau(args,comment):
-    return generic_lea('u',args,comment)
-def f_leas(args,comment):
-    return f'\tERROR\t"review stack set from register"\n' + generic_lea('s',args,comment)
+    out += f"\t{jsr_instruction}\t{func}{comment}"
 
-def f_ldy(args,comment):
-    return generic_load('y',args,comment, word=True)
-
-def f_inc(args,comment):
-    return generic_indexed_to("addq","#1",args,comment)
-def f_dec(args,comment):
-    return generic_indexed_to("subq","#1",args,comment)
-def f_tfr(args,comment):
-    srcreg = args[0]
-    dstreg = args[1]
-    double_size = {registers.get(x,x) for x in ["x","y","u","d"]}
-    ext = "w" if srcreg in double_size or dstreg in double_size else "b"
-    if dstreg == "dp":
-        invreg = inv_registers[srcreg]
-        # special case!
-        if invreg == "A":
-            out = f"\tSET_DP_FROM_A{comment}"
-        else:
-            out = f"\tSET_DP_FROM\t{srcreg}{comment}"
-        return out
-
-    out = "\tPUSH_SR\n"
-    dest_d = False
-    if srcreg in ["d"]:
-        out += MAKE_D_PREFIX
-        srcreg=registers['b']
-    if dstreg in ["d"]:
-        dest_d = True
-        dstreg=registers['b']
-
-    # condition flags not affected!
-    out += f"\tmove.{ext}\t{srcreg},{dstreg}{comment}\n"
-    if dest_d:
-        rorreg = f"\tror.w\t#8,{srcreg}{continuation_comment}\n"
-        out += f"{rorreg}\tmove.b\t{srcreg},{registers['a']}{continuation_comment} set MSB\n{rorreg}"
-    out += "\tPOP_SR"
+    if target_address is not None:
+        add_entrypoint(parse_hex(target_address))
     return out
 
-def f_clr(args,comment):
-    return generic_store('#0',args,comment)
+##def f_com(args,comment):
+##    rval = generic_indexed_to("not","",args,comment)
+##    rval += "\tSET_XC_FLAGS\n"
+##    return rval
+##
+##def f_neg(args,comment):
+##    return generic_indexed_to("neg","",args,comment)
+##
+##def f_ldb(args,comment):
+##    return generic_load('b',args,comment)
+##def f_sta(args,comment):
+##    return generic_store('a',args,comment)
+##def f_stu(args,comment):
+##    return generic_store('u',args,comment,word=True)
+##def f_sts(args,comment):
+##    return f'\tERROR\t"review stack save"\n' + generic_store('s',args,comment,word=True)
+##def f_std(args,comment):
+##    return MAKE_D_PREFIX+generic_store('b',args,comment,word=True)
+##def f_stb(args,comment):
+##    return generic_store('b',args,comment)
+##def f_stx(args,comment):
+##    return generic_store('x',args,comment,word=True)
+##def f_sty(args,comment):
+##    return generic_store('y',args,comment,word=True)
+##def f_ldx(args,comment):
+##    return generic_load('x',args,comment, word=True)
+##def f_leax(args,comment):
+##    return generic_lea('x',args,comment)
+##def f_leay(args,comment):
+##    return generic_lea('y',args,comment)
+##def f_leau(args,comment):
+##    return generic_lea('u',args,comment)
+##def f_leas(args,comment):
+##    return f'\tERROR\t"review stack set from register"\n' + generic_lea('s',args,comment)
+##
+##def f_ldy(args,comment):
+##    return generic_load('y',args,comment, word=True)
+##
+##def f_inc(args,comment):
+##    return generic_indexed_to("addq","#1",args,comment)
+##def f_dec(args,comment):
+##    return generic_indexed_to("subq","#1",args,comment)
+##
+##def f_clr(args,comment):
+##    return generic_store('#0',args,comment)
+##
 
 
-
-def generic_lea(dest,args,comment):
-
-    quick = ""
-    # add or sub
-    first_arg = args[0]
-    if len(args)==2 and args[1]=="pcr":
-        # PC-relative, we don't care, remove
-        dest_68k = registers[dest]
-        rval = f"\tmove.w\t#{args[0]},{dest_68k}{comment}"
-        return rval
-
-    rval,first_arg = get_substitution_extended_reg(first_arg)     # from now on use work register, only first 8 bits are active
-
-    inst = "add"
-
-    try:
-        first_arg_offset = int(first_arg,16)
-        if first_arg_offset == 0:
-            # no need to add/sub afterwards
-            inst = None
-    except ValueError:
-        pass
-
-    post_increment = 0
-    pre_decrement = 0
-
-    if first_arg.startswith("-"):
-        first_arg = first_arg[1:]
-        inst = "sub"
-    elif first_arg=="d":
-        first_arg=registers['b']
-        rval = MAKE_D_PREFIX
-    elif first_arg and first_arg[0] in BRACKETS:
-        # get address in memory
-        args = [x.strip(BRACKETS) for x in args]
-
-
-        # if 8 bit register, mask first
-        rval = ""
-        for arg in args:
-            mask = "ff" if inv_registers.get(arg,arg) in "AB" else "ffff"
-            if mask == "ff":
-                rval += f"\tand.l\t#{out_hex_sign}{mask},{arg}{out_comment} mask register before add\n"
-
-        if args[0] == 'd':
-            args[0] = registers['b']
-            rval += "\tMAKE_D\n"
-
-        rval += f"\tGET_INDIRECT_ADDRESS_REGS\t{args[0]},{args[1]},{registers[dest]}{comment}"
-        return rval
-
-    if first_arg and not is_register_value(first_arg):
-        quick = "q" if can_be_quick(first_arg) else ""
-        first_arg = f'#{first_arg}'
-
-    # watch out for pre/post incrementation of second parameter
-    second_arg = args[1]
-    post_increment = second_arg.count("+")
-    pre_decrement = second_arg.count("-")
-    second_arg = second_arg.strip("+-")   # remove signs
-    regsize = "w"  # I think only word size for increment, as only X,Y,U can be used as sources
-
-    if pre_decrement:
-        # TODO: test & remove exception when we encounter this. I don't want
-        # to code it wrong
-        raise Exception("Unsupported pre-decrement")
-        rval += f"\n\tsubq.{regsize}\t#{pre_increment},{second_arg}{comment}"
-
-    if second_arg==registers[dest]:
-        if first_arg:
-            rval += f"\t{inst}{quick}.w\t{first_arg},{second_arg}{comment}"
-    else:
-        dest_68k = registers[dest]
-        rval += f"\tmove.w\t{second_arg},{dest_68k}{comment}\n"
-        if first_arg and inst:
-            rval += f"\t{inst}{quick}.w\t{first_arg},{dest_68k}{comment}"
-
-    if post_increment:
-        rval += f"\n\taddq.{regsize}\t#{post_increment},{second_arg}{comment}"
-    return rval
+##def generic_lea(dest,args,comment):
+##
+##    quick = ""
+##    # add or sub
+##    first_arg = args[0]
+##    if len(args)==2 and args[1]=="pcr":
+##        # PC-relative, we don't care, remove
+##        dest_68k = registers[dest]
+##        rval = f"\tmove.w\t#{args[0]},{dest_68k}{comment}"
+##        return rval
+##
+##    rval,first_arg = get_substitution_extended_reg(first_arg)     # from now on use work register, only first 8 bits are active
+##
+##    inst = "add"
+##
+##    try:
+##        first_arg_offset = int(first_arg,16)
+##        if first_arg_offset == 0:
+##            # no need to add/sub afterwards
+##            inst = None
+##    except ValueError:
+##        pass
+##
+##    post_increment = 0
+##    pre_decrement = 0
+##
+##    if first_arg.startswith("-"):
+##        first_arg = first_arg[1:]
+##        inst = "sub"
+##    elif first_arg=="d":
+##        first_arg=registers['b']
+##        rval = MAKE_D_PREFIX
+##    elif first_arg and first_arg[0] in BRACKETS:
+##        # get address in memory
+##        args = [x.strip(BRACKETS) for x in args]
+##
+##
+##        # if 8 bit register, mask first
+##        rval = ""
+##        for arg in args:
+##            mask = "ff" if inv_registers.get(arg,arg) in "AB" else "ffff"
+##            if mask == "ff":
+##                rval += f"\tand.l\t#{out_hex_sign}{mask},{arg}{out_comment} mask register before add\n"
+##
+##        if args[0] == 'd':
+##            args[0] = registers['b']
+##            rval += "\tMAKE_D\n"
+##
+##        rval += f"\tGET_INDIRECT_ADDRESS_REGS\t{args[0]},{args[1]},{registers[dest]}{comment}"
+##        return rval
+##
+##    if first_arg and not is_register_value(first_arg):
+##        quick = "q" if can_be_quick(first_arg) else ""
+##        first_arg = f'#{first_arg}'
+##
+##    # watch out for pre/post incrementation of second parameter
+##    second_arg = args[1]
+##    post_increment = second_arg.count("+")
+##    pre_decrement = second_arg.count("-")
+##    second_arg = second_arg.strip("+-")   # remove signs
+##    regsize = "w"  # I think only word size for increment, as only X,Y,U can be used as sources
+##
+##    if pre_decrement:
+##        # TODO: test & remove exception when we encounter this. I don't want
+##        # to code it wrong
+##        raise Exception("Unsupported pre-decrement")
+##        rval += f"\n\tsubq.{regsize}\t#{pre_increment},{second_arg}{comment}"
+##
+##    if second_arg==registers[dest]:
+##        if first_arg:
+##            rval += f"\t{inst}{quick}.w\t{first_arg},{second_arg}{comment}"
+##    else:
+##        dest_68k = registers[dest]
+##        rval += f"\tmove.w\t{second_arg},{dest_68k}{comment}\n"
+##        if first_arg and inst:
+##            rval += f"\t{inst}{quick}.w\t{first_arg},{dest_68k}{comment}"
+##
+##    if post_increment:
+##        rval += f"\n\taddq.{regsize}\t#{post_increment},{second_arg}{comment}"
+##    return rval
 
 def unsupported_instruction(inst,args,comment):
     unknown_instructions.add(inst)
     return issue_warning(f"unknown/unsupported instruction {inst} with args {args}")+comment
 
-def generic_load(dest,args,comment,word=False):
-    return generic_indexed_from("move",dest,args,comment,word)
-def generic_store(src,args,comment,word=False):
-    return generic_indexed_to("move",src,args,comment,word)
-
-def generic_shift_op(inst,reg,args,comment):
-    arg = args[0]
-    inst += ".b"
-    if len(args)==2:
-
-        offset = arg or "0"
-        reg = args[1]
-        increments = reg.count("+")
-        decrements = reg.count("-")
-        reg = reg.strip("+-")
-
-        rval = f"\tGET_REG_ADDRESS\t{offset},{reg}{comment}\n"
-        rval += f"\t{inst}\t#1,({registers['awork1']}){comment}"
-        if increments:
-            rval += f"\n\taddq.w\t#{increments},{reg}{comment}"
-        if decrements:
-            rval += f"\n\tsubq.w\t#{decrements},{reg}{comment}"
-
-        return rval
-
-    # sole argument: maybe can be register
-    if arg in inv_registers:
-        return f"\t{inst}\t#1,{arg}{comment}"
-    else:
-        gaf,arg,value = get_get_address_function(arg)
-
-        # we have to load the address first
-        rval = f"\t{gaf}\t{arg}{comment}\n"
-        rval += f"\t{inst}\t#1,({registers['awork1']}){comment}"
-        return rval
-
-def generic_logical_op(inst,reg,args,comment):
-    return generic_indexed_from(inst,reg,args,comment,word=False)
-
-def f_lsra(args,comment):
-    return generic_shift_op("lsr","a",args,comment)
-def f_lsrb(args,comment):
-    return generic_shift_op("lsr","b",args,comment)
-def f_asla(args,comment):
-    return generic_shift_op("asl","a",args,comment)
-def f_aslb(args,comment):
-    return generic_shift_op("asl","b",args,comment)
-def f_rora(args,comment):
-    return generic_shift_op("roxr","a",args,comment)
-def f_rolb(args,comment):
-    return generic_shift_op("roxl","b",args,comment)
-def f_rorb(args,comment):
-    return generic_shift_op("roxr","b",args,comment)
-def f_rola(args,comment):
-    return generic_shift_op("roxl","a",args,comment)
-def f_ora(args,comment):
-    return generic_logical_op("or","a",args,comment)
-def f_bita(args,comment):
-    return generic_logical_op("BIT","a",args,comment)
-def f_bitb(args,comment):
-    return generic_logical_op("BIT","b",args,comment)
-def f_orb(args,comment):
-    return generic_logical_op("or","b",args,comment)
-def f_anda(args,comment):
-    return generic_logical_op("and","a",args,comment)
-def f_andcc(args,comment):
-    # we can handle a few special cases
-    arg = args[0]
-    rval = None
-    if arg.startswith("#"):
-        v = int(arg[1:],16)
-        if v==0xFE:
-            # immediate value to mask out carry
-            rval = f"\tCLR_XC_FLAGS{comment}"
-        elif v==0xEF:
-            rval = f"\tCLR_I_FLAG{comment}"
-
-    return rval or unsupported_instruction("andcc",args,comment)
-
-def f_andb(args,comment):
-    return generic_logical_op("and","b",args,comment)
-def f_eora(args,comment):
-    return generic_logical_op("eor","a",args,comment)
-def f_eorb(args,comment):
-    return generic_logical_op("eor","b",args,comment)
-
-def f_adca(args,comment):
-    return generic_indexed_from("addx",'a',args,comment)
-def f_adcb(args,comment):
-    return generic_indexed_from("addx",'b',args,comment)
-def f_adda(args,comment):
-    return generic_indexed_from("add",'a',args,comment)
-def f_addb(args,comment):
-    return generic_indexed_from("add",'b',args,comment)
-
-def f_op_on_d(args,comment,op):
-    rval = MAKE_D_PREFIX+generic_indexed_from(op,'b',args,comment,word=True)
-    rval += f"\n\tPUSH_SR{continuation_comment}\n\tMAKE_A{continuation_comment}\n\tPOP_SR{continuation_comment}"
-    return rval
-
-def f_addd(args,comment):
-    return f_op_on_d(args,comment,"add")
-
-def f_subd(args,comment):
-    return f_op_on_d(args,comment,"sub")
-
-def f_suba(args,comment):
-    return generic_indexed_from("sub",'a',args,comment)
-def f_subb(args,comment):
-    return generic_indexed_from("sub",'b',args,comment)
-def f_sbca(args,comment):
-    return generic_indexed_from("subx",'a',args,comment)
-
-def f_sbcb(args,comment):
-    return generic_indexed_from("subx",'b',args,comment)
+##def generic_load(dest,args,comment,word=False):
+##    return generic_indexed_from("move",dest,args,comment,word)
+##def generic_store(src,args,comment,word=False):
+##    return generic_indexed_to("move",src,args,comment,word)
+##
+##def generic_shift_op(inst,reg,args,comment):
+##    arg = args[0]
+##    inst += ".b"
+##    if len(args)==2:
+##
+##        offset = arg or "0"
+##        reg = args[1]
+##        increments = reg.count("+")
+##        decrements = reg.count("-")
+##        reg = reg.strip("+-")
+##
+##        rval = f"\tGET_REG_ADDRESS\t{offset},{reg}{comment}\n"
+##        rval += f"\t{inst}\t#1,({registers['awork1']}){comment}"
+##        if increments:
+##            rval += f"\n\taddq.w\t#{increments},{reg}{comment}"
+##        if decrements:
+##            rval += f"\n\tsubq.w\t#{decrements},{reg}{comment}"
+##
+##        return rval
+##
+##    # sole argument: maybe can be register
+##    if arg in inv_registers:
+##        return f"\t{inst}\t#1,{arg}{comment}"
+##    else:
+##        gaf,arg,value = get_get_address_function(arg)
+##
+##        # we have to load the address first
+##        rval = f"\t{gaf}\t{arg}{comment}\n"
+##        rval += f"\t{inst}\t#1,({registers['awork1']}){comment}"
+##        return rval
+##
+##def generic_logical_op(inst,reg,args,comment):
+##    return generic_indexed_from(inst,reg,args,comment,word=False)
+##
+##def f_lsra(args,comment):
+##    return generic_shift_op("lsr","a",args,comment)
+##def f_lsrb(args,comment):
+##    return generic_shift_op("lsr","b",args,comment)
+##def f_asla(args,comment):
+##    return generic_shift_op("asl","a",args,comment)
+##def f_aslb(args,comment):
+##    return generic_shift_op("asl","b",args,comment)
+##def f_rora(args,comment):
+##    return generic_shift_op("roxr","a",args,comment)
+##def f_rolb(args,comment):
+##    return generic_shift_op("roxl","b",args,comment)
+##def f_rorb(args,comment):
+##    return generic_shift_op("roxr","b",args,comment)
+##def f_rola(args,comment):
+##    return generic_shift_op("roxl","a",args,comment)
+##def f_ora(args,comment):
+##    return generic_logical_op("or","a",args,comment)
+##def f_bita(args,comment):
+##    return generic_logical_op("BIT","a",args,comment)
+##def f_bitb(args,comment):
+##    return generic_logical_op("BIT","b",args,comment)
+##def f_orb(args,comment):
+##    return generic_logical_op("or","b",args,comment)
+##def f_anda(args,comment):
+##    return generic_logical_op("and","a",args,comment)
+##def f_andcc(args,comment):
+##    # we can handle a few special cases
+##    arg = args[0]
+##    rval = None
+##    if arg.startswith("#"):
+##        v = int(arg[1:],16)
+##        if v==0xFE:
+##            # immediate value to mask out carry
+##            rval = f"\tCLR_XC_FLAGS{comment}"
+##        elif v==0xEF:
+##            rval = f"\tCLR_I_FLAG{comment}"
+##
+##    return rval or unsupported_instruction("andcc",args,comment)
+##
+##def f_andb(args,comment):
+##    return generic_logical_op("and","b",args,comment)
+##def f_eora(args,comment):
+##    return generic_logical_op("eor","a",args,comment)
+##def f_eorb(args,comment):
+##    return generic_logical_op("eor","b",args,comment)
+##
+##def f_adca(args,comment):
+##    return generic_indexed_from("addx",'a',args,comment)
+##def f_adcb(args,comment):
+##    return generic_indexed_from("addx",'b',args,comment)
+##def f_adda(args,comment):
+##    return generic_indexed_from("add",'a',args,comment)
+##def f_addb(args,comment):
+##    return generic_indexed_from("add",'b',args,comment)
+##
+##def f_op_on_d(args,comment,op):
+##    rval = MAKE_D_PREFIX+generic_indexed_from(op,'b',args,comment,word=True)
+##    rval += f"\n\tPUSH_SR{continuation_comment}\n\tMAKE_A{continuation_comment}\n\tPOP_SR{continuation_comment}"
+##    return rval
+##
+##def f_addd(args,comment):
+##    return f_op_on_d(args,comment,"add")
+##
+##def f_subd(args,comment):
+##    return f_op_on_d(args,comment,"sub")
+##
+##def f_suba(args,comment):
+##    return generic_indexed_from("sub",'a',args,comment)
+##def f_subb(args,comment):
+##    return generic_indexed_from("sub",'b',args,comment)
+##def f_sbca(args,comment):
+##    return generic_indexed_from("subx",'a',args,comment)
+##
+##def f_sbcb(args,comment):
+##    return generic_indexed_from("subx",'b',args,comment)
 
 def get_substitution_extended_reg(arg):
     if arg == registers['b'] or arg == registers['a']:
@@ -1106,62 +1098,7 @@ def f_exg(args,comment):
     if must_make_a:
         out += "\tMAKE_A\n"
     return out
-def f_bsr(args,comment):
-    return f_jsr(args,comment)
 
-def f_jsr(args,comment):
-    func = args[0]
-    out = ""
-    target_address = None
-    if not func:
-        # empty indexed
-        return(f'\tERROR\t"direct jsr"\t{comment}')
-    if func[0] in BRACKETS:
-        return(f'\tERROR\t"indirect jsr"\t{comment}')
-
-    funcc = arg2label(func)
-    if funcc != func:
-        target_address = func
-    func = funcc
-
-    out += f"\t{jsr_instruction}\t{func}{comment}"
-
-    if target_address is not None:
-        add_entrypoint(parse_hex(target_address))
-    return out
-
-def f_bcc(args,comment):
-    return f_bcond("cc",args,comment)
-def f_bhi(args,comment):
-    return f_bcond("hi",args,comment)
-def f_blo(args,comment):
-    return f_bcond("lo",args,comment)
-def f_ble(args,comment):
-    return f_bcond("le",args,comment)
-def f_bge(args,comment):
-    return f_bcond("ge",args,comment)
-def f_blt(args,comment):
-    return f_bcond("lt",args,comment)
-def f_bgt(args,comment):
-    return f_bcond("gt",args,comment)
-def f_bra(args,comment):
-    return f_bcond("ra",args,comment)
-def f_bcs(args,comment):
-    return f_bcond("cs",args,comment)
-def f_bvc(args,comment):
-    return f_bcond("vc",args,comment)
-def f_bvs(args,comment):
-    return f_bcond("vs",args,comment)
-def f_beq(args,comment):
-    return f_bcond("eq",args,comment)
-def f_bne(args,comment):
-    return f_bcond("ne",args,comment)
-def f_bmi(args,comment):
-    return f_bcond("mi",args,comment)
-def f_bpl(args,comment):
-    return f_bcond("pl",args,comment)
-def f_bls(args,comment):
-    return f_bcond("ls",args,comment)
 
 def f_bcond(cond,args,comment):
     func = args[0]
@@ -1709,11 +1646,13 @@ if cli_args.spaces:
 f = io.StringIO()
 
 if True:
-    X = registers['x']
-    Y = registers['y']
-    U = registers['u']
     A = registers['a']
     B = registers['b']
+    C = registers['c']
+    D = registers['d']
+    E = registers['e']
+    H = registers['h']
+    L = registers['l']
 
     f.write(f"""{out_start_line_comment} Converted with 6809to68k v{tool_version} by JOTD
 {out_start_line_comment}
@@ -1764,22 +1703,25 @@ if True:
 \t.endm
 
 
-\t.macro\tMAKE_D
-{out_start_line_comment} add value of A in B MSB so D&0xFF == B
-\trol.w\t#8,{B}
-\tmove.b\t{A},{B}
-\trol.w\t#8,{B}
+\t.macro\tMAKE_HL
+{out_start_line_comment} add {H} as MSB of {L} so {L}.W = HL
+\trol.w\t#8,{L}
+\tmove.b\t{H},{L}
+\trol.w\t#8,{L}
 \t.endm
 
-\t.macro\tMAKE_A
-\trol.w\t#8,{B}
-\tmove.b\t{B},{A}
-\trol.w\t#8,{B}
+\t.macro\tMAKE_BC
+{out_start_line_comment} add {B} as MSB of {C} so {C}.W = BC
+\trol.w\t#8,{C}
+\tmove.b\t{B},{C}
+\trol.w\t#8,{C}
 \t.endm
 
-\t.macro\tBIT\treg,arg
-\tmove.b\t\\reg,{DW}
-\tand.b\t\\arg,{DW}
+\t.macro\tMAKE_DE
+{out_start_line_comment} add {D} as MSB of {E} so {E}.W = DE
+\trol.w\t#8,{E}
+\tmove.b\t{D},{E}
+\trol.w\t#8,{E}
 \t.endm
 
 
@@ -1993,13 +1935,6 @@ if True:
 \t.endm
 
 
-* you can remove PUSH/POP if you don't need them, but on
-* Double Dragon, the move corrupted CC and it led to nasty bugs
-\t.macro\tSTORE_DP_IN_MEMORY
-\tPUSH_SR
-\tmove.l\t{registers['dp_base']},m6809_direct_page_pointer
-\tPOP_SR
-\t.endm
 
 
 """)
@@ -2136,8 +2071,7 @@ GET_ADDRESS:MACRO
     f.write("cpu_init:\n")
     for i in range(8):
         reg = f"d{i}"
-        if reg != registers["s"]:
-            f.write(f"\tmoveq\t#0,{reg}\n")
+        f.write(f"\tmoveq\t#0,{reg}\n")
     f.write("\trts\n\n")
 
     f.write(f"""get_address:
