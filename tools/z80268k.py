@@ -512,6 +512,15 @@ def f_call(args,comment):
         add_entrypoint(parse_hex(target_address))
     return out
 
+def f_ld(args,comment):
+    rval = ""
+    dest,src = args
+    src_is_reg = src in inv_registers
+    dest_is_reg = dest in inv_registers
+    print(args,src_is_reg,dest_is_reg)
+    if dest_is_reg and dest[0]=='a' and not src_is_reg:
+        rval += f"\tGET_ADDRESS\t{src},{dest}{comment}\n"
+    return rval
 ##def f_com(args,comment):
 ##    rval = generic_indexed_to("not","",args,comment)
 ##    rval += "\tSET_XC_FLAGS\n"
