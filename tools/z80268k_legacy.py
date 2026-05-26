@@ -240,6 +240,8 @@ a_instructions = {"neg":"neg.b\t","cpl":"not.b\t","rra":"roxr.b\t#1,",
                     "rla":"roxl.b\t#1,","rrca":"ror.b\t#1,","rlca":"rol.b\t#1,"}
 single_instructions = {"nop":"nop","ret":"rts",
 "scf":"SET_XC_FLAGS",
+"ei":"CLR_I_FLAG",
+"di":"SET_I_FLAG",
 "ccf":"INVERT_XC_FLAGS"}
 
 m68_regs = set(registers.values())
