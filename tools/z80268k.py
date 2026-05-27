@@ -39,6 +39,7 @@
 # ex: HL/DE => d4/d6 and also d3/d5, maybe implement ex (sp)
 # sbc/adc not correct, use subx / addx
 # optims: remove MAKE_HL if H(D5) or L(D6) not changed in between, same for DE/BC
+#     MAKE_H then    MAKE_HL => we can remove MAKE_HL / BC / DE
 
 import re,itertools,os,collections,glob,io,pathlib,sys
 import argparse
@@ -545,7 +546,7 @@ def generic_load(inst,args,comment):
                             rval += f"\tLOAD_{dest.upper()}\t#{src}{comment}"
                         else:
                             rdest = registers_16[dest]
-                            rval += f"\tMAKE_{dest.upper()}\n\t{inst}.w\t#{src},{rdest}{comment}"
+                            rval += f"\tMAKE_{dest.upper()}\n\t{inst}.w\t#{src},{rdest}{comment}\n\tMAKE_{dest[0].upper()}"
 
     else:
         if dest[0]=='(':
@@ -690,17 +691,33 @@ def f_adc(args,comment):
 
 def f_ex(args,comment):
     arg0,arg1 = args
+    dwork = registers["dwork1"]
     if arg1.lower() == "af'":
-        arg1 = "d7"
+        arg1 = dwork
         if arg0.lower() == "af":
             arg0 = "d0"
     txt = ""
-    if arg0 in registers_16:
+    regsp = f'({registers["sp"]})'
+
+    if arg0 in registers_16 and arg1 in registers_16:
         txt = f"\tMAKE_{arg0.upper()}\n\tMAKE_{arg1.upper()}\n"
         arg0 = registers_16[arg0]
         arg1 = registers_16[arg1]
+    elif arg1==regsp or arg0==regsp:
+        # exchange (a7) with HL/DE/BC: this usually is used to jump
+        # but sometimes it's just a save/restore
+        if arg0==regsp:
+            arg0,arg1=arg1,arg0
+            marg0 = registers_16[arg0]
+        txt = issue_warning("exchange with (sp)",newline=True)
+        txt += f"""\tmove.w\t{regsp},{dwork}{comment}
+\texg\t{marg0},{dwork}{comment}
+\tMAKE_{arg0[0].upper()}{comment}
+\tmove.w\t{dwork},{regsp}{comment}"""
+        return txt
+
     txt += f"\texg\t{arg0},{arg1}{comment}"
-    if arg1 == "d7":
+    if arg1 == dwork:
         txt += "\n"+issue_warning("carry flags used below? if so, adapt")
     return txt
 
