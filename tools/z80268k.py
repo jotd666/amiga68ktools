@@ -416,8 +416,8 @@ single_instructions = {"nop":"nop",
 "daa":"DAA",
 "scf":"SET_XC_FLAGS",
 "ccf":"INVERT_XC_FLAGS",
-"neg":"neg.b\t",
-"cpl":"not.b\t",
+"neg":f"neg.b\t{rega}",
+"cpl":f"not.b\t{rega}",
 "ei":"CLR_I_FLAG",
 "di":"SET_I_FLAG",
 "rra":f"roxr.b\t#1,{rega}",
@@ -511,7 +511,16 @@ def generic_load(inst,args,comment):
                 if is_move:
                     rval += "\tLOAD_{dest.upper()}\t{src}{comment}"
                 else:
-                    rval += "\t{inst}.w\t{src},{dest} FUCKKK"
+                    d68k = registers_16[dest]
+                    s68k = registers_16[src]
+                    rval += f"""
+\tMAKE_{src.upper()}
+\tMAKE_{dest.upper()}
+\t{inst}.w\t{s68k},{d68k}{comment}
+\tPUSH_SR\t{out_comment} save CC
+\tMAKE_{dest.upper()[0]}\t{out_comment} update MSB reg
+\tPOP_SR\t{out_comment} restore CC"""
+
         else:
             if src[0]=='(':
                 # in a register, possibly with offset
@@ -519,7 +528,7 @@ def generic_load(inst,args,comment):
                 if reg in registers_16:
                     rval += f"\tMAKE_{reg.upper()}{comment}\n"
             if dest[0]=='a':
-                rval += f"\tGET_ADDRESS\t{src},{dest}{comment}\n"  # simple load into register
+                rval += f"\tGET_ADDRESS\t{src}{comment}\n\tmove.l\t{AW},{dest}{continuation_comment}"  # simple load into register
             else:
                 if src[0]=='(':
                     src = src.strip('()')
@@ -736,7 +745,7 @@ def f_xor(args,comment):
     p = args[0]
     if p=="d0":
         # optim, as xor a is a way to zero a/clear carry
-        out = f"\tCLEAR_XC_FLAGS{comment}\n\tclr.b\td0{comment}"
+        out = f"\tCLR_XC_FLAGS{comment}\n\tclr.b\td0{comment}"
     elif is_immediate_value(p):
         out = f"\teor.b\t#{p},d0{comment}"
     elif p in inv_registers:
@@ -1434,7 +1443,7 @@ if True:
 \trol.w\t#8,{L}
 \tmove.b\t{H},{L}
 \trol.w\t#8,{L}
-\tGET_REG_ADDRESS\t{L}
+\tGET_REG_ADDRESS\t0,{L}
 \t.endm
 
 \t.macro\tMAKE_H
@@ -1449,7 +1458,7 @@ if True:
 \trol.w\t#8,{C}
 \tmove.b\t{B},{C}
 \trol.w\t#8,{C}
-\tGET_REG_ADDRESS\t{C}
+\tGET_REG_ADDRESS\t0,{C}
 \t.endm
 
 \t.macro\tMAKE_B
@@ -1464,7 +1473,7 @@ if True:
 \trol.w\t#8,{E}
 \tmove.b\t{D},{E}
 \trol.w\t#8,{E}
-\tGET_REG_ADDRESS\t{E}
+\tGET_REG_ADDRESS\t0,{E}
 \t.endm
 
 \t.macro\tMAKE_D
@@ -1474,6 +1483,20 @@ if True:
 \trol.w\t#8,{E}
 \t.endm
 
+\t.macro\tLOAD_HL\targument
+\tmove.w\t\\argument,{L}
+\tMAKE_H
+\t.endm
+
+\t.macro\tLOAD_BC\targument
+\tmove.w\t\\argument,{C}
+\tMAKE_B
+\t.endm
+
+\t.macro\tLOAD_DE\targument
+\tmove.w\t\\argument,{E}
+\tMAKE_D
+\t.endm
 
 \t.macro CLR_XC_FLAGS
 \tand.b\t#0xEE,ccr\t| bit 4 = X, bit 0 = C
