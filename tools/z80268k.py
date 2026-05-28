@@ -40,6 +40,11 @@
 # sbc/adc not correct, use subx / addx
 # optims: remove MAKE_HL if H(D5) or L(D6) not changed in between, same for DE/BC
 #     MAKE_H then    MAKE_HL => we can remove MAKE_HL / BC / DE
+#     remove MAKE_HL after LOAD_HL
+# optims: remove tst.b d0 after move.xxx ,d0
+#    subq.b    #1,(a0)                             | [$2416: dec (hl)]
+#    MAKE_HL                                    | [$2417: ld a,(hl)]  remove make_hl because a0 is already OK
+#    move.b    (a0),d0                             | [...]
 
 import re,itertools,os,collections,glob,io,pathlib,sys
 import argparse
@@ -605,19 +610,28 @@ def f_call(args,comment):
     func = args[0]
     out = ""
     target_address = None
-    if not func:
-        # empty indexed
-        return(issue_warning("direct jsr")+comment)
-    if func[0] in BRACKETS:
-        return(issue_warning("indirect jsr")+comment)
+
+    if len(args)==2:
+        cond = func
+        func = args[1]
 
     funcc = arg2label(func)
     if funcc != func:
         target_address = func
     func = funcc
+    if len(args)==2:
+        if cli_args.output_mode == "mot":
+            loclab = get_mot_local_label()
+            out = f"\t{rts_cond_dict[cond]}\t{loclab}{out_comment} [...]\n"
+        else:
+            out = f"\t{rts_cond_dict[cond]}\t0f{out_comment} [...]\n"
 
     out += f"\t{jsr_instruction}\t{func}{comment}"
-
+    if len(args)==2:
+        if cli_args.output_mode == "mot":
+            out += f"\n{loclab}:"
+        else:
+            out += f"\n0:"
     if target_address is not None:
         add_entrypoint(parse_hex(target_address))
     return out
@@ -754,6 +768,10 @@ def f_cp(args,comment):
     return generic_load("cmp",args,comment)
 
 def f_and(args,comment):
+    # and a special optim
+    if args[0]==registers['a']:
+        return f"\ttst.b\t{registers['a']}{comment}"
+
     return generic_load("and",args,comment)
 def f_or(args,comment):
     return generic_load("or",args,comment)
@@ -1127,7 +1145,9 @@ setxcflags_inst = ["SET_XC_FLAGS"]
 # sub/add aren't included as they're the translation of dec/inc which don't affect C
 # those are 68000 instructions (used in post-processing)
 
-carry_generating_instructions = {"add","sub","cmp","CMP_W_TO_REG","ADD_W_TO_REG","SUB_W_TO_REG","lsr","lsl","asl","asr","roxr","roxl","subx","addx","abcd","CLR_XC_FLAGS","SET_XC_FLAGS"}
+flag_generating_instructions = {"subq","addq","add","sub","cmp","lsr","lsl","asl","asr","ror","rol","roxr","roxl","subx","addx","abcd"}
+z_generating_instructions = flag_generating_instructions | {"and","or","tst"}
+carry_generating_instructions = flag_generating_instructions | {"CLR_XC_FLAGS","SET_XC_FLAGS"}
 conditional_branch_instructions = {"bpl","bmi","bls","bne","beq","bhi","blo","bcc","bcs","blt","ble","bge","bgt"}
 conditional_branch_instructions.update({f"j{x[1:]}" for x in conditional_branch_instructions})
 routine_call_instructions = {"bsr","jbsr","jsr"}
@@ -1177,7 +1197,7 @@ for i,line in enumerate(nout_lines):
                 src=fp[1].split(",")[0]
                 nout_lines[i] = f"\tmove.b\t{src},{registers['dwork1']} {continuation_comment}\n"+nout_lines[i].replace(src,registers['dwork1'])
         elif finst not in conditional_branch_instructions and finst != "PUSH_SR" and prev_fp and prev_fp[0] in cmp_instructions:
-                nout_lines[i] = issue_warning("review stray cmp (insert SET_X_FROM_CLEARED_C)",newline=True)+nout_lines[i]
+                nout_lines[i] = issue_warning(f"review stray cmp before {finst} (insert SET_X_FROM_C)",newline=True)+nout_lines[i]
 
 
         prev_fp = fp
@@ -1374,10 +1394,20 @@ for i,line in enumerate(nout_lines):
                 if prev_fp:
                     inst_no_size = prev_fp[0].split(".")[0]
                     # also consider that jsr + jcc is not a problem. A lot of programs use C flag as return code
-                    if (inst_no_size not in carry_generating_instructions and
+                    # consider that rts+jcc isn't a problem, converting jp cc,label does that.
+                    if (inst_no_size != "rts" and inst_no_size not in carry_generating_instructions and
                     inst_no_size not in conditional_branch_instructions and inst_no_size not in routine_call_instructions):
                         if not follows_sr_protected_block(nout_lines,i):
-                            nout_lines[i] += issue_warning("stray bcc/bcs test",newline=True)
+                            nout_lines[i] += issue_warning(f"stray {finst} test after {prev_fp[0]}",newline=True)
+            elif finst in ("bne","beq","jne","jeq"):
+                if prev_fp:
+                    inst_no_size = prev_fp[0].split(".")[0]
+                    # also consider that jsr + jcc is not a problem. A lot of programs use C flag as return code
+                    # consider that rts+jcc isn't a problem, converting jp cc,label does that.
+                    if (inst_no_size != "rts" and inst_no_size not in z_generating_instructions and
+                    inst_no_size not in conditional_branch_instructions):
+                        if not follows_sr_protected_block(nout_lines,i):
+                            nout_lines[i] += issue_warning(f"stray {finst} test after {prev_fp[0]}",newline=True)
         prev_fp = fp
         if re.search("GET_.*_ADDRESS",toks[0]) and follows_sr_protected_block(nout_lines,i):
             if i>3 and "PUSH_SR" in nout_lines[i-3]:
@@ -1406,7 +1436,7 @@ if True:
     L = registers['l']
 
 
-    f.write(f"""{out_start_line_comment} Converted with 6809to68k v{tool_version} by JOTD
+    f.write(f"""{out_start_line_comment} Converted with z80to68k v{tool_version} by JOTD
 {out_start_line_comment}
 {out_start_line_comment} make sure you call "cpu_init" first so all bits of data registers
 {out_start_line_comment} are zeroed out so we can use add.l dy,ax with dy > 0x7FFF
