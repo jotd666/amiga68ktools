@@ -727,8 +727,8 @@ def f_push(args,comment):
     if arg in registers_16:
         rval = f"\tMAKE_{arg.upper()}{comment}\n\tmove.w\t{registers_16[arg]},-({registers['sp']}){comment}"
     elif arg == "af":
-        # target stack is always even
-        rval = f"\tmove.w\t{registers['a']},-({registers['sp']}){comment}\n\tPUSH_SR{comment}"
+        # target stack is always even. Push CC first, avoids the use of movem
+        rval = f"\tPUSH_SR\{comment}\n\tmove.w\t{registers['a']},-({registers['sp']}){comment}"
     else:
         rval = issue_warning(f"Unsupported push with {arg}")
 
@@ -740,7 +740,7 @@ def f_pop(args,comment):
     if arg in registers_16:
         rval = f"\tmove.w\t({registers['sp']})+,{registers_16[arg]}{comment}\n\tMAKE_{arg[0].upper()}{comment}"
     elif arg == "af":
-        rval = f"\tPOP_SR{comment}\n\tmovem.w\t({registers['sp']})+,{registers['a']}{comment}"
+        rval = f"\tmove.w\t({registers['sp']})+,{registers['a']}{comment}\n\tPOP_SR{comment}"
     else:
         rval = issue_warning(f"Unsupported pop with {arg}")
     return rval
