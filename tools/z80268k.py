@@ -76,22 +76,22 @@ def optimize(lines,verbose=False):
     prev_loaded = None
 
 
-    for i,org_line in enumerate(lines):
-        line = remcomments(org_line)  # remove comments
-        toks = line.split()
-        if toks and "MOVE_W" in toks[0]:
-            prev_line = remcomments(lines[i-1])
-            prev_toks = prev_line.split()
-            if len(prev_toks)==2 and prev_toks[0]=="GET_ADDRESS":
-                try:
-                    address = int(prev_toks[1],16)
-                except ValueError:
-                    address = int(prev_toks[1].split("_")[-1],16)
-                if address%2 == 0:
-                    # even: remove macro use move.w (faster on 68000/68010, no effect on 68020+)
-                    args = toks[1].split(",")
-                    arg = f"{args[0]},({args[1]})" if toks[0]=="MOVE_W_FROM_REG" else f"({args[0]}),{args[1]}"
-                    lines[i] = change_instruction(f"move.w\t{arg}",lines,i,False)
+##    for i,org_line in enumerate(lines):
+##        line = remcomments(org_line)  # remove comments
+##        toks = line.split()
+##        if toks and "MOVE_W" in toks[0]:
+##            prev_line = remcomments(lines[i-1])
+##            prev_toks = prev_line.split()
+##            if len(prev_toks)==2 and prev_toks[0]=="GET_ADDRESS":
+##                try:
+##                    address = int(prev_toks[1],16)
+##                except ValueError:
+##                    address = int(prev_toks[1].split("_")[-1],16)
+##                if address%2 == 0:
+##                    # even: remove macro use move.w (faster on 68000/68010, no effect on 68020+)
+##                    args = toks[1].split(",")
+##                    arg = f"{args[0]},({args[1]})" if toks[0]=="MOVE_W_FROM_REG" else f"({args[0]}),{args[1]}"
+##                    lines[i] = change_instruction(f"move.w\t{arg}",lines,i,False)
 
 
     new_lines = []
@@ -114,39 +114,7 @@ def optimize(lines,verbose=False):
 
         new_lines.append(org_line)
 
-    #GET_REG_ADDRESS    0x4,d3
-    prev_lineno = -1
-    prev_toks = []
 
-    new_lines2 = []
-    for i,org_line in enumerate(new_lines):
-        line = remcomments(org_line)  # remove comments
-        toks = line.split()
-        if toks and toks[0] == "GET_REG_ADDRESS":
-            if prev_toks == toks:
-                # 2 same GET_REG_ADDRESS. Check register
-                reg = toks[1].split(",")[1]
-                # now check if register is referenced between the lines
-                reg_re = re.compile(fr"\b{reg}\b")
-                label_found = False
-                for j in range(prev_lineno+1,i):
-                    if reg_re.search(lines[j]):
-                        break
-                    toks2 = lines[j].split()
-                    if any(x in toks2 for x in breaking_instructions) or any(x.startswith("GET_") for x in toks2):
-                        label_found = True
-                    if re.match("\w+:",lines[j]):
-                        label_found = True
-                else:
-                    if not label_found:
-                        nb += 1
-                        if verbose:
-                            print(f"Prev loaded: {toks}: line {i+1} (loaded at line {prev_lineno+1})")
-                        org_line = re.sub(".*\|","\t|",org_line)
-            prev_lineno = i
-            prev_toks = toks
-
-        new_lines2.append(org_line)
 
     if verbose:
         if nb:
@@ -154,31 +122,29 @@ def optimize(lines,verbose=False):
         else:
             print("Nothing found")
 
+    reg16_suffix = ["HL","DE","BC"]
+
+    prev_line = ""
 ##    # simplify PUSH/MAKE_A/POP/MAKE_D pattern, PUSH/POP are useless in that case
-##    for i,org_line in enumerate(new_lines2):
-##        line = remcomments(org_line)  # remove comments
-##        if "MAKE_D" in line and "MAKE_A" in new_lines2[i-2] and "PUSH_SR" in new_lines2[i-3] and "POP_SR" in new_lines2[i-1]:
-##            new_lines2[i-1]= ""
-##            new_lines2[i-3]= ""
+    for i,org_line in enumerate(new_lines):
+        line = remcomments(org_line)  # remove comments
 
-    # remove empty so previous pass helps next pass
-    new_lines2 = [n for n in new_lines2 if n]
+        # remove MAKE_HL if follows directly LOAD_HL (because HL.W was changed)
+        # or if (a0) is used (means that we have updated HL earlier)
+        for rs in reg16_suffix:
+            if f"MAKE_{rs}" in line and any(x in prev_line for x in [f"LOAD_{rs}"]):
+                new_lines[i]= ""
+                break
+        prev_line = line
 
-##    # remove "MAKE_D" if immediately follows assignation/modification to D
-##    move_w_to_d1 = False
-##    cd1 = f",{registers['b']}"
-##    dc1 = f"{registers['b']},"
-##    for i,org_line in enumerate(new_lines2):
-##        line = remcomments(org_line)  # remove comments
-##        if "MAKE_A" in line:
-##            continue   # disregard, has no effect, don't reset move_w_to_d1 flag
-##        if "MAKE_D" in line and move_w_to_d1:
-##            new_lines2[i] = ""
-##        move_w_to_d1 = (cd1 in line and (".w" in line or "TO_REG" in line)) or (dc1 in line and "FROM_REG" in line)
-
+        if "tst.b" in line:
+            arg = line.split()[1]
+            prev_args = prev_line.split()
+            if prev_args and prev_args[-1]==arg:
+                new_lines[i] = ""  # remove tst.b if follows op on same register
     # remove empty
-    new_lines2 = [n for n in new_lines2 if n]
-    return new_lines2
+    new_lines = [n for n in new_lines if n]
+    return new_lines
 
 tool_version = "2.0"
 
@@ -390,8 +356,8 @@ def issue_warning(msg,newline=False):
 registers = {
 "a":"d0","b":"d1","c":"d2","d":"d3","e":"d4","h":"d5","l":"d6",
 "dwork1":"d7",
-"awork1":"a0",
-"awork2":"a1",
+"awork0":"a0",
+"awork1":"a1",
 "mem_base":"a6",
 "sp":"a7",
 "":""
@@ -432,7 +398,8 @@ single_instructions = {"nop":"nop",
 "rlca":f"rol.b\t#1,{rega}"}
 
 
-AW = registers['awork1']
+AW = registers['awork0']
+AW1 = registers['awork1']
 DW = registers['dwork1']
 MEMBASE = registers['mem_base']
 
@@ -742,7 +709,7 @@ def f_push(args,comment):
         rval = f"\tMAKE_{arg.upper()}{comment}\n\tmove.w\t{registers_16[arg]},-({registers['sp']}){comment}"
     elif arg == "af":
         # target stack is always even. Push CC first, avoids the use of movem
-        rval = f"\tPUSH_SR\{comment}\n\tmove.w\t{registers['a']},-({registers['sp']}){comment}"
+        rval = f"\tPUSH_SR\t{comment}\n\tmove.w\t{registers['a']},-({registers['sp']}){comment}"
     else:
         rval = issue_warning(f"Unsupported push with {arg}")
 
@@ -1393,7 +1360,7 @@ for i,line in enumerate(nout_lines):
                 # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
                 if prev_fp:
                     inst_no_size = prev_fp[0].split(".")[0]
-                    # also consider that jsr + jcc is not a problem. A lot of programs use C flag as return code
+                    # also consider that jsr + jcc/jcs/jne/jeq is not a problem. A lot of programs use C flag as return code
                     # consider that rts+jcc isn't a problem, converting jp cc,label does that.
                     if (inst_no_size != "rts" and inst_no_size not in carry_generating_instructions and
                     inst_no_size not in conditional_branch_instructions and inst_no_size not in routine_call_instructions):
@@ -1405,7 +1372,7 @@ for i,line in enumerate(nout_lines):
                     # also consider that jsr + jcc is not a problem. A lot of programs use C flag as return code
                     # consider that rts+jcc isn't a problem, converting jp cc,label does that.
                     if (inst_no_size != "rts" and inst_no_size not in z_generating_instructions and
-                    inst_no_size not in conditional_branch_instructions):
+                    inst_no_size not in conditional_branch_instructions and inst_no_size not in routine_call_instructions):
                         if not follows_sr_protected_block(nout_lines,i):
                             nout_lines[i] += issue_warning(f"stray {finst} test after {prev_fp[0]}",newline=True)
         prev_fp = fp
@@ -1799,7 +1766,7 @@ if True:
         f.write(f"""SBC_X:MACRO
 \tINVERT_XC_FLAGS
 \tGET_ADDRESS\t\\1
-\tmove.b\t({registers['awork1']},{X}.w),{DW}
+\tmove.b\t({awork0},{X}.w),{DW}
 \tsubx.b\t{DW},{A}
 \tINVERT_XC_FLAGS
 \tENDM
@@ -1875,7 +1842,7 @@ READ_LE_WORD:MACRO
 \tENDM
 
 GET_ADDRESS:MACRO
-\tlea\t\\1,{registers['awork1']}
+\tlea\t\\1,{AW}
 \tGET_ADDRESS_FUNC
 \tENDM
 
@@ -1889,7 +1856,7 @@ GET_ADDRESS:MACRO
     f.write("\trts\n\n")
 
     f.write(f"""get_address:
-\t{error} "`TODO: implement this by adding memory base to {registers['awork1']}"
+\t{error} "`TODO: implement this by adding memory base to {AW}"
 \trts
 
 
@@ -1925,6 +1892,7 @@ if cli_args.output_mode and cli_args.optimize:
 
 with open(cli_args.code_output,"w") as f:
     f.writelines(nout_lines)
+
     f.write(f"""{out_start_line_comment} < D0: byte possibly containing lowernibble > 9
 {out_start_line_comment} > D0: value corrected to full BCD
 daa:
@@ -1948,11 +1916,11 @@ rld:
     movem.w    d1/d2,-(a7)
     move.b    d0,d1        {out_comment} backup A
     clr.w    d2            {out_comment} make sure high bits of D2 are clear
-    move.b    (a0),d2       {out_comment} read (HL)
+    move.b    ({AW}),d2       {out_comment} read (HL)
     and.b #{out_hex_sign}F,d1        {out_comment} keep 4 lower bits of A
     lsl.w    #4,d2       {out_comment} make room for 4 lower bits
     or.b    d1,d2        {out_comment} insert bits
-    move.b    d2,(a0)        {out_comment} update (HL)
+    move.b    d2,({AW})        {out_comment} update (HL)
     lsr.w    #8,d2        {out_comment} get 4 shifted bits of (HL)
     and.b    #{out_hex_sign}F0,d0    {out_comment} keep only the 4 highest bits of A
     or.b    d2,d0        {out_comment} insert high bits from (HL) into first bits of A
@@ -1969,12 +1937,12 @@ rrd:
     movem.w    d1/d2,-(a7)
     move.b    d0,d1        {out_comment} backup A
     clr.w    d2            {out_comment} make sure high bits of D2 are clear
-    move.b    (a0),d2        {out_comment} read (HL)
+    move.b    ({AW}),d2        {out_comment} read (HL)
     and.b    #{out_hex_sign}F,d1        {out_comment} keep 4 upper bits of A
     lsl.b    #4,d1
     ror.w    #4,d2        {out_comment} make room for 4 higher bits
     or.b    d1,d2        {out_comment} insert bits
-    move.b    d2,(a0)        {out_comment} update (HL)
+    move.b    d2,({AW})        {out_comment} update (HL)
     rol.w    #4,d2        {out_comment} get 4 shifted bits of (HL)
     and.b    #{out_hex_sign}F,d2
     and.b    #{out_hex_sign}F0,d0    {out_comment} keep only the 4 highest bits of A
@@ -1989,9 +1957,10 @@ rrd:
 {out_start_line_comment} < A1: destination (DE)
 {out_start_line_comment} < D1: decremented (16 bit)
 ldd:
-    move.b    (a0),(a1)
-    subq.w  #1,a0
-    subq.w  #1,a1
+    ILLEGAL  | needs rework
+    move.b    ({AW}),({AW1})
+    subq.w  #1,{AW}
+    subq.w  #1,{AW1}
     subq.w    #1,d1
     rts
 """)
@@ -2001,18 +1970,21 @@ ldd:
 {out_start_line_comment} < A1: destination (DE)
 {out_start_line_comment} < D1: decremented (16 bit)
 lddr:
+    ILLEGAL  | needs rework
     subq.w    #1,d1
-    addq.w  #1,a0
-    addq.w  #1,a1
+    addq.w  #1,{registers['l']}
+    LOAD_HL {AW}
+    addq.w  #1,{registers['e']}
+    LOAD_DE {AW1}
 """)
         if cli_args.output_mode == "mit":
             f.write(f"""0:
-    move.b    -(a0),-(a1)
+    move.b    -({AW}),-({AW1})
     dbf        d1,0b
 """)
         else:
             f.write(f""".loop:
-    move.b    -(a0),-(a1)
+    move.b    -({AW}),-({AW1})
     dbf        d1,.loop
 """)
         f.write("""
@@ -2027,7 +1999,12 @@ lddr:
 {out_start_line_comment} < A1: destination (DE)
 {out_start_line_comment} < D1: decremented (16 bit)
 ldi:
-    move.b    (a0)+,(a1)+
+    addq.w    #1,{registers['l']}
+    addq.w    #1,{registers['e']}
+    MAKE_DE
+    move.l    {AW},{AW1}
+    MAKE_HL
+    move.b    (-1,{AW}),(-1,{AW1})
     subq.w    #1,d1
     rts
 """)
@@ -2042,6 +2019,7 @@ ldir:
 """)
         if cli_args.output_mode == "mit":
             f.write(f"""0:
+    illegal
     move.b    (a0)+,(a1)+
     dbf        d1,0b
     clr.w    d1
@@ -2049,6 +2027,7 @@ ldir:
 """)
         else:
             f.write(f""".loop:
+    illegal
     move.b    (a0)+,(a1)+
     dbf        d1,.loop
     clr.w    d1
@@ -2068,6 +2047,7 @@ cpir:
 """)
         if cli_args.output_mode == "mit":
             f.write(f"""0:
+    illegal
     cmp.b    (a0)+,d0
     beq.b    1f
     dbf        d1,0b
@@ -2079,6 +2059,7 @@ cpir:
 """)
         else:
             f.write(""".loop:
+    illegal
     cmp.b    (a0)+,d0
     beq.b    .out
     dbf        d1,.loop
@@ -2095,12 +2076,15 @@ cpir:
 {out_start_line_comment} < D1: decremented
 {out_start_line_comment} > D0.B value searched for (A)
 {out_start_line_comment} > Z flag if found
-{out_start_line_comment} careful: d1 overflow not emulated
+{out_start_line_comment}
 cpi:
     MAKE_BC
-    subq.w    #1,d2
+    subq.w    #1,{registers['c']}
     MAKE_B
-    cmp.b    (a0)+,d0
+    MAKE_HL
+    addq.w   #1,{registers['l']}
+    MAKE_H
+    cmp.b    (-1,{AW}),d0
     rts
 """)
 
@@ -2113,10 +2097,12 @@ cpi:
 {out_start_line_comment} careful: d1 overflow not emulated
 cpd:
     MAKE_BC
-    subq.w    #1,d2
+    subq.w    #1,{registers['c']}
     MAKE_B
-    subq.w    #1,a0
-    cmp.b    (1,a0),d0
+    MAKE_HL
+    subq.w   #1,{registers['l']}
+    MAKE_H
+    cmp.b    ({AW}),d0
     rts
 """)
 
@@ -2156,6 +2142,7 @@ cpdr:
 """)
         if cli_args.output_mode == "mit":
             f.write(f"""0:
+    illegal
     subq.w  #1,a0
     cmp.b    (1,a0),d0
     beq.b    1f
