@@ -220,8 +220,7 @@ else:
 breaking_instructions = {"rts",jmp_instruction,"bra",jsr_instruction}
 
 continuation_comment = f"{out_comment} [...]"
-MAKE_D_PREFIX = f"\tMAKE_D\t{continuation_comment}\n"
-MAKE_A_PREFIX = f"\tMAKE_A\t{continuation_comment}\n"
+
 
 # input & output comments are "*" and "|" (MIT syntax)
 # some day I may set as as an option...
@@ -530,7 +529,13 @@ def generic_load(inst,args,comment):
                 # not a register
                 rval += f"\tGET_ADDRESS\t{reg}{continuation_comment}\n"
 
+            op_size = "b"
             if src_is_reg:
+                if get_reg_size(src) == 2:
+                    rval += f"\tMAKE_{src.upper()}_NO_AR\n"
+                    src = registers_16[src]
+                    op_size = "w"
+
                 source = src
             else:
                 source = f"#{src}"
@@ -538,7 +543,7 @@ def generic_load(inst,args,comment):
             if is_move and source[0]=='#' and parse_hex(src,default=None)==0:
                 rval += f"\tclr.b\t({AW}){comment}"
             else:
-                rval += f"\t{inst}.b\t{source},({AW}){comment}"
+                rval += f"\t{inst}.{op_size}\t{source},({AW}){comment}"
 
 
     return rval
@@ -616,6 +621,11 @@ def f_dec_or_inc(inst,args,comment):
     return generic_load(inst,[args[0],"1"],comment)
 
 def f_sbc(args,comment):
+    return f_sbc_or_adc("sub",args,comment)
+def f_adc(args,comment):
+    return f_sbc_or_adc("add",args,comment)
+
+def f_sbc_or_adc(inst,args,comment):
     if len(args)==1:
         # assume A
         dest = registers["a"]
@@ -623,45 +633,24 @@ def f_sbc(args,comment):
     else:
         dest = args[0]
         source = args[1]
-    out = None
+    out = ""
+
     if dest in inv_registers_16:
         # probably comparison between 2 data registers
-
-        out = f"\tsub.w\t{source},{dest}{comment}\n"+issue_warning("compared/subbed registers")
+        out = f"\t{inst}.w\t{source},{dest}{comment}\n"+issue_warning("compared/subbed registers")
 
     elif source in inv_registers:
-        out = f"\tsubx.b\t{source},{dest}{comment}"
+        out = f"\t{inst}x.b\t{source},{dest}{comment}"
     elif is_immediate_value(source):
-        out = f"\tsubx.b\t#{source},{dest}{comment}"
+        out = f"\t{inst}x.b\t#{source},{dest}{comment}"
     else:
-        out = f"\tsubx.b\t{source},{dest}{comment}"
+        src_strip = source.strip("()")
+        if source.startswith("(") and src_strip in registers_16:
+            out = f"\tMAKE_{src_strip.upper()}{comment}\n"
+            source = f"({AW})"
+        out += f"\t{inst}x.b\t{source},{dest}{comment}"
     return out
 
-
-def f_adc(args,comment):
-    if len(args)==1:
-        # assume A
-        dest = registers["a"]
-        source = args[0]
-    else:
-        dest = args[0]
-        source = args[1]
-    out = None
-    if dest in inv_registers_16:
-        # supported but not sure, must be reviewed
-
-        out = f"\taddx.w\t{source},{dest}{comment}\n"+issue_warning(f"{source} computation above")
-        return out
-
-    dwork = registers["dwork1"]
-
-    if source in inv_registers:
-        out = f"\taddx.b\t{source},{dest}{comment}"
-    elif is_immediate_value(source):
-        out = f"\tmove.b\t#{source},{dwork}{comment}\n\taddx.b\t{dwork},{dest}{comment}"
-    else:
-        out = f"\taddx.b\t{source},{dest}{comment}"
-    return out
 
 
 ##EX AF,AF'  ; échange le registre AF avec le registre secondaire AF'
@@ -745,15 +734,20 @@ def f_or(args,comment):
 
 def f_xor(args,comment):
     p = args[0]
-    if p=="d0":
+    if p==registers['a']:
         # optim, as xor a is a way to zero a/clear carry
         out = f"\tCLR_XC_FLAGS{comment}\n\tclr.b\td0{comment}"
     elif is_immediate_value(p):
         out = f"\teor.b\t#{p},d0{comment}"
-    elif p in inv_registers:
-        out = f"\teor.b\t{p},d0{comment}"
     else:
-        out = f"\tmove.b\t{p},d7\n\teor.b\td7,d0{comment}"
+        out = ""
+        src_strip = p.strip("()")
+        if p.startswith("(") and src_strip in registers_16:
+            out = f"\tMAKE_{src_strip.upper()}{comment}\n"
+            p = f"({AW})"
+
+        out += f"\teor.b\t{p},{registers['a']}{comment}"
+
     return out
 
 def f_ret(args,comment):
@@ -1164,7 +1158,7 @@ for i,line in enumerate(nout_lines):
                 src=fp[1].split(",")[0]
                 nout_lines[i] = f"\tmove.b\t{src},{registers['dwork1']} {continuation_comment}\n"+nout_lines[i].replace(src,registers['dwork1'])
         elif finst not in conditional_branch_instructions and finst != "PUSH_SR" and prev_fp and prev_fp[0] in cmp_instructions:
-                nout_lines[i] = issue_warning(f"review stray cmp before {finst} (insert SET_X_FROM_C)",newline=True)+nout_lines[i]
+                nout_lines[i] = issue_warning(f"stray cmp before {finst} (insert SET_X_FROM_C)",newline=True)+nout_lines[i]
 
 
         prev_fp = fp
@@ -1452,11 +1446,15 @@ if True:
 \t.endm
 
 
-\t.macro\tMAKE_HL
+\t.macro\tMAKE_HL_NO_AR
 {out_start_line_comment} add {H} as MSB of {L} so {L}.W = HL, load target reg
 \trol.w\t#8,{L}
 \tmove.b\t{H},{L}
 \trol.w\t#8,{L}
+\t.endm
+
+\t.macro\tMAKE_HL
+\tMAKE_HL_NO_AR
 \tGET_REG_ADDRESS\t0,{L}
 \t.endm
 
@@ -1467,11 +1465,15 @@ if True:
 \trol.w\t#8,{L}
 \t.endm
 
-\t.macro\tMAKE_BC
+\t.macro\tMAKE_BC_NO_AR
 {out_start_line_comment} add {B} as MSB of {C} so {C}.W = BC
 \trol.w\t#8,{C}
 \tmove.b\t{B},{C}
 \trol.w\t#8,{C}
+\t.endm
+
+\t.macro\tMAKE_BC
+\tMAKE_BC_NO_AR
 \tGET_REG_ADDRESS\t0,{C}
 \t.endm
 
@@ -1482,11 +1484,15 @@ if True:
 \trol.w\t#8,{C}
 \t.endm
 
-\t.macro\tMAKE_DE
+\t.macro\tMAKE_DE_NO_AR
 {out_start_line_comment} add {D} as MSB of {E} so {E}.W = DE
 \trol.w\t#8,{E}
 \tmove.b\t{D},{E}
 \trol.w\t#8,{E}
+\t.endm
+
+\t.macro\tMAKE_DE
+\tMAKE_DE_NO_AR
 \tGET_REG_ADDRESS\t0,{E}
 \t.endm
 
