@@ -486,8 +486,8 @@ def generic_load(inst,args,comment):
                     d68k = registers_16[dest]
                     s68k = registers_16[src]
                     rval += f"""
-\tMAKE_{src.upper()}
-\tMAKE_{dest.upper()}
+\tMAKE_{src.upper()}_NO_AR
+\tMAKE_{dest.upper()}_NO_AR
 \t{inst}.w\t{s68k},{d68k}{comment}
 \tPUSH_SR\t{out_comment} save CC
 \tMAKE_{dest.upper()[0]}\t{out_comment} update MSB reg
@@ -517,7 +517,7 @@ def generic_load(inst,args,comment):
                             rval += f"\tLOAD_{dest.upper()}\t#{src}{comment}"
                         else:
                             rdest = registers_16[dest]
-                            rval += f"\tMAKE_{dest.upper()}\n\t{inst}.w\t#{src},{rdest}{comment}\n\tMAKE_{dest[0].upper()}"
+                            rval += f"\tMAKE_{dest.upper()}_NO_AR\n\t{inst}.w\t#{src},{rdest}{comment}\n\tMAKE_{dest[0].upper()}"
 
     else:
         if dest[0]=='(':
@@ -670,7 +670,7 @@ def f_ex(args,comment):
     regsp = f'({registers["sp"]})'
 
     if arg0 in registers_16 and arg1 in registers_16:
-        txt = f"\tMAKE_{arg0.upper()}\n\tMAKE_{arg1.upper()}\n"
+        txt = f"\tMAKE_{arg0.upper()}_NO_AR\n\tMAKE_{arg1.upper()}_NO_AR\n"
         arg0 = registers_16[arg0]
         arg1 = registers_16[arg1]
     elif arg1==regsp or arg0==regsp:
