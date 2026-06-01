@@ -45,6 +45,10 @@
 #    subq.b    #1,(a0)                             | [$2416: dec (hl)]
 #    MAKE_HL                                    | [$2417: ld a,(hl)]  remove make_hl because a0 is already OK
 #    move.b    (a0),d0                             | [...]
+#
+# adjust continuation comments which are incorrect at times
+# optimize: don't remove MAKE_HL after LOAD_HL, just change by GET_REG_UNCHECKED_ADDRESS 0,d6, and remove from MAKE_HL
+# as this could just mean to load a value
 
 import re,itertools,os,collections,glob,io,pathlib,sys
 import argparse
@@ -505,10 +509,11 @@ def generic_load(inst,args,comment):
                 if src[0]=='(':
                     src = src.strip('()')
                     if src in registers_16:
-                        pass
+                        the_comment = continuation_comment  #comment
                     else:
                         rval += f"\tGET_ADDRESS\t{src}{comment}\n"
-                    rval += f"\t{inst}.b\t({AW}),{dest}{continuation_comment}"
+                        the_comment = continuation_comment
+                    rval += f"\t{inst}.b\t({AW}),{dest}{the_comment}"
                 else:
                     if op_size == 1:
                         rval += f"\t{inst}.b\t#{src},{dest}{comment}"
