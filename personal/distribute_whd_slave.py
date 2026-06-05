@@ -4,8 +4,24 @@ colorama.init()
 
 import smtplib, ssl
 
-
-
+##Step 1: Enable 2FA
+##
+##Go to:
+##
+##Google Account Security Settings: https://myaccount.google.com/security?utm_source=chatgpt.com
+##
+##Enable "2-Step Verification".
+##
+##Step 2: Generate an App Password
+##
+##Go to:
+##
+##Google App Passwords: https://myaccount.google.com/apppasswords?utm_source=chatgpt.com
+##
+##Create a password for "Mail" (or a custom app).
+##
+##Google will give you a 16-character password like:
+# abcd efgh ijkl mnop
 
 
 parser = argparse.ArgumentParser()
@@ -20,7 +36,7 @@ tmparc = []
 progdir = os.path.abspath(os.path.dirname(__file__))
 
 full_chain_mode = False
-send_mail = False # doesn"t work anyway
+send_mail = True # doesn"t work anyway
 temp = r"K:\jff\AmigaHD\Download\whdload"
 # if full_chain_mode else os.getenv("TEMP")
 
@@ -122,14 +138,6 @@ try:
         if full_chain_mode:
             pass
         else:
-##            shell_name = "amigash"
-##            temp_shell = os.path.join(os.getenv("TEMP"),shell_name)
-##            with open(temp_shell,"wb") as f:
-##                f.write("""cd DOWNLOAD:whdload\nlha a -r "{0}.lha" "{0}Install"\n""".format(gamename).encode())
-##            subprocess.check_output(["squirt","localhost",temp_shell])
-##            subprocess.check_output(["squirt_exec","localhost","execute","T:"+shell_name])
-##            if os.path.exists(arcfile):
-##                print("{} created on the amiga side!!".format(arcfile))
             subprocess.run(["lha","-r","a",f"{gamename}.lha",f"{gamename}Install/*"],cwd=temp,check=True)
     if send_mail:
         # send by e-mail
@@ -185,7 +193,7 @@ except OSError as e:
 if os.path.exists(tmpdir):
     shutil.rmtree(tmpdir)
 
-os.startfile(temp)
+#os.startfile(temp)
 
 #print("{}Press a key to exit{}".format(c,colorama.Fore.RESET))
 #input()
