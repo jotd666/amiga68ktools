@@ -13,7 +13,7 @@ if True:
     projects = r"K:\jff\AmigaHD\PROJETS"
     source_dir = os.path.join(projects,r"HDInstall\DONE")
 
-    dest_dirs = glob.glob(os.path.join(projects,r"CD32GAMES\[CH]DROOT_*"))
+    dest_dirs = [d for d in glob.glob(os.path.join(projects,r"CD32GAMES\[CH]DROOT_*"))+[r"F:\SYNC\GAMES"] if os.path.isdir(d)]
 
     def scan_slaves(root_dir):
         rval = dict()
@@ -31,6 +31,7 @@ if True:
     source_slaves = scan_slaves(source_dir)
     dest_slaves = dict()
     for dest_dir in dest_dirs:
+        print(f"Scanning slaves in {dest_dir}")
         dest_slaves[dest_dir] = scan_slaves(dest_dir)
 
 
