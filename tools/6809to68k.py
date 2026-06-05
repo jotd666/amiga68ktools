@@ -1921,7 +1921,7 @@ last_get_address = None
 last_dir = None
 push_sr_in_block = False
 
-for line in nout_lines_2:
+for i,line in enumerate(nout_lines_2):
     if label_re.match(line):
         push_sr_in_block = False
 
@@ -1948,12 +1948,20 @@ for line in nout_lines_2:
             # remove MAKE_D
             continue
 
-    # if move.w in line and (ax) replace move.w by cpu-dependent macro
+    # if move.w in line and (ax) replace move.w by cpu-dependent macro (to avoid odd read/write of word)
     if "move.w" in line and f"({AW})" in line:
         if ",(" in line:
             inst = "MOVE_W_FROM_REG"
+            if "subqz" in prev_line and f"#2,{AW}" in prev_line:
+                nout_lines.pop()  # remove prev subq
+                inst += "_PREDEC"
         else:
             inst = "MOVE_W_TO_REG"
+            next_line = nout_lines_2[i+1]
+            if "addqz" in next_line and f"#2,{AW}" in next_line:
+                nout_lines_2[i+1] = ""
+                inst += "_POSTINC"
+
         line = line.replace("move.w",inst).replace(f"({AW})",AW).replace(f"({AW})".lower(),AW)
 
     for i in ["cmp","add","sub"]:
@@ -2263,6 +2271,13 @@ out\\@:
 \tmove.w\t\\src,(\\dest)
 \t.endm
 
+\t.macro\tMOVE_W_FROM_REG_PREDEC\tsrc,dest
+\tmove.w\t\\src,-(\\dest)
+\t.endm
+
+\t.macro\tMOVE_W_TO_REG_POSTINC\tsrc,dest
+\tmove.w\t(\\src)+,\\dest
+\t.endm
 
 
 \t.macro READ_BE_WORD\tsrcreg
@@ -2306,6 +2321,11 @@ out\\@:
 \ttst.w\t\\src
 \t.endm
 
+\t.macro\tMOVE_W_FROM_REG_PREDEC\tsrc,dest
+\tsubq\t#2,\\dest
+\tMOVE_W_FROM_REG\t\\src,\\dest
+\t.endm
+
     .macro    INST_W_TO_REG    inst,src,dest
     move.b    (\\src),{DW}
     ror.w    #8,{DW}
@@ -2313,6 +2333,10 @@ out\\@:
     \\inst\\().w    {DW},\\dest
     .endm
 
+\t.macro\tMOVE_W_TO_REG_POSTINC\tsrc,dest
+\tMOVE_W_TO_REG\t\\src,\\dest
+\taddq.w\t#2,\\dest
+\t.endm
 
 
 \t.macro READ_BE_WORD\tsrcreg
@@ -2333,6 +2357,7 @@ out\\@:
     .macro    MOVE_W_TO_REG    src,dest
     INST_W_TO_REG   move,\\src,\\dest
     .endm
+
 
     .macro    SUB_W_TO_REG    src,dest
     INST_W_TO_REG   sub,\\src,\\dest
