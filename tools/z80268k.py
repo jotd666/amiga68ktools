@@ -64,6 +64,9 @@ def remove_continuing_lines(lines,i):
         else:
             break
 
+def rebuild_lines(lines):
+    return "\n".join(lines).splitlines()
+
 def change_instruction(code,lines,i,continuing_lines=True):
     line = lines[i]
     toks = line.split(out_comment)
@@ -1213,7 +1216,7 @@ if grouping:
 
 prev_carry_altering_inst = False
 
-nout_lines = "\n".join(nout_lines).splitlines()
+nout_lines = rebuild_lines(nout_lines)
 
 for i,line in enumerate(nout_lines):
     toks = line.split()
@@ -1222,7 +1225,7 @@ for i,line in enumerate(nout_lines):
         if inst in ["CLR_XC_FLAGS","SET_XC_FLAGS","add.w","sub.w","add.b","sub.b","asl.b","lsr.b","asr.b","lsl.b"] or inst in breaking_instructions:
             # carry won't propagate / is under control by original game code
             prev_carry_altering_inst = False
-        elif inst in ["subq.w","addq.w"]:
+        elif inst in ["subq.w","addq.w","subq.b","addq.b"]:
             # conversion added increments/decrements which affect X
             # doesn't usually matter except when using carry-based add/subs or BCD'
             prev_carry_altering_inst = True
@@ -1233,8 +1236,9 @@ for i,line in enumerate(nout_lines):
 # try to swap if push_sr and move
 prev_inst = None
 
-# remove empty lines ... again
-nout_lines = [line for line in nout_lines if line]
+# remove empty lines ... again, recreate one line per entry
+nout_lines = rebuild_lines(nout_lines)
+
 
 for i,line in enumerate(nout_lines):
     toks = line.split()
