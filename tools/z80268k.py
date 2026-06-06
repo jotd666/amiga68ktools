@@ -27,6 +27,9 @@
 # (there are python scripts that do that in that repository) and concentrate on the 68k code
 # in regions where the code is often called, optimize manually, and never re-generate
 #
+# first version of the refactored code allowed to convert 8085 code and run intro of Pleiads
+# with some patching, but mostly the patching was reported by ERROR directives
+#
 # check how conversion+custom post-processing does an automatic job here:
 # https://github.com/jotd666/????
 #
@@ -153,7 +156,7 @@ def optimize(lines,verbose=False):
     new_lines = [n for n in new_lines if n]
     return new_lines
 
-tool_version = "2.0"
+tool_version = "2.1"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -703,7 +706,7 @@ def f_push(args,comment):
     arg = args[0]
     rval = ""
     if arg in registers_16:
-        rval = f"\tMAKE_{arg.upper()}{comment}\n\tmove.w\t{registers_16[arg]},-({registers['sp']}){comment}"
+        rval = f"\tMAKE_{arg.upper()}_NO_AR{comment}\n\tmove.w\t{registers_16[arg]},-({registers['sp']}){comment}"
     elif arg == "af":
         # target stack is always even. Push CC first, avoids the use of movem
         rval = f"\tPUSH_SR\t{comment}\n\tmove.w\t{registers['a']},-({registers['sp']}){comment}"
