@@ -38,9 +38,11 @@
 #
 # the main limitation is the inability to stick to the stack model.
 #
-# todo: connect ldir functions, exx (D1, D2??)
-# ex: HL/DE => d4/d6 and also d3/d5, maybe implement ex (sp)
-# sbc/adc not correct, use subx / addx
+# TODO
+# * better: ld ix,xxxx => GET_ADDRESS A2 instead of A0 => move.l A0,a2
+# * add  ix,bc => add.b bc,a2: not correct should be MAKE_BC_NO_AR then dd.l d2,a2
+# * exg af,af' => implement with EXG_AF_AF_PRIME macro
+#
 # optims: remove MAKE_HL if H(D5) or L(D6) not changed in between, same for DE/BC
 #     MAKE_H then    MAKE_HL => we can remove MAKE_HL / BC / DE
 #     remove MAKE_HL after LOAD_HL
@@ -1808,9 +1810,15 @@ if True:
     .endm
 
 
-
-
-
+\t.macro\tEXG_AF_AF_PRIME
+\tPUSH_SR                       | push ccr
+\tmove.b\taprime,{dwork1}       | retrieve A'
+\tmove.b\t{A},aprime            | save A
+\tmove.b\t{dwork},{A}           | A <= A'
+\tmove.w\tfprime,{dwork1}       | retrieve F'
+\tmove.w\t(sp),fprime           | save F
+\tmove.w\t{dwork1},(sp)         | F' <= F
+\tPOP_SR                        | pop ccr
 """)
         for unchecked in ["","UNCHECKED_"]:
             f.write(f"""\t.macro GET_REG_{unchecked}ADDRESS\toffset,reg,dest
