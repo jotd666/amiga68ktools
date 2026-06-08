@@ -49,6 +49,7 @@
 #    MAKE_HL                                    | [$2417: ld a,(hl)]  remove make_hl because a0 is already OK
 #    move.b    (a0),d0                             | [...]
 #
+#  .w operation on d6 plus MAKE_H => remove MAKE_HL, replace by MAKE_AR_FROM_HL
 # adjust continuation comments which are incorrect at times
 # optimize: don't remove MAKE_HL after LOAD_HL, just change by GET_REG_UNCHECKED_ADDRESS 0,d6, and remove from MAKE_HL
 # as this could just mean to load a value
@@ -142,7 +143,7 @@ def optimize(lines,verbose=False):
         # remove MAKE_HL if follows directly LOAD_HL (because HL.W was changed)
         # or if (a0) is used (means that we have updated HL earlier)
         for rs in reg16_suffix:
-            if f"MAKE_{rs}" in line and any(x in prev_line for x in [f"LOAD_{rs}"]):
+            if f"MAKE_AR_FROM_{rs}" in line and any(x in prev_line for x in [f"LOAD_{rs}"]):
                 new_lines[i]= ""
                 break
         prev_line = line
@@ -286,6 +287,9 @@ if no_mame_prefixes:
 else:
     instruction_re = re.compile("([0-9A-F]{4}):(( [0-9A-F]{2}){1,})\s+(\S.*)")
 
+special_loop_instructions = {"ldi","ldd","lddr","ldir","cpir","cpdr","rld","rrd","cpi","cpd","exx"}
+special_loop_instructions_met = set()
+
 addresses_to_reference = set()
 
 address_lines = {}
@@ -334,7 +338,7 @@ for input_file in input_files:
                             elif address > prev_address+previous_nb_bytes:
                                 itoks = instruction.split()
                                 fitok = itoks[0]
-                                if fitok.upper() in ["RET","JP","RETI"]:
+                                if fitok.upper() in ["RET","JP","RETI","RST"]:
                                     pass
                                 else:
                                     warn(f"instruction discontinuity at ${address:04x}, prev inst at ${prev_address:04x}")
@@ -364,6 +368,8 @@ def issue_warning(msg,newline=False):
 
 registers = {
 "a":"d0","b":"d1","c":"d2","d":"d3","e":"d4","h":"d5","l":"d6",
+"ix":"a2",
+"iy":"a3",
 "dwork1":"d7",
 "awork0":"a0",
 "awork1":"a1",
@@ -508,16 +514,16 @@ def generic_load(inst,args,comment):
                 # in a register, possibly with offset
                 offset,reg = decode_paren_arg(src)
                 if reg in registers_16:
-                    rval += f"\tMAKE_{reg.upper()}{comment}\n"
+                    rval += f"\tMAKE_AR_FROM_{reg.upper()}\t{AW}{comment}\n"
             if dest[0]=='a':
-                rval += f"\tGET_ADDRESS\t{src}{comment}\n\tmove.l\t{AW},{dest}{continuation_comment}"  # simple load into register
+                rval += f"\tGET_ADDRESS\t{src},{AW}{comment}\n\tmove.l\t{AW},{dest}{continuation_comment}"  # simple load into register
             else:
                 if src[0]=='(':
                     src = src.strip('()')
                     if src in registers_16:
                         the_comment = continuation_comment  #comment
                     else:
-                        rval += f"\tGET_ADDRESS\t{src}{comment}\n"
+                        rval += f"\tGET_ADDRESS\t{src},{AW}{comment}\n"
                         the_comment = continuation_comment
                     rval += f"\t{inst}.b\t({AW}),{dest}{the_comment}"
                 else:
@@ -535,10 +541,10 @@ def generic_load(inst,args,comment):
             # in a register, possibly with offset
             offset,reg = decode_paren_arg(dest)
             if reg in registers_16:
-                rval += f"\tMAKE_{reg.upper()}{continuation_comment}\n"
+                rval += f"\tMAKE_AR_FROM_{reg.upper()}\t{AW}{continuation_comment}\n"
             else:
                 # not a register
-                rval += f"\tGET_ADDRESS\t{reg}{continuation_comment}\n"
+                rval += f"\tGET_ADDRESS\t{reg},{AW}{continuation_comment}\n"
 
             op_size = "b"
             if src_is_reg:
@@ -619,6 +625,23 @@ def f_call(args,comment):
         add_entrypoint(parse_hex(target_address))
     return out
 
+def f_bit(args,comment):
+    return f"\tbtst.b\t#{args[0]},{args[1]}{comment}"
+def f_set(args,comment):
+    return f"\tbset.b\t#{args[0]},{args[1]}{comment}"
+def f_res(args,comment):
+    return f"\tbclr.b\t#{args[0]},{args[1]}{comment}"
+
+def f_djnz(args,comment):
+    target_address = arg2label(args[0])
+    if target_address != args[0]:
+        add_entrypoint(parse_hex(args[0]))
+
+    # a dbf wouldn't work as d1 loaded as byte and with 1 more iteration
+    # adapt manually if needed
+    return f"\tsubq.b\t#1,d1\t{comment}\n\tjne\t{target_address}\t{continuation_comment}"
+
+
 
 def f_ld(args,comment):
     return generic_load('move',args,comment)
@@ -657,7 +680,7 @@ def f_sbc_or_adc(inst,args,comment):
     else:
         src_strip = source.strip("()")
         if source.startswith("(") and src_strip in registers_16:
-            out = f"\tMAKE_{src_strip.upper()}{comment}\n"
+            out = f"\tMAKE_{src_strip.upper()}\t{AW}{comment}\n"
             source = f"({AW})"
         out += f"\t{inst}x.b\t{source},{dest}{comment}"
     return out
@@ -710,6 +733,8 @@ def f_push(args,comment):
     elif arg == "af":
         # target stack is always even. Push CC first, avoids the use of movem
         rval = f"\tPUSH_SR\t{comment}\n\tmove.w\t{registers['a']},-({registers['sp']}){comment}"
+    elif arg in inv_registers and arg.startswith("a"):
+        rval = f"\tmove.l\t{arg},-({registers['sp']}){comment}"
     else:
         rval = issue_warning(f"Unsupported push with {arg}")
 
@@ -722,6 +747,8 @@ def f_pop(args,comment):
         rval = f"\tmove.w\t({registers['sp']})+,{registers_16[arg]}{comment}\n\tMAKE_{arg[0].upper()}{comment}"
     elif arg == "af":
         rval = f"\tmove.w\t({registers['sp']})+,{registers['a']}{comment}\n\tPOP_SR{comment}"
+    elif arg in inv_registers and arg.startswith("a"):
+        rval = f"\tmove.l\t({registers['sp']})+,{arg}{comment}"
     else:
         rval = issue_warning(f"Unsupported pop with {arg}")
     return rval
@@ -761,6 +788,39 @@ def f_xor(args,comment):
 
     return out
 
+def f_rl(args,comment):
+    arg = args[0]
+    return f"\troxl.b\t#1,{arg}{comment}"
+
+def f_rlc(args,comment):
+    arg = args[0]
+    return f"\trol.b\t#1,{arg}{comment}"
+
+def f_rr(args,comment):
+    arg = args[0]
+    return f"\troxr.b\t#1,{arg}{comment}"
+
+def f_srl(args,comment):
+    arg = args[0]
+    return f"\tlsr.b\t#1,{arg}{comment}"
+
+def f_sra(args,comment):
+    arg = args[0]
+    return f"\tasr.b\t#1,{arg}{comment}"
+
+def f_sll(args,comment):
+    arg = args[0]
+    return f"\tlsl.b\t#1,{arg}{comment}"
+
+def f_sla(args,comment):
+    arg = args[0]
+    return f"\tasl.b\t#1,{arg}{comment}"
+
+def f_rrc(args,comment):
+    arg = args[0]
+    return f"\tror.b\t#1,{arg}{comment}"
+
+
 def f_ret(args,comment):
     binst = rts_cond_dict[args[0]]
     if cli_args.output_mode == "mit":
@@ -768,6 +828,9 @@ def f_ret(args,comment):
     else:
         loclab = get_mot_local_label()
         return f"\t{binst}.b\t{loclab}{out_comment} [...]\n\trts{comment} [...]\n{loclab}:"
+
+def f_rst(args,comment):
+    return f_call(args,comment)
 
 def f_jp(args,comment):
     target_address = None
@@ -907,12 +970,20 @@ for i,(l,is_inst,address) in enumerate(lines):
         # now we can split according to remaining spaces
         itoks = inst.split()
 
+        if inst in special_loop_instructions:
+            special_loop_instructions_met.add(inst)  # note down that it's used
+
         if len(itoks)==1:
+            inst = inst.lower()
             si = single_instructions.get(inst)
             if si:
                 out = f"\t{si}{comment}"
+            elif inst in special_loop_instructions:
+                special_loop_instructions_met.add(inst)  # note down that it's used
+                out = f"\t{jsr_instruction}\t{inst}{comment}\n"
             else:
                 out = unsupported_instruction(inst,"",comment)
+
         elif len(itoks)==2:
             inst = itoks[0]
             args = itoks[1:]
@@ -1444,19 +1515,31 @@ if True:
 
 * the function that accesses all memory (except banks)
 * without any check
-\t.macro\tGET_UNCHECKED_ADDRESS_FUNC
-\tlea\t({MEMBASE},{AW}.l),{AW}
+\t.macro\tGET_UNCHECKED_ADDRESS_FUNC\tdest
+\tlea\t({MEMBASE},\\dest.l),\\dest
 \t.endm
 
 
-\t.macro\tGET_ADDRESS_FUNC
-\tjbsr\tget_address
+* only in dev mode, else call GET_UNCHECKED_ADDRESS_FUNC
+\t.macro\tGET_ADDRESS_FUNC\tdest
+\texg\ta0,\\dest
+\t{jsr_instruction}\tget_address
+\texg\ta0,\\dest
 \t.endm
 
 \t.macro\tCHECK_MAX\treg,arg
 \tERROR  "insert check max table function index here"
 \t.endm
 
+\t.macro\tMAKE_AR_FROM_HL\tdest
+\tGET_REG_ADDRESS\t0,{L},\\dest
+\t.endm
+\t.macro\tMAKE_AR_FROM_DE\tdest
+\tGET_REG_ADDRESS\t0,{E},\\dest
+\t.endm
+\t.macro\tMAKE_AR_FROM_BC\tdest
+\tGET_REG_ADDRESS\t0,{C},\\dest
+\t.endm
 
 \t.macro\tMAKE_HL_NO_AR
 {out_start_line_comment} add {H} as MSB of {L} so {L}.W = HL, load target reg
@@ -1465,9 +1548,9 @@ if True:
 \trol.w\t#8,{L}
 \t.endm
 
-\t.macro\tMAKE_HL
+\t.macro\tMAKE_HL\tdest
 \tMAKE_HL_NO_AR
-\tGET_REG_ADDRESS\t0,{L}
+\tMAKE_AR_FROM_HL\t\\dest
 \t.endm
 
 \t.macro\tMAKE_H
@@ -1484,9 +1567,9 @@ if True:
 \trol.w\t#8,{C}
 \t.endm
 
-\t.macro\tMAKE_BC
+\t.macro\tMAKE_BC\tdest
 \tMAKE_BC_NO_AR
-\tGET_REG_ADDRESS\t0,{C}
+\tMAKE_AR_FROM_BC\t\\dest
 \t.endm
 
 \t.macro\tMAKE_B
@@ -1503,9 +1586,9 @@ if True:
 \trol.w\t#8,{E}
 \t.endm
 
-\t.macro\tMAKE_DE
+\t.macro\tMAKE_DE\tdest
 \tMAKE_DE_NO_AR
-\tGET_REG_ADDRESS\t0,{E}
+\tMAKE_AR_FROM_DE\t\\dest
 \t.endm
 
 \t.macro\tMAKE_D
@@ -1631,15 +1714,15 @@ if True:
 
 * 68000 compliant
 
-   .macro    JXX_X_INDEXED    inst,reg,nb_cases,ab
-    moveq    #0,{DW}   | scratch register
-    move.b   \\ab,{DW}  | mask 8 bits
-    CHECK_MAX    {DW},\\nb_cases
-    * original register is not changed (could cause issues)
-    add.w    d6,d6    | *2 (16 -> 32 bits)
-    move.l    (\\reg,{DW}.w),\\reg
-    \inst    (\\reg)
-    .endm
+\t.macro    JXX_X_INDEXED    inst,reg,nb_cases,ab
+\tmoveq    #0,{DW}   | scratch register
+\tmove.b   \\ab,{DW}  | mask 8 bits
+\tCHECK_MAX    {DW},\\nb_cases
+\t* original register is not changed (could cause issues)
+\tadd.w    d6,d6    | *2 (16 -> 32 bits)
+\tmove.l    (\\reg,{DW}.w),\\reg
+\t\inst    (\\reg)
+\t.endm
 
 
 
@@ -1725,58 +1808,32 @@ if True:
     .endm
 
 
-* registers must be masked out to proper size before use
-\t.macro\tGET_INDIRECT_ADDRESS_REGS\treg1,reg2,destreg
-\tmove.l\t\\reg1,{AW}
-\tlea\t({AW},\\reg2\\().l),{AW}
-\tGET_ADDRESS_FUNC
-\tMOVE_W_TO_REG\t{AW},\\destreg
-\t.endm
-
 
 
 
 """)
         for unchecked in ["","UNCHECKED_"]:
-            f.write(f"""\t.macro GET_REG_{unchecked}ADDRESS\toffset,reg
+            f.write(f"""\t.macro GET_REG_{unchecked}ADDRESS\toffset,reg,dest
 \t.ifeq\t\\offset
-\tmove.l\t\\reg,{AW}
+\tmove.l\t\\reg,\\dest
 \t.else
-\tlea\t\\offset,{AW}
-\tlea\t({AW},\\reg\\().l),{AW}
+\tlea\t\\offset,\\dest
+\tlea\t(\\dest,\\reg\\().l),\\dest
 \t.endif
-\tGET_{unchecked}ADDRESS_FUNC
+\tGET_{unchecked}ADDRESS_FUNC\t\\dest
 \t.endm
 
 
-\t.macro GET_REG_INDIRECT_{unchecked}ADDRESS\toffset,reg
-\tGET_REG_ADDRESS\t\\offset,\\reg
-\tREAD_BE_WORD\t{AW}
-\tGET_{unchecked}ADDRESS_FUNC
+
+\t.macro GET_{unchecked}ADDRESS\toffset,dest
+\tlea\t\\offset,\\dest
+\tGET_{unchecked}ADDRESS_FUNC\t\\dest
 \t.endm
 
-\t.macro    GET_REG_REG_{unchecked}INDIRECT_ADDRESS reg1,reg2
-\tGET_INDIRECT_ADDRESS_REGS\t\\reg1,\\reg2,{DW}
-\tand.l\t#0xFFFF,{DW}
-\tmove.l\t{DW},{AW}
-\tGET_{unchecked}ADDRESS_FUNC
-\t.endm
-
-\t.macro GET_REG_{unchecked}ADDRESS_FROM_REG\treg,reg2
-\tmove.l\t\\reg,{AW}
-\tlea\t({AW},\\reg2\\().l),{AW}
-\tGET_{unchecked}ADDRESS_FUNC
-\t.endm
-
-\t.macro GET_{unchecked}ADDRESS\toffset
-\tlea\t\\offset,{AW}
-\tGET_{unchecked}ADDRESS_FUNC
-\t.endm
-
-\t.macro GET_INDIRECT_{unchecked}ADDRESS\toffset
-\tGET_ADDRESS\t\\offset
-\tREAD_BE_WORD\t{AW}
-\tGET_{unchecked}ADDRESS_FUNC
+\t.macro GET_INDIRECT_{unchecked}ADDRESS\toffset,dest
+\tGET_ADDRESS\t\\offset,\\dest
+\tREAD_BE_WORD\t\\dest
+\tGET_{unchecked}ADDRESS_FUNC\t\\dest
 \t.endm
 """)
     else:
@@ -1926,7 +1983,7 @@ daa_out:
     rts
 """)
 
-    if True: #"rld" in special_loop_instructions_met:
+    if "rld" in special_loop_instructions_met:
         f.write(f"""
 {out_start_line_comment} < A0 (HL)
 {out_start_line_comment} < D0 (A)
@@ -1947,7 +2004,7 @@ rld:
 
 """)
 
-    if True: #"rrd" in special_loop_instructions_met:
+    if "rrd" in special_loop_instructions_met:
         f.write(f"""
 {out_start_line_comment} < A0 (HL)
 {out_start_line_comment} < D0 (A)
@@ -1969,27 +2026,27 @@ rrd:
     rts
 
 """)
-    if True: #if "ldd" in special_loop_instructions_met:
+    if "ldd" in special_loop_instructions_met:
         f.write(f"""
 {out_start_line_comment} < A0: source (HL)
 {out_start_line_comment} < A1: destination (DE)
 {out_start_line_comment} < D1: decremented (16 bit)
 ldd:
-    ILLEGAL  | needs rework
+    MAKE_BC_NO_AR
     move.b    ({AW}),({AW1})
     subq.w  #1,{AW}
     subq.w  #1,{AW1}
-    subq.w    #1,d1
+    subq.w    #1,{registers['c']}
     rts
 """)
-    if True: #if "lddr" in special_loop_instructions_met:
+    if "lddr" in special_loop_instructions_met:
         f.write(f"""
 {out_start_line_comment} < A0: source (HL)
 {out_start_line_comment} < A1: destination (DE)
 {out_start_line_comment} < D1: decremented (16 bit)
 lddr:
-    ILLEGAL  | needs rework
-    subq.w    #1,d1
+    MAKE_BC_NO_AR
+    subq.w    #1,{registers['c']}
     addq.w  #1,{registers['l']}
     LOAD_HL {AW}
     addq.w  #1,{registers['e']}
@@ -1998,133 +2055,141 @@ lddr:
         if cli_args.output_mode == "mit":
             f.write(f"""0:
     move.b    -({AW}),-({AW1})
-    dbf        d1,0b
+    dbf        {registers['c']},0b
 """)
         else:
             f.write(f""".loop:
     move.b    -({AW}),-({AW1})
-    dbf        d1,.loop
+    dbf        {registers['c']},.loop
 """)
-        f.write("""
-    subq.w  #1,a0
-    subq.w  #1,a1
-    clr.w    d1
+        f.write(f"""
+    subq.w  #1,{AW1}
+    subq.w  #1,{AW}
+    moveq\t#0,{registers['c']}
     rts
 """)
-    if True: #if "ldi" in special_loop_instructions_met:
+    if "ldi" in special_loop_instructions_met:
         f.write(f"""
 {out_start_line_comment} < A0: source (HL)
 {out_start_line_comment} < A1: destination (DE)
 {out_start_line_comment} < D1: decremented (16 bit)
 ldi:
-    addq.w    #1,{registers['l']}
-    addq.w    #1,{registers['e']}
-    MAKE_DE
+    MAKE_BC_NO_AR
+    MAKE_DE_NO_AR
+    MAKE_HL_NO_AR
+    addq.w    #1,{L}
+    addq.w    #1,{E}
+    MAKE_AR_FROM_HL\t{AW}
+    MAKE_AR_FROM_DE\t{AW1}
     move.l    {AW},{AW1}
-    MAKE_HL
     move.b    (-1,{AW}),(-1,{AW1})
-    subq.w    #1,d1
+    subq.w    #1,{C}
     rts
 """)
 
-    if True: #if "ldir" in special_loop_instructions_met:
+    if "ldir" in special_loop_instructions_met:
         f.write(f"""
 {out_start_line_comment} < A0: source (HL)
 {out_start_line_comment} < A1: destination (DE)
 {out_start_line_comment} < D1: length (16 bit)
 ldir:
-    subq.w    #1,d1
+    MAKE_BC_NO_AR
+    MAKE_HL_NO_AR
+    MAKE_DE_NO_AR
+    MAKE_AR_FROM_HL\t{AW}
+    MAKE_AR_FROM_DE\t{AW1}
+    subq.w    #1,{C}
 """)
         if cli_args.output_mode == "mit":
             f.write(f"""0:
-    illegal
-    move.b    (a0)+,(a1)+
-    dbf        d1,0b
-    clr.w    d1
+    move.b    ({AW})+,({AW1})+
+    dbf        {registers['c']},0b
+    moveq\t#0,{registers['c']}
     rts
 """)
         else:
             f.write(f""".loop:
-    illegal
-    move.b    (a0)+,(a1)+
-    dbf        d1,.loop
-    clr.w    d1
+    move.b    ({AW})+,({AW1})+
+    dbf        {registers['c']},.loop
+    moveq\t#0,{registers['c']}
     rts
 """)
 
 
 
-    if True: #if "cpir" in special_loop_instructions_met:
+    if "cpir" in special_loop_instructions_met:
         f.write(f"""
 {out_start_line_comment} < A0: source (HL)
 {out_start_line_comment} < D1: length to search
 {out_start_line_comment} > D0.B value searched for (A)
 {out_start_line_comment} > Z flag if found
 cpir:
-    subq.w    #1,d1
+    MAKE_BC_NO_AR
+    MAKE_HL
+    subq.w    #1,{registers['c']}
 """)
         if cli_args.output_mode == "mit":
             f.write(f"""0:
-    illegal
-    cmp.b    (a0)+,d0
+    cmp.b    ({AW})+,{A}
     beq.b    1f
-    dbf        d1,0b
-    clr.w    d1
+    dbf        {registers['c']},0b
+    moveq\t#0,{registers['c']}
     {out_start_line_comment} not found: unset Z
-    cmp.b   #1,d1
+    cmp.b   #1,{registers['c']}
 1:
     rts
 """)
         else:
             f.write(""".loop:
-    illegal
-    cmp.b    (a0)+,d0
+    cmp.b    ({AW})+,d0
     beq.b    .out
-    dbf        d1,.loop
-    clr.w    d1
+    dbf        {registers['c']},.loop
+    moveq\t#0,{registers['c']}
     {out_start_line_comment} not found: unset Z
-    cmp.b   #1,d1
+    cmp.b   #1,{registers['c']}
 .out:
     rts
 """)
 
-    if True: #if "cpi" in special_loop_instructions_met:
+    if "cpi" in special_loop_instructions_met:
         f.write(f"""
-{out_start_line_comment} < A0: source (HL)
-{out_start_line_comment} < D1: decremented
-{out_start_line_comment} > D0.B value searched for (A)
+{out_start_line_comment} < source (HL)
+{out_start_line_comment} < B: decremented
+{out_start_line_comment} > A: value searched for
 {out_start_line_comment} > Z flag if found
 {out_start_line_comment}
 cpi:
-    MAKE_BC
+    MAKE_BC_NO_AR
     subq.w    #1,{registers['c']}
     MAKE_B
-    MAKE_HL
+    MAKE_HL_NO_AR
     addq.w   #1,{registers['l']}
     MAKE_H
-    cmp.b    (-1,{AW}),d0
+    MAKE_AR_FROM_HL\t{AW}
+    cmp.b    (-1,{AW}),{registers['a']}
     rts
 """)
 
-    if True: #if "cpd" in special_loop_instructions_met:
+    if "cpd" in special_loop_instructions_met:
         f.write(f"""
-{out_start_line_comment} < A0: source (HL)
-{out_start_line_comment} < D1: decremented
-{out_start_line_comment} > D0.B value searched for (A)
+{out_start_line_comment} < HL: source
+{out_start_line_comment} < BC: decremented
+{out_start_line_comment} > A: value searched for
 {out_start_line_comment} > Z flag if found
 {out_start_line_comment} careful: d1 overflow not emulated
 cpd:
-    MAKE_BC
-    subq.w    #1,{registers['c']}
+    MAKE_BC_NO_AR
+    subq.w    #1,{C}
     MAKE_B
-    MAKE_HL
-    subq.w   #1,{registers['l']}
+    MAKE_HL_NO_AR
+    subq.w   #1,{L}
     MAKE_H
-    cmp.b    ({AW}),d0
+    MAKE_AR_FROM_HL\t{AW}
+    cmp.b    ({AW}),{A}
     rts
 """)
 
-    if True: #if "exx" in special_loop_instructions_met:
+    if "exx" in special_loop_instructions_met:
         regs = "d1-d4/a0/a1/a4"
         regs_size = 7*4
         f.write(f"""
@@ -2149,7 +2214,7 @@ exx:
 \tmove.l\t(a7)+,a6
     rts
 """)
-    if True: #if "cpdr" in special_loop_instructions_met:
+    if "cpdr" in special_loop_instructions_met:
         f.write(f"""
 {out_start_line_comment} < A0: source (HL)
 {out_start_line_comment} < D1: length to search
