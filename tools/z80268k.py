@@ -381,11 +381,16 @@ registers = {
 }
 inv_registers = {v:k.upper() for k,v in registers.items()}
 registers_16 = {'hl':registers['l'],'de':registers['e'],'bc':registers['c']}
+registers_32 = {'ix':registers['ix'],'iy':registers['iy']}
 inv_registers_16 = {v:k.upper() for k,v in registers_16.items()}
 inv_registers_16['h'] = 'hl'
 inv_registers_16['d'] = 'de'
 inv_registers_16['d'] = 'de'
 inv_registers_16['b'] = 'bc'
+
+reg_size = {r:2 for r in registers_16}
+reg_size.update({r:1 for r in inv_registers})
+reg_size.update({r:4 for r in registers_32})
 
 extra_z80_regs = {"i","r","ixl","ixh","iyl","iyh"}
 
@@ -453,12 +458,12 @@ def arg2label(s):
         return s
 
 def get_reg_size(d):
-    return 2 if d in registers_16 else 1
+    return reg_size[d]
 
 def decode_2_args(args):
     dest,src = args
-    src_is_reg = src in inv_registers or src in registers_16
-    dest_is_reg = dest in inv_registers or dest in registers_16
+    src_is_reg = src in inv_registers or src in registers_16 or src in registers_32
+    dest_is_reg = dest in inv_registers or dest in registers_16 or dest in registers_32
     return dest,src,src_is_reg,dest_is_reg
 
 def decode_paren_arg(dest):
@@ -496,6 +501,8 @@ def generic_load(inst,args,comment):
         if src_is_reg:
             if op_size == 1:
                 rval += f"\t{inst}.b\t{src},{dest}{comment}"
+            elif op_size == 4:
+                rval += f"\t{inst}.l\t{src},{dest}{comment}"
             else:
                 # dest is 16 bits
                 if is_move:
@@ -515,19 +522,20 @@ def generic_load(inst,args,comment):
             if src[0]=='(':
                 # in a register, possibly with offset
                 offset,reg = decode_paren_arg(src)
+                targ = f"({offset},{AW})" if offset else f"({AW})"
                 if reg in registers_16:
                     rval += f"\tMAKE_AR_FROM_{reg.upper()}\t{AW}{comment}\n"
             if dest[0]=='a':
-                rval += f"\tGET_ADDRESS\t{src},{AW}{comment}\n\tmove.l\t{AW},{dest}{continuation_comment}"  # simple load into register
+                rval += f"\tlea\t{src},{dest}{continuation_comment}"  # simple load into address register
             else:
                 if src[0]=='(':
                     src = src.strip('()')
                     if src in registers_16:
-                        the_comment = continuation_comment  #comment
+                        the_comment = comment
                     else:
-                        rval += f"\tGET_ADDRESS\t{src},{AW}{comment}\n"
+                        rval += f"\tGET_ADDRESS\t{reg},{AW}{comment}\n"
                         the_comment = continuation_comment
-                    rval += f"\t{inst}.b\t({AW}),{dest}{the_comment}"
+                    rval += f"\t{inst}.b\t{targ},{dest}{the_comment}"
                 else:
                     if op_size == 1:
                         rval += f"\t{inst}.b\t#{src},{dest}{comment}"
@@ -546,7 +554,7 @@ def generic_load(inst,args,comment):
                 rval += f"\tMAKE_AR_FROM_{reg.upper()}\t{AW}{continuation_comment}\n"
             else:
                 # not a register
-                rval += f"\tGET_ADDRESS\t{reg},{AW}{continuation_comment}\n"
+                rval += f"\tGET_ADDRESS\t{reg},{AW}{continuation_comment}eeee\n"
 
             op_size = "b"
             if src_is_reg:
@@ -559,10 +567,11 @@ def generic_load(inst,args,comment):
             else:
                 source = f"#{src}"
 
+            targ = f"({offset},{AW})" if offset else f"({AW})"
             if is_move and source[0]=='#' and parse_hex(src,default=None)==0:
-                rval += f"\tclr.b\t({AW}){comment}"
+                rval += f"\tclr.b\t{targ}{comment}"
             else:
-                rval += f"\t{inst}.{op_size}\t{source},({AW}){comment}"
+                rval += f"\t{inst}.{op_size}\t{source},{targ}{comment}"
 
 
     return rval
@@ -697,7 +706,7 @@ def f_sbc_or_adc(inst,args,comment):
 
 def f_ex(args,comment):
     arg0,arg1 = args
-    dwork = registers["dwork1"]
+    dwork = DW
     if arg1.lower() == "af'":
         arg1 = dwork
         if arg0.lower() == "af":
@@ -716,15 +725,15 @@ def f_ex(args,comment):
             arg0,arg1=arg1,arg0
             marg0 = registers_16[arg0]
         txt = issue_warning("exchange with (sp)",newline=True)
-        txt += f"""\tmove.w\t{regsp},{dwork}{comment}
-\texg\t{marg0},{dwork}{comment}
+        txt += f"""\tmove.w\t{regsp},{DW}{comment}
+\texg\t{marg0},{DW}{comment}
 \tMAKE_{arg0[0].upper()}{comment}
-\tmove.w\t{dwork},{regsp}{comment}"""
+\tmove.w\t{DW},{regsp}{comment}"""
         return txt
 
-    txt += f"\texg\t{arg0},{arg1}{comment}"
+    txt += f"\tEXG_AF_AF_PRIME{comment}"
     if arg1 == dwork:
-        txt += "\n"+issue_warning("carry flags used below? if so, adapt")
+        txt += "\n"+issue_warning("if carry flag not used, replace by EXG_A_A_PRIME")
     return txt
 
 def f_push(args,comment):
@@ -783,7 +792,7 @@ def f_xor(args,comment):
         out = ""
         src_strip = p.strip("()")
         if p.startswith("(") and src_strip in registers_16:
-            out = f"\tMAKE_{src_strip.upper()}{comment}\n"
+            out = f"\tMAKE_{src_strip.upper()}\t{AW}{comment}\n"
             p = f"({AW})"
 
         out += f"\teor.b\t{p},{registers['a']}{comment}"
@@ -873,7 +882,6 @@ def get_substitution_extended_reg(arg):
     if arg == registers['b'] or arg == registers['a']:
     # problem: using .w on B register actually picks D
     # also there's a sign extension to consider!
-        DW = registers['dwork1']
         rval = f"""\tmoveq\t#0,{DW}{continuation_comment}
 \tmove.b\t{arg},{DW}{continuation_comment} as byte
 \tDO_EXTB\t{DW}{continuation_comment} with sign extension
@@ -1191,7 +1199,7 @@ setxcflags_inst = ["SET_XC_FLAGS"]
 # those are 68000 instructions (used in post-processing)
 
 flag_generating_instructions = {"subq","addq","add","sub","cmp","lsr","lsl","asl","asr","ror","rol","roxr","roxl","subx","addx","abcd"}
-z_generating_instructions = flag_generating_instructions | {"and","or","tst"}
+z_generating_instructions = flag_generating_instructions | {"and","or","tst","btst"}
 carry_generating_instructions = flag_generating_instructions | {"CLR_XC_FLAGS","SET_XC_FLAGS"}
 conditional_branch_instructions = {"bpl","bmi","bls","bne","beq","bhi","blo","bcc","bcs","blt","ble","bge","bgt"}
 conditional_branch_instructions.update({f"j{x[1:]}" for x in conditional_branch_instructions})
@@ -1211,7 +1219,7 @@ for i,line in enumerate(nout_lines):
             prev_inst = prev_fp[0]
             if prev_inst in ["addx.b","subx.b","add.b","sub.b"]:
                 nout_lines[i] = ""
-                tmpreg = registers['dwork1']
+                tmpreg = DW
                 clear_xc = "\tCLR_XC_FLAGS\n" if "addx" not in prev_inst and "subx" not in prev_inst else ""
                 new_inst = prev_inst.replace("addx.b","abcd")
                 new_inst = new_inst.replace("add.b","abcd")
@@ -1240,7 +1248,7 @@ for i,line in enumerate(nout_lines):
             if fp[1][0]=="#":
                 # can't have immediate mode for those, use a work register to make it legal
                 src=fp[1].split(",")[0]
-                nout_lines[i] = f"\tmove.b\t{src},{registers['dwork1']} {continuation_comment}\n"+nout_lines[i].replace(src,registers['dwork1'])
+                nout_lines[i] = f"\tmove.b\t{src},{DW} {continuation_comment}\n"+nout_lines[i].replace(src,DW)
         elif finst not in conditional_branch_instructions and finst != "PUSH_SR" and prev_fp and prev_fp[0] in cmp_instructions:
                 nout_lines[i] = issue_warning(f"stray cmp before {finst} (insert SET_X_FROM_C)",newline=True)+nout_lines[i]
 
@@ -1334,7 +1342,7 @@ for i,line in enumerate(nout_lines):
 # the generator assumed that rol, ror... a lot of operations can work directly on non-data registers
 # for simplicity's sake, now we post-process the generator to insert read to reg/op with reg/write to mem
 
-tmpreg = registers['dwork1']
+tmpreg = DW
 nout_lines_2 = []
 for line in nout_lines:
     line = line.rstrip()
@@ -1480,7 +1488,8 @@ if True:
     E = registers['e']
     H = registers['h']
     L = registers['l']
-
+    IX = registers['ix']
+    IY = registers['iy']
 
     f.write(f"""{out_start_line_comment} Converted with z80to68k v{tool_version} by JOTD
 {out_start_line_comment}
@@ -1809,16 +1818,20 @@ if True:
     JXX_B_INDEXED\tjmp,\\reg,\\nb_cases
     .endm
 
+\t.macro\tEXG_A_A_PRIME
+\tmove.b\taprime,{DW}       | retrieve A'
+\tmove.b\t{A},aprime            | save A
+\tmove.b\t{DW},{A}           | A <= A'
+\t.endm
 
 \t.macro\tEXG_AF_AF_PRIME
 \tPUSH_SR                       | push ccr
-\tmove.b\taprime,{dwork1}       | retrieve A'
-\tmove.b\t{A},aprime            | save A
-\tmove.b\t{dwork},{A}           | A <= A'
-\tmove.w\tfprime,{dwork1}       | retrieve F'
+\tEXG_A_A_PRIME
+\tmove.w\tfprime,{DW}       | retrieve F'
 \tmove.w\t(sp),fprime           | save F
-\tmove.w\t{dwork1},(sp)         | F' <= F
+\tmove.w\t{DW},(sp)         | F' <= F
 \tPOP_SR                        | pop ccr
+\t.endm
 """)
         for unchecked in ["","UNCHECKED_"]:
             f.write(f"""\t.macro GET_REG_{unchecked}ADDRESS\toffset,reg,dest
@@ -1834,7 +1847,15 @@ if True:
 
 
 \t.macro GET_{unchecked}ADDRESS\toffset,dest
-\tlea\t\\offset,\\dest
+\t.if \\offset=={IX}
+    move.l    \\offset,\\dest
+    .else
+    .if \offset=={IY}
+       move.l  \\offset,\\dest
+    .else
+    lea    \\offset,\\dest
+    .endif
+    .endif
 \tGET_{unchecked}ADDRESS_FUNC\t\\dest
 \t.endm
 
