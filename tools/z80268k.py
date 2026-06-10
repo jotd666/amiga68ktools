@@ -385,12 +385,11 @@ registers_32 = {'ix':registers['ix'],'iy':registers['iy']}
 inv_registers_16 = {v:k.upper() for k,v in registers_16.items()}
 inv_registers_16['h'] = 'hl'
 inv_registers_16['d'] = 'de'
-inv_registers_16['d'] = 'de'
 inv_registers_16['b'] = 'bc'
 
 reg_size = {r:2 for r in registers_16}
 reg_size.update({r:1 for r in inv_registers})
-reg_size.update({r:4 for r in registers_32})
+reg_size.update({r:4 for r in registers_32.values()})
 
 extra_z80_regs = {"i","r","ixl","ixh","iyl","iyh"}
 
@@ -496,9 +495,13 @@ def generic_load(inst,args,comment):
     else:
         nargs = args
     dest,src,src_is_reg,dest_is_reg = decode_2_args(nargs)
+
     if dest_is_reg:
         op_size = get_reg_size(dest)
         if src_is_reg:
+            if src in registers_16:
+                rval += f"\tMAKE_{src.upper()}_NO_AR{comment}\n"
+                src = registers_16[src]
             if op_size == 1:
                 rval += f"\t{inst}.b\t{src},{dest}{comment}"
             elif op_size == 4:
@@ -509,9 +512,10 @@ def generic_load(inst,args,comment):
                     rval += "\tLOAD_{dest.upper()}\t{src}{comment}"
                 else:
                     d68k = registers_16[dest]
-                    s68k = registers_16[src]
+                    s68k = src
+                    # src is already converted see above (src is a registers_16)
+                    # this is slightly messy!
                     rval += f"""
-\tMAKE_{src.upper()}_NO_AR
 \tMAKE_{dest.upper()}_NO_AR
 \t{inst}.w\t{s68k},{d68k}{comment}
 \tPUSH_SR\t{out_comment} save CC
@@ -558,11 +562,16 @@ def generic_load(inst,args,comment):
 
             op_size = "b"
             if src_is_reg:
-                if get_reg_size(src) == 2:
+                src_reg_size = get_reg_size(src)
+                if src_reg_size == 2:
                     rval += f"\tMAKE_{src.upper()}_NO_AR\n"
                     src = registers_16[src]
                     op_size = "w"
-
+                elif src_reg_size == 4:
+                    # address register used: we have to convert to word
+                    rval += f"\tmove.w\t{src},{DW}{comment}\n"
+                    src = DW
+                    op_size = "w"
                 source = src
             else:
                 source = f"#{src}"
@@ -666,6 +675,7 @@ def f_dec_or_inc(inst,args,comment):
     return generic_load(inst,[args[0],"1"],comment)
 
 def f_sbc(args,comment):
+    return generic_load("subx",args,comment)
     return f_sbc_or_adc("sub",args,comment)
 def f_adc(args,comment):
     return f_sbc_or_adc("add",args,comment)
@@ -1997,20 +2007,20 @@ if cli_args.output_mode and cli_args.optimize:
 with open(cli_args.code_output,"w") as f:
     f.writelines(nout_lines)
 
-    f.write(f"""{out_start_line_comment} < D0: byte possibly containing lowernibble > 9
-{out_start_line_comment} > D0: value corrected to full BCD
-daa:
-    move.w    d1,-(a7)
-    move.b    d0,d1
-    and.w    #{out_hex_sign}F,d1
-    sub.b    #10,d1
-    bcs.b    daa_out        | no need to do anything
-    * D1 = A-F: correct
-    add.b    #{out_hex_sign}16,d0
-daa_out:
-    move.w    (a7)+,d1
-    rts
-""")
+##    f.write(f"""{out_start_line_comment} < D0: byte possibly containing lowernibble > 9
+##{out_start_line_comment} > D0: value corrected to full BCD
+##daa:
+##    move.w    d1,-(a7)
+##    move.b    d0,d1
+##    and.w    #{out_hex_sign}F,d1
+##    sub.b    #10,d1
+##    bcs.b    daa_out        | no need to do anything
+##    * D1 = A-F: correct
+##    add.b    #{out_hex_sign}16,d0
+##daa_out:
+##    move.w    (a7)+,d1
+##    rts
+##""")
 
     if "rld" in special_loop_instructions_met:
         f.write(f"""
