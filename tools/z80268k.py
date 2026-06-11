@@ -39,10 +39,7 @@
 # the main limitation is the inability to stick to the stack model.
 #
 # TODO
-# * better: ld ix,xxxx => GET_ADDRESS A2 instead of A0 => move.l A0,a2
-# * add  ix,bc => add.b bc,a2: not correct should be MAKE_BC_NO_AR then dd.l d2,a2
-# * exg af,af' => implement with EXG_AF_AF_PRIME macro
-#
+
 # optims: remove MAKE_HL if H(D5) or L(D6) not changed in between, same for DE/BC
 #     MAKE_H then    MAKE_HL => we can remove MAKE_HL / BC / DE
 #     remove MAKE_HL after LOAD_HL
@@ -55,6 +52,9 @@
 # adjust continuation comments which are incorrect at times
 # optimize: don't remove MAKE_HL after LOAD_HL, just change by GET_REG_UNCHECKED_ADDRESS 0,d6, and remove from MAKE_HL
 # as this could just mean to load a value
+#
+#  AF88: 21 27 EA    ld   hl,$AE63  => wrong code
+#  in the end insert continuation comments when addresses repeat, not when generating
 
 import re,itertools,os,collections,glob,io,pathlib,sys
 import argparse
@@ -382,6 +382,7 @@ registers = {
 inv_registers = {v:k.upper() for k,v in registers.items()}
 registers_16 = {'hl':registers['l'],'de':registers['e'],'bc':registers['c']}
 registers_32 = {'ix':registers['ix'],'iy':registers['iy']}
+inv_registers_32 = {v:k for k,v in registers_32.items()}
 inv_registers_16 = {v:k.upper() for k,v in registers_16.items()}
 inv_registers_16['h'] = 'hl'
 inv_registers_16['d'] = 'de'
@@ -490,6 +491,7 @@ def decode_paren_arg(dest):
 def generic_load(inst,args,comment):
     rval = ""
     is_move = inst=="move"
+    address_reg = AW
     if len(args)==1:
         nargs = [registers['a'],args[0]]
     else:
@@ -526,20 +528,26 @@ def generic_load(inst,args,comment):
             if src[0]=='(':
                 # in a register, possibly with offset
                 offset,reg = decode_paren_arg(src)
-                targ = f"({offset},{AW})" if offset else f"({AW})"
                 if reg in registers_16:
                     rval += f"\tMAKE_AR_FROM_{reg.upper()}\t{AW}{comment}\n"
-            if dest[0]=='a':
-                rval += f"\tlea\t{src},{dest}{continuation_comment}"  # simple load into address register
+            if dest in inv_registers_32:  # a2 or a3 (ix,iy)
+                if src[0]=='(':
+                    src = src.strip("()")
+                    rval += f"\tGET_ADDRESS\t{src},{AW}{comment}\n"
+                    rval += f"\tREAD_ADDRESS\t{AW},{dest}{comment}"
+                else:
+                    rval += f"\tGET_ADDRESS\t{src},{dest}{comment}"  # simple load into address register
             else:
                 if src[0]=='(':
                     src = src.strip('()')
-                    if src in registers_16:
-                        the_comment = comment
+                    if reg in inv_registers_32:
+                        address_reg = reg
                     else:
                         rval += f"\tGET_ADDRESS\t{reg},{AW}{comment}\n"
-                        the_comment = continuation_comment
-                    rval += f"\t{inst}.b\t{targ},{dest}{the_comment}"
+
+
+                    targ = f"({offset},{address_reg})" if offset else f"({address_reg})"
+                    rval += f"\t{inst}.b\t{targ},{dest}{comment}"
                 else:
                     if op_size == 1:
                         rval += f"\t{inst}.b\t#{src},{dest}{comment}"
@@ -556,9 +564,12 @@ def generic_load(inst,args,comment):
             offset,reg = decode_paren_arg(dest)
             if reg in registers_16:
                 rval += f"\tMAKE_AR_FROM_{reg.upper()}\t{AW}{continuation_comment}\n"
+            elif reg in inv_registers_32:
+                # direct access using ix,iy host address
+                address_reg = reg
             else:
                 # not a register
-                rval += f"\tGET_ADDRESS\t{reg},{AW}{continuation_comment}eeee\n"
+                rval += f"\tGET_ADDRESS\t{reg},{AW}{continuation_comment}\n"
 
             op_size = "b"
             if src_is_reg:
@@ -569,14 +580,14 @@ def generic_load(inst,args,comment):
                     op_size = "w"
                 elif src_reg_size == 4:
                     # address register used: we have to convert to word
-                    rval += f"\tmove.w\t{src},{DW}{comment}\n"
+                    rval += f"\tWRITE_ADDRESS\t{src},{AW}{comment}\n"
                     src = DW
                     op_size = "w"
                 source = src
             else:
                 source = f"#{src}"
 
-            targ = f"({offset},{AW})" if offset else f"({AW})"
+            targ = f"({offset},{address_reg})" if offset else f"({address_reg})"
             if is_move and source[0]=='#' and parse_hex(src,default=None)==0:
                 rval += f"\tclr.b\t{targ}{comment}"
             else:
@@ -586,32 +597,6 @@ def generic_load(inst,args,comment):
     return rval
 
 
-
-
-
-##def f_tst(args,comment):
-##    return generic_indexed_from("tst","",args,comment)
-##
-##def f_ror(args,comment):
-##    return generic_shift_op("roxr","",args,comment)
-##
-##def f_rol(args,comment):
-##    return generic_shift_op("roxl","",args,comment)
-##
-##def f_lsr(args,comment):
-##    return generic_shift_op("lsr","",args,comment)
-##
-##def f_lsl(args,comment):
-##    return generic_shift_op("lsl","",args,comment)
-##
-##def f_asr(args,comment):
-##    return generic_shift_op("asr","",args,comment)
-##
-##def f_asl(args,comment):
-##    return generic_shift_op("asl","",args,comment)
-
-##def f_lsr(args,comment):
-##    return generic_indexed_to("lsr","",args,comment)
 
 
 
@@ -676,35 +661,36 @@ def f_dec_or_inc(inst,args,comment):
 
 def f_sbc(args,comment):
     return generic_load("subx",args,comment)
-    return f_sbc_or_adc("sub",args,comment)
+
 def f_adc(args,comment):
-    return f_sbc_or_adc("add",args,comment)
+    return generic_load("addx",args,comment)
 
-def f_sbc_or_adc(inst,args,comment):
-    if len(args)==1:
-        # assume A
-        dest = registers["a"]
-        source = args[0]
-    else:
-        dest = args[0]
-        source = args[1]
-    out = ""
 
-    if dest in inv_registers_16:
-        # probably comparison between 2 data registers
-        out = f"\t{inst}.w\t{source},{dest}{comment}\n"+issue_warning("compared/subbed registers")
-
-    elif source in inv_registers:
-        out = f"\t{inst}x.b\t{source},{dest}{comment}"
-    elif is_immediate_value(source):
-        out = f"\t{inst}x.b\t#{source},{dest}{comment}"
-    else:
-        src_strip = source.strip("()")
-        if source.startswith("(") and src_strip in registers_16:
-            out = f"\tMAKE_{src_strip.upper()}\t{AW}{comment}\n"
-            source = f"({AW})"
-        out += f"\t{inst}x.b\t{source},{dest}{comment}"
-    return out
+##def f_sbc_or_adc(inst,args,comment):
+##    if len(args)==1:
+##        # assume A
+##        dest = registers["a"]
+##        source = args[0]
+##    else:
+##        dest = args[0]
+##        source = args[1]
+##    out = ""
+##
+##    if dest in inv_registers_16:
+##        # probably comparison between 2 data registers
+##        out = f"\t{inst}.w\t{source},{dest}{comment}\n"+issue_warning("compared/subbed registers")
+##
+##    elif source in inv_registers:
+##        out = f"\t{inst}x.b\t{source},{dest}{comment}"
+##    elif is_immediate_value(source):
+##        out = f"\t{inst}x.b\t#{source},{dest}{comment}"
+##    else:
+##        src_strip = source.strip("()")
+##        if source.startswith("(") and src_strip in registers_16:
+##            out = f"\tMAKE_{src_strip.upper()}\t{AW}{comment}\n"
+##            source = f"({AW})"
+##        out += f"\t{inst}x.b\t{source},{dest}{comment}"
+##    return out
 
 
 
@@ -1208,7 +1194,7 @@ setxcflags_inst = ["SET_XC_FLAGS"]
 # sub/add aren't included as they're the translation of dec/inc which don't affect C
 # those are 68000 instructions (used in post-processing)
 
-flag_generating_instructions = {"subq","addq","add","sub","cmp","lsr","lsl","asl","asr","ror","rol","roxr","roxl","subx","addx","abcd"}
+flag_generating_instructions = {"subq","addq","add","sub","cmp","lsr","lsl","asl","asr","ror","rol","roxr","roxl","subx","addx","abcd","sbcd"}
 z_generating_instructions = flag_generating_instructions | {"and","or","tst","btst"}
 carry_generating_instructions = flag_generating_instructions | {"CLR_XC_FLAGS","SET_XC_FLAGS"}
 conditional_branch_instructions = {"bpl","bmi","bls","bne","beq","bhi","blo","bcc","bcs","blt","ble","bge","bgt"}
@@ -1540,12 +1526,23 @@ if True:
 \tlea\t({MEMBASE},\\dest.l),\\dest
 \t.endm
 
+\t.macro\tWRITE_ADDRESS\tsrc,dest
+\tmove.l\t\\src,{DW}
+\tsub.l\t{MEMBASE},{DW}
+\tMOVE_W_FROM_REG\t{DW},\\dest
+\t.endm
+
+\t.macro\tREAD_ADDRESS\tsrc,dest
+\tMOVE_W_TO_REG\ta0,{DW}
+\tGET_ADDRESS_FUNC\t{DW}
+\tmove.l\t{DW},\\dest
+\t.endm
 
 * only in dev mode, else call GET_UNCHECKED_ADDRESS_FUNC
 \t.macro\tGET_ADDRESS_FUNC\tdest
-\texg\ta0,\\dest
+\texg\t{AW},\\dest
 \t{jsr_instruction}\tget_address
-\texg\ta0,\\dest
+\texg\t{AW},\\dest
 \t.endm
 
 \t.macro\tCHECK_MAX\treg,arg
@@ -1714,22 +1711,9 @@ if True:
 \tmove.w\tccr,-(sp)
 \t.endm
 
-\t.macro    INST_W_TO_REG    inst,src,dest
-\t\\inst\\().w    (\\src),\\dest
-\t.endm
-
-
-\t.macro\tMOVE_W_FROM_REG    src,dest
-\tmove.w\t\\src,(\\dest)
-\t.endm
 
 
 
-\t.macro READ_BE_WORD\tsrcreg
-\tmoveq\t#0,{DW}
-\tmove.w\t(\\srcreg),{DW}
-\tmove.l\t{DW},\\srcreg
-\t.endm
 
 \t.else
 
@@ -1758,31 +1742,6 @@ if True:
 
 
 
-\t.macro\tMOVE_W_FROM_REG    src,dest
-\tror.w\t#8,\\src
-\tmove.b\t\\src,(\\dest)
-\tror.w\t#8,\\src
-\tmove.b\t\\src,(1,\\dest)
-\ttst.w\t\\src
-\t.endm
-
-    .macro    INST_W_TO_REG    inst,src,dest
-    move.b    (\\src),{DW}
-    ror.w    #8,{DW}
-    move.b    (1,\\src),{DW}
-    \\inst\\().w    {DW},\\dest
-    .endm
-
-
-
-\t.macro READ_BE_WORD\tsrcreg
-\tmoveq\t#0,{DW}
-\tmove.b\t(\\srcreg),{DW}
-\tlsl.w\t#8,{DW}
-\tmove.b\t(1,\\srcreg),{DW}
-\tmove.l\t{DW},\\srcreg
-\t.endm
-
 \t.endif
 
 * same for 68000 and 68020+
@@ -1790,22 +1749,19 @@ if True:
 \tmove.w\t(sp)+,ccr
 \t.endm
 
+\t.macro    MOVE_W_TO_REG    src,dest
+\tmove.b\t(\\src),\\dest
+\trol.w\t#8,\\dest
+\tmove.b\t(1,\\src),\\dest
+\t.endm
 
-    .macro    MOVE_W_TO_REG    src,dest
-    INST_W_TO_REG   move,\\src,\\dest
-    .endm
+\t.macro\tMOVE_W_FROM_REG    src,dest
+\tmove.b\t\\src,(\\dest)
+\trol.w\t#8,\\src
+\tmove.b\t\\src,(1,\\dest)
+\trol.w\t#8,\\src
+\t.endm
 
-    .macro    SUB_W_TO_REG    src,dest
-    INST_W_TO_REG   sub,\\src,\\dest
-    .endm
-
-    .macro    ADD_W_TO_REG    src,dest
-    INST_W_TO_REG   add,\\src,\\dest
-    .endm
-
-    .macro    CMP_W_TO_REG    src,dest
-    INST_W_TO_REG   cmp,\\src,\\dest
-    .endm
 
     .macro    JXX_A_INDEXED    inst,reg,nb_cases
     JXX_X_INDEXED    \\inst,\\reg,\\nb_cases,{A}
@@ -2075,7 +2031,7 @@ ldd:
     move.b    ({AW}),({AW1})
     subq.w  #1,{AW}
     subq.w  #1,{AW1}
-    subq.w    #1,{registers['c']}
+    subq.w    #1,{C}
     rts
 """)
     if "lddr" in special_loop_instructions_met:
@@ -2085,26 +2041,26 @@ ldd:
 {out_start_line_comment} < D1: decremented (16 bit)
 lddr:
     MAKE_BC_NO_AR
-    subq.w    #1,{registers['c']}
-    addq.w  #1,{registers['l']}
+    subq.w    #1,{C}
+    addq.w  #1,{L}
     LOAD_HL {AW}
-    addq.w  #1,{registers['e']}
+    addq.w  #1,{E}
     LOAD_DE {AW1}
 """)
         if cli_args.output_mode == "mit":
             f.write(f"""0:
     move.b    -({AW}),-({AW1})
-    dbf        {registers['c']},0b
+    dbf        {C},0b
 """)
         else:
             f.write(f""".loop:
     move.b    -({AW}),-({AW1})
-    dbf        {registers['c']},.loop
+    dbf        {C},.loop
 """)
         f.write(f"""
     subq.w  #1,{AW1}
     subq.w  #1,{AW}
-    moveq\t#0,{registers['c']}
+    moveq\t#0,{C}
     rts
 """)
     if "ldi" in special_loop_instructions_met:
@@ -2142,15 +2098,15 @@ ldir:
         if cli_args.output_mode == "mit":
             f.write(f"""0:
     move.b    ({AW})+,({AW1})+
-    dbf        {registers['c']},0b
-    moveq\t#0,{registers['c']}
+    dbf        {C},0b
+    moveq\t#0,{C}
     rts
 """)
         else:
             f.write(f""".loop:
     move.b    ({AW})+,({AW1})+
-    dbf        {registers['c']},.loop
-    moveq\t#0,{registers['c']}
+    dbf        {C},.loop
+    moveq\t#0,{C}
     rts
 """)
 
@@ -2165,16 +2121,16 @@ ldir:
 cpir:
     MAKE_BC_NO_AR
     MAKE_HL
-    subq.w    #1,{registers['c']}
+    subq.w    #1,{C}
 """)
         if cli_args.output_mode == "mit":
             f.write(f"""0:
     cmp.b    ({AW})+,{A}
     beq.b    1f
-    dbf        {registers['c']},0b
-    moveq\t#0,{registers['c']}
+    dbf        {C},0b
+    moveq\t#0,{C}
     {out_start_line_comment} not found: unset Z
-    cmp.b   #1,{registers['c']}
+    cmp.b   #1,{C}
 1:
     rts
 """)
@@ -2182,10 +2138,10 @@ cpir:
             f.write(""".loop:
     cmp.b    ({AW})+,d0
     beq.b    .out
-    dbf        {registers['c']},.loop
-    moveq\t#0,{registers['c']}
+    dbf        {C},.loop
+    moveq\t#0,{C}
     {out_start_line_comment} not found: unset Z
-    cmp.b   #1,{registers['c']}
+    cmp.b   #1,{C}
 .out:
     rts
 """)
@@ -2199,13 +2155,13 @@ cpir:
 {out_start_line_comment}
 cpi:
     MAKE_BC_NO_AR
-    subq.w    #1,{registers['c']}
+    subq.w    #1,{C}
     MAKE_B
     MAKE_HL_NO_AR
-    addq.w   #1,{registers['l']}
+    addq.w   #1,{L}
     MAKE_H
     MAKE_AR_FROM_HL\t{AW}
-    cmp.b    (-1,{AW}),{registers['a']}
+    cmp.b    (-1,{AW}),{A}
     rts
 """)
 
