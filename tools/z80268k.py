@@ -1923,10 +1923,13 @@ GET_ADDRESS:MACRO
     for i in range(8):
         reg = f"d{i}"
         f.write(f"\tmoveq\t#0,{reg}\n")
+    f.write(f"\tsub.l\t{IX},{IX}\n")
+    f.write(f"\tsub.l\t{IY},{IY}\n")
     f.write("\trts\n\n")
 
     f.write(f"""get_address:
-\t{error} "`TODO: implement this by adding memory base to {AW}"
+\t{error} "first check dest in {AW} in dev mode"
+\tGET_UNCHECKED_ADDRESS_FUNC\t{AW}
 \trts
 
 
