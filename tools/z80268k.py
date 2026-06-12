@@ -70,6 +70,15 @@ def remove_continuing_lines(lines,i):
         else:
             break
 
+
+def get_line_address(line):
+    try:
+        toks = line.split(out_comment)
+        address = toks[1].strip(" [$").split(":")[0]
+        return int(address,16)
+    except (ValueError,IndexError):
+        return None
+
 def rebuild_lines(lines):
     return "\n".join(lines).splitlines()
 
@@ -232,7 +241,7 @@ else:
 
 breaking_instructions = {"rts",jmp_instruction,"bra",jsr_instruction}
 
-continuation_comment = f"{out_comment} [...]"
+
 
 
 # input & output comments are "*" and "|" (MIT syntax)
@@ -357,7 +366,7 @@ for input_file in input_files:
 
 
 def issue_warning(msg,newline=False):
-    rval =  f'\t{error}\t"review {msg}"'
+    rval =  f'\t{error}\t"at 0x{current_address:04x}: review {msg}"'
     if newline:
         rval += "\n"
     return rval
@@ -476,17 +485,8 @@ def decode_paren_arg(dest):
 
 # trying to factorize operations
 
-##def generic_register_logic(inst,args,comment):
-##    if inst == 'and' and args[0]==registers['a']:
-##        rval = f"\ttst.b\t{args[0]}"
-##    elif args[0] in inv_registers:
-##        rval = f"\t{inst}.b\t{args[0]},{registers['a']}"
-##    else:
-##        rval = f"\t{inst}.b\t#{args[0]},{registers['a']}"
-##
-##    rval += f"{comment}"
-##    return rval
-
+# sorry for the mess, it's been built progressively without real design
+# but it works :)
 
 def generic_load(inst,args,comment):
     rval = ""
@@ -518,16 +518,18 @@ def generic_load(inst,args,comment):
                     # src is already converted see above (src is a registers_16)
                     # this is slightly messy!
                     rval += f"""
-\tMAKE_{dest.upper()}_NO_AR
+\tMAKE_{dest.upper()}_NO_AR{comment}
 \t{inst}.w\t{s68k},{d68k}{comment}
-\tPUSH_SR\t{out_comment} save CC
-\tMAKE_{dest.upper()[0]}\t{out_comment} update MSB reg
-\tPOP_SR\t{out_comment} restore CC"""
+\tPUSH_SR\t{comment} save CC
+\tMAKE_{dest.upper()[0]}\t{comment} update MSB reg
+\tPOP_SR\t{comment} restore CC"""
 
         else:
+
             if src[0]=='(':
                 # in a register, possibly with offset
                 offset,reg = decode_paren_arg(src)
+
                 if reg in registers_16:
                     rval += f"\tMAKE_AR_FROM_{reg.upper()}\t{AW}{comment}\n"
             if dest in inv_registers_32:  # a2 or a3 (ix,iy)
@@ -542,12 +544,16 @@ def generic_load(inst,args,comment):
                     src = src.strip('()')
                     if reg in inv_registers_32:
                         address_reg = reg
-                    else:
+                    elif reg not in registers_16:
                         rval += f"\tGET_ADDRESS\t{reg},{AW}{comment}\n"
 
-
+                    size = "b"
+                    if op_size == 2:
+                        size = "w"
+                        dest = registers_16[dest]
                     targ = f"({offset},{address_reg})" if offset else f"({address_reg})"
-                    rval += f"\t{inst}.b\t{targ},{dest}{comment}"
+                    rval += f"\t{inst}.{size}\t{targ},{dest}{comment}"
+
                 else:
                     if op_size == 1:
                         rval += f"\t{inst}.b\t#{src},{dest}{comment}"
@@ -556,26 +562,26 @@ def generic_load(inst,args,comment):
                             rval += f"\tLOAD_{dest.upper()}\t#{src}{comment}"
                         else:
                             rdest = registers_16[dest]
-                            rval += f"\tMAKE_{dest.upper()}_NO_AR\n\t{inst}.w\t#{src},{rdest}{comment}\n\tMAKE_{dest[0].upper()}"
+                            rval += f"\tMAKE_{dest.upper()}_NO_AR{comment}\n\t{inst}.w\t#{src},{rdest}{comment}\n\tMAKE_{dest[0].upper()}"
 
     else:
         if dest[0]=='(':
             # in a register, possibly with offset
             offset,reg = decode_paren_arg(dest)
             if reg in registers_16:
-                rval += f"\tMAKE_AR_FROM_{reg.upper()}\t{AW}{continuation_comment}\n"
+                rval += f"\tMAKE_AR_FROM_{reg.upper()}\t{AW}{comment}\n"
             elif reg in inv_registers_32:
                 # direct access using ix,iy host address
                 address_reg = reg
             else:
                 # not a register
-                rval += f"\tGET_ADDRESS\t{reg},{AW}{continuation_comment}\n"
+                rval += f"\tGET_ADDRESS\t{reg},{AW}{comment}\n"
 
             op_size = "b"
             if src_is_reg:
                 src_reg_size = get_reg_size(src)
                 if src_reg_size == 2:
-                    rval += f"\tMAKE_{src.upper()}_NO_AR\n"
+                    rval += f"\tMAKE_{src.upper()}_NO_AR{comment}\n"
                     src = registers_16[src]
                     op_size = "w"
                 elif src_reg_size == 4:
@@ -616,9 +622,9 @@ def f_call(args,comment):
     if len(args)==2:
         if cli_args.output_mode == "mot":
             loclab = get_mot_local_label()
-            out = f"\t{rts_cond_dict[cond]}\t{loclab}{out_comment} [...]\n"
+            out = f"\t{rts_cond_dict[cond]}\t{loclab}{comment}\n"
         else:
-            out = f"\t{rts_cond_dict[cond]}\t0f{out_comment} [...]\n"
+            out = f"\t{rts_cond_dict[cond]}\t0f{comment}\n"
 
     out += f"\t{jsr_instruction}\t{func}{comment}"
     if len(args)==2:
@@ -644,7 +650,7 @@ def f_djnz(args,comment):
 
     # a dbf wouldn't work as d1 loaded as byte and with 1 more iteration
     # adapt manually if needed
-    return f"\tsubq.b\t#1,d1\t{comment}\n\tjne\t{target_address}\t{continuation_comment}"
+    return f"\tsubq.b\t#1,d1\t{comment}\n\tjne\t{target_address}\t{comment}"
 
 
 
@@ -711,7 +717,7 @@ def f_ex(args,comment):
     regsp = f'({registers["sp"]})'
 
     if arg0 in registers_16 and arg1 in registers_16:
-        txt = f"\tMAKE_{arg0.upper()}_NO_AR\n\tMAKE_{arg1.upper()}_NO_AR\n"
+        txt = f"\tMAKE_{arg0.upper()}_NO_AR{comment}\n\tMAKE_{arg1.upper()}_NO_AR{comment}\n"
         arg0 = registers_16[arg0]
         arg1 = registers_16[arg1]
     elif arg1==regsp or arg0==regsp:
@@ -727,9 +733,11 @@ def f_ex(args,comment):
 \tmove.w\t{DW},{regsp}{comment}"""
         return txt
 
-    txt += f"\tEXG_AF_AF_PRIME{comment}"
     if arg1 == dwork:
+        txt += f"\tEXG_AF_AF_PRIME{comment}"
         txt += "\n"+issue_warning("if carry flag not used, replace by EXG_A_A_PRIME")
+    else:
+        txt += f"\texg\t{arg0},{arg1}{comment}"
     return txt
 
 def f_push(args,comment):
@@ -831,10 +839,10 @@ def f_rrc(args,comment):
 def f_ret(args,comment):
     binst = rts_cond_dict[args[0]]
     if cli_args.output_mode == "mit":
-        return f"\t{binst}\t0f{out_comment} [...]\n\trts{comment} [...]\n0:"
+        return f"\t{binst}\t0f{comment}\n\trts{comment}\n0:"
     else:
         loclab = get_mot_local_label()
-        return f"\t{binst}.b\t{loclab}{out_comment} [...]\n\trts{comment} [...]\n{loclab}:"
+        return f"\t{binst}.b\t{loclab}{comment}\n\trts{comment}\n{loclab}:"
 
 def f_rst(args,comment):
     return f_call(args,comment)
@@ -878,9 +886,9 @@ def get_substitution_extended_reg(arg):
     if arg == registers['b'] or arg == registers['a']:
     # problem: using .w on B register actually picks D
     # also there's a sign extension to consider!
-        rval = f"""\tmoveq\t#0,{DW}{continuation_comment}
-\tmove.b\t{arg},{DW}{continuation_comment} as byte
-\tDO_EXTB\t{DW}{continuation_comment} with sign extension
+        rval = f"""\tmoveq\t#0,{DW}{comment}
+\tmove.b\t{arg},{DW}{comment} as byte
+\tDO_EXTB\t{DW}{comment} with sign extension
 """
         return rval,DW
     else:
@@ -951,7 +959,7 @@ converted = 0
 instructions = 0
 out_lines = []
 unknown_instructions = set()
-
+current_address = 0
 
 for i,(l,is_inst,address) in enumerate(lines):
     out = ""
@@ -1005,6 +1013,7 @@ for i,(l,is_inst,address) in enumerate(lines):
             if inst.startswith("lb"):
                 inst = inst[1:]   # merge long and short branches
             # other instructions, not single, not implicit a
+            current_address = address
             conv_func = globals().get(f"f_{inst}")
 
 
@@ -1202,7 +1211,11 @@ conditional_branch_instructions.update({f"j{x[1:]}" for x in conditional_branch_
 routine_call_instructions = {"bsr","jbsr","jsr"}
 cmp_instructions = ["cmp.b","CMP_W_TO_REG"]
 
+
+current_address = 0
 for i,line in enumerate(nout_lines):
+    current_address = get_line_address(line) or current_address
+    comment = f"{out_comment} [${current_address:04x}: "
     line = line.rstrip()
     toks = line.split("|",maxsplit=1)
     if len(toks)==2:
@@ -1211,20 +1224,20 @@ for i,line in enumerate(nout_lines):
 
         if finst == "DAA" and prev_fp:
             # try to match add/sub + DAA and replace by abcd
-
+            finst = finst.lower()
             prev_inst = prev_fp[0]
             if prev_inst in ["addx.b","subx.b","add.b","sub.b"]:
                 nout_lines[i] = ""
                 tmpreg = DW
-                clear_xc = "\tCLR_XC_FLAGS\n" if "addx" not in prev_inst and "subx" not in prev_inst else ""
+                clear_xc = f"\tCLR_XC_FLAGS{comment}{finst}]\n" if "addx" not in prev_inst and "subx" not in prev_inst else ""
                 new_inst = prev_inst.replace("addx.b","abcd")
                 new_inst = new_inst.replace("add.b","abcd")
                 new_inst = new_inst.replace("subx.b","sbcd")
                 new_inst = new_inst.replace("sub.b","sbcd")
                 toks = prev_fp[1].split(",")
                 if prev_inst in nout_lines[i-1]:
-                    nout_lines[i-1] = f"""{clear_xc}\tmove.b\t{toks[0]},{tmpreg}\t{continuation_comment}
-\t{new_inst}\t{tmpreg},{toks[1]}\t{continuation_comment}"""
+                    nout_lines[i-1] = f"""{clear_xc}\tmove.b\t{toks[0]},{tmpreg}\t{comment}{finst}]
+\t{new_inst}\t{tmpreg},{toks[1]}\t{comment}{finst}]"""
                 else:
                     # maybe a label or a comment was inserted there, can't process automatically
                     nout_lines[i] = issue_warning("stray daa, handle manually",newline=True)
@@ -1244,7 +1257,7 @@ for i,line in enumerate(nout_lines):
             if fp[1][0]=="#":
                 # can't have immediate mode for those, use a work register to make it legal
                 src=fp[1].split(",")[0]
-                nout_lines[i] = f"\tmove.b\t{src},{DW} {continuation_comment}\n"+nout_lines[i].replace(src,DW)
+                nout_lines[i] = f"\tmove.b\t{src},{DW} {comment}\n"+nout_lines[i].replace(src,DW)
         elif finst not in conditional_branch_instructions and finst != "PUSH_SR" and prev_fp and prev_fp[0] in cmp_instructions:
                 nout_lines[i] = issue_warning(f"stray cmp before {finst} (insert SET_X_FROM_C)",newline=True)+nout_lines[i]
 
@@ -1298,7 +1311,9 @@ prev_carry_altering_inst = False
 
 nout_lines = rebuild_lines(nout_lines)
 
+current_address=0
 for i,line in enumerate(nout_lines):
+    current_address = get_line_address(line) or current_address
     toks = line.split()
     if toks:
         inst = toks[0]
@@ -1320,7 +1335,9 @@ prev_inst = None
 nout_lines = rebuild_lines(nout_lines)
 
 
+current_address=0
 for i,line in enumerate(nout_lines):
+    current_address = get_line_address(line) or current_address
     toks = line.split()
     if toks:
         inst = toks[0]
@@ -1413,9 +1430,11 @@ for line in nout_lines_2:
             # remove MAKE_D
             continue
 
-    # if move.w in line and (ax) replace move.w by cpu-dependent macro
-    if "move.w" in line and f"({AW})" in line:
-        if ",(" in line:
+    # if move.w in line and (ax) replace move.w by cpu-dependent macro (68000 doesn't appreciate
+    # odd read/write on 16 bit
+    inst_part = line.split(out_comment)[0]
+    if "move.w" in inst_part and f"({AW})" in inst_part:
+        if ",(" in inst_part:
             inst = "MOVE_W_FROM_REG"
         else:
             inst = "MOVE_W_TO_REG"
@@ -1431,8 +1450,10 @@ for line in nout_lines_2:
     nout_lines.append(line)
     prev_line = line
 
+current_address=0
 # another pass after ror has been resolved
 for i,line in enumerate(nout_lines):
+    current_address = get_line_address(line) or current_address
     line = line.rstrip()
     toks = line.split("|",maxsplit=1)
     if len(toks)==2:
@@ -1468,6 +1489,20 @@ for i,line in enumerate(nout_lines):
 
 
 optimize_dp = True
+
+
+# now insert continuation comments
+
+prev_address = None
+for i,line in enumerate(nout_lines):
+    address = get_line_address(line)
+    if address is not None:
+        if prev_address == address:
+            # convert address comment to [...]
+            line = re.sub(f"\[\${address:04x}.*?\]","[...]",line)
+            nout_lines[i] = line
+        else:
+            prev_address = address
 
 
 if cli_args.spaces:
