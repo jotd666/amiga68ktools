@@ -340,7 +340,7 @@ for input_file in input_files:
                             elif address > prev_address+previous_nb_bytes:
                                 itoks = instruction.split()
                                 fitok = itoks[0]
-                                if fitok.upper() in ["RET","JP","RETI","RST"]:
+                                if fitok.upper() in ["RET","JP","JR","RETI","RST"]:
                                     pass
                                 else:
                                     warn(f"instruction discontinuity at ${address:04x}, prev inst at ${prev_address:04x}")
@@ -1523,7 +1523,7 @@ if True:
 * the function that accesses all memory (except banks)
 * without any check
 \t.macro\tGET_UNCHECKED_ADDRESS_FUNC\tdest
-\tlea\t({MEMBASE},\\dest.l),\\dest
+\tlea\t({MEMBASE},\\dest\\().l),\\dest
 \t.endm
 
 \t.macro\tWRITE_ADDRESS\tsrc,dest
@@ -1953,7 +1953,7 @@ buffer = f"""\t.include "{cli_args.include_output}"
 
 # remove review flags if requested (not recommended!!)
 if cli_args.no_review:
-    nout_lines = [line for line in buffer.splitlines(True) if "{error}" not in line]
+    nout_lines = [line for line in buffer.splitlines(True) if not line.startswith(f"\t{error}")]
 else:
     nout_lines = [line for line in buffer.splitlines(True)]
 
