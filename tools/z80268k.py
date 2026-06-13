@@ -159,13 +159,39 @@ def optimize(lines,verbose=False):
                 break
         prev_line = line
 
-        if "tst.b" in line:
+        if "tst.b" in line.split():
             arg = line.split()[1]
             prev_args = prev_line.split()
             if prev_args and prev_args[-1]==arg:
                 new_lines[i] = ""  # remove tst.b if follows op on same register
     # remove empty
     new_lines = [n for n in new_lines if n]
+
+    AW = registers['awork0']
+    kill_lines = []
+    # remove simple MAKE_AR_xx / (a0) / MAKE_AR_xx sandwich. Not doing the more complex ones
+    # hopefully it solves a lot of those
+    for i,org_line in enumerate(new_lines):
+        line = remcomments(org_line)  # remove comments
+        toks = line.split()
+        if len(toks)>=2:
+            if toks[0].startswith("MAKE_AR") and toks[1]==AW:
+                # inspect the above lines
+                prev_line = remcomments(new_lines[i-1])
+                if AW in prev_line:
+                    prev_prev_line = remcomments(new_lines[i-2])
+                    ntoks = prev_prev_line.split()
+                    if len(ntoks)>=2:
+                        if ntoks[0]==toks[0] and ntoks[1]==AW:
+                            # mark line for removal, removing it now
+                            # would make further detections fail
+                            kill_lines.append(i)
+
+    for k in kill_lines:
+        new_lines[k]=""
+    # remove empty
+    new_lines = [n for n in new_lines if n]
+
     return new_lines
 
 tool_version = "2.1"
@@ -497,7 +523,6 @@ def generic_load(inst,args,comment):
     else:
         nargs = args
     dest,src,src_is_reg,dest_is_reg = decode_2_args(nargs)
-
     if dest_is_reg:
         op_size = get_reg_size(dest)
         if src_is_reg:
@@ -550,9 +575,14 @@ def generic_load(inst,args,comment):
                     size = "b"
                     if op_size == 2:
                         size = "w"
+                        orig_dest = dest
                         dest = registers_16[dest]
                     targ = f"({offset},{address_reg})" if offset else f"({address_reg})"
-                    rval += f"\t{inst}.{size}\t{targ},{dest}{comment}"
+                    rval += f"\t{inst}.{size}\t{targ},{dest}{comment}\n"
+                    if size=="w":
+                        # we just loaded a 16 bit register like HL, DE, we need to update H,D...
+                        # else next MAKE_HL will create an incorrect value
+                        rval += f"\tMAKE_{orig_dest[0].upper()}{comment}"
 
                 else:
                     if op_size == 1:
@@ -637,11 +667,14 @@ def f_call(args,comment):
     return out
 
 def f_bit(args,comment):
-    return f"\tbtst.b\t#{args[0]},{args[1]}{comment}"
+    return bit_op("btst",args,comment)
 def f_set(args,comment):
-    return f"\tbset.b\t#{args[0]},{args[1]}{comment}"
+    return bit_op("bset",args,comment)
 def f_res(args,comment):
-    return f"\tbclr.b\t#{args[0]},{args[1]}{comment}"
+    return bit_op("bclr",args,comment)
+
+def bit_op(op,args,comment):
+    return generic_load(op,args[::-1],comment)
 
 def f_djnz(args,comment):
     target_address = arg2label(args[0])
@@ -804,37 +837,25 @@ def f_xor(args,comment):
     return out
 
 def f_rl(args,comment):
-    arg = args[0]
-    return f"\troxl.b\t#1,{arg}{comment}"
+    return f_logical_op("roxl",args,comment)
+def f_rr(args,comment):
+    return f_logical_op("roxr",args,comment)
 
 def f_rlc(args,comment):
-    arg = args[0]
-    return f"\trol.b\t#1,{arg}{comment}"
-
-def f_rr(args,comment):
-    arg = args[0]
-    return f"\troxr.b\t#1,{arg}{comment}"
-
-def f_srl(args,comment):
-    arg = args[0]
-    return f"\tlsr.b\t#1,{arg}{comment}"
-
-def f_sra(args,comment):
-    arg = args[0]
-    return f"\tasr.b\t#1,{arg}{comment}"
-
-def f_sll(args,comment):
-    arg = args[0]
-    return f"\tlsl.b\t#1,{arg}{comment}"
-
-def f_sla(args,comment):
-    arg = args[0]
-    return f"\tasl.b\t#1,{arg}{comment}"
-
+    return f_logical_op("rol",args,comment)
 def f_rrc(args,comment):
-    arg = args[0]
-    return f"\tror.b\t#1,{arg}{comment}"
+    return f_logical_op("ror",args,comment)
+def f_srl(args,comment):
+    return f_logical_op("lsr",args,comment)
+def f_sll(args,comment):
+    return f_logical_op("lsl",args,comment)
+def f_sla(args,comment):
+    return f_logical_op("asl",args,comment)
+def f_sra(args,comment):
+    return f_logical_op("asr",args,comment)
 
+def f_logical_op(op,args,comment):
+    return generic_load(op,[args[0],"1"],comment)
 
 def f_ret(args,comment):
     binst = rts_cond_dict[args[0]]
