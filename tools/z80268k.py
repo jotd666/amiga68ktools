@@ -65,6 +65,8 @@ def remcomments(line):
 
 def remove_continuing_lines(lines,i):
     for j in range(i+1,i+4):
+        if j>=len(lines):
+            break
         if "[...]" in lines[j]:
             lines[j] = ""
         else:
@@ -98,22 +100,6 @@ def optimize(lines,verbose=False):
     prev_loaded = None
 
 
-##    for i,org_line in enumerate(lines):
-##        line = remcomments(org_line)  # remove comments
-##        toks = line.split()
-##        if toks and "MOVE_W" in toks[0]:
-##            prev_line = remcomments(lines[i-1])
-##            prev_toks = prev_line.split()
-##            if len(prev_toks)==2 and prev_toks[0]=="GET_ADDRESS":
-##                try:
-##                    address = int(prev_toks[1],16)
-##                except ValueError:
-##                    address = int(prev_toks[1].split("_")[-1],16)
-##                if address%2 == 0:
-##                    # even: remove macro use move.w (faster on 68000/68010, no effect on 68020+)
-##                    args = toks[1].split(",")
-##                    arg = f"{args[0]},({args[1]})" if toks[0]=="MOVE_W_FROM_REG" else f"({args[0]}),{args[1]}"
-##                    lines[i] = change_instruction(f"move.w\t{arg}",lines,i,False)
 
 
     new_lines = []
@@ -151,19 +137,13 @@ def optimize(lines,verbose=False):
     for i,org_line in enumerate(new_lines):
         line = remcomments(org_line)  # remove comments
 
-        # remove MAKE_HL if follows directly LOAD_HL (because HL.W was changed)
-        # or if (a0) is used (means that we have updated HL earlier)
-        for rs in reg16_suffix:
-            if f"MAKE_AR_FROM_{rs}" in line and any(x in prev_line for x in [f"LOAD_{rs}"]):
-                new_lines[i]= ""
-                break
         prev_line = line
 
         if "tst.b" in line.split():
             arg = line.split()[1]
             prev_args = prev_line.split()
             if prev_args and prev_args[-1]==arg:
-                new_lines[i] = ""  # remove tst.b if follows op on same register
+                new_lines[i] = remove_instruction(new_lines[i])  # remove tst.b if follows op on same register
     # remove empty
     new_lines = [n for n in new_lines if n]
 
@@ -171,14 +151,18 @@ def optimize(lines,verbose=False):
     kill_lines = []
     # remove simple MAKE_AR_xx / (a0) / MAKE_AR_xx sandwich. Not doing the more complex ones
     # hopefully it solves a lot of those
+
     for i,org_line in enumerate(new_lines):
         line = remcomments(org_line)  # remove comments
         toks = line.split()
         if len(toks)>=2:
             if toks[0].startswith("MAKE_AR") and toks[1]==AW:
                 # inspect the above lines
+                source_reg = toks[0].split("_FROM_")[1].lower()
+                source_reg = registers_16[source_reg]
+
                 prev_line = remcomments(new_lines[i-1])
-                if AW in prev_line:
+                if AW in prev_line and source_reg not in prev_line:
                     prev_prev_line = remcomments(new_lines[i-2])
                     ntoks = prev_prev_line.split()
                     if len(ntoks)>=2:
@@ -194,7 +178,7 @@ def optimize(lines,verbose=False):
 
     return new_lines
 
-tool_version = "2.1"
+tool_version = "2.2"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -522,12 +506,14 @@ def generic_load(inst,args,comment):
         nargs = [registers['a'],args[0]]
     else:
         nargs = args
+    reg_made = ""
     dest,src,src_is_reg,dest_is_reg = decode_2_args(nargs)
     if dest_is_reg:
         op_size = get_reg_size(dest)
         if src_is_reg:
             if src in registers_16:
                 rval += f"\tMAKE_{src.upper()}_NO_AR{comment}\n"
+                reg_made = src
                 src = registers_16[src]
             if op_size == 1:
                 rval += f"\t{inst}.b\t{src},{dest}{comment}"
@@ -542,9 +528,9 @@ def generic_load(inst,args,comment):
                     s68k = src
                     # src is already converted see above (src is a registers_16)
                     # this is slightly messy!
-                    rval += f"""
-\tMAKE_{dest.upper()}_NO_AR{comment}
-\t{inst}.w\t{s68k},{d68k}{comment}
+                    if reg_made != dest:  # avoid to duplicate if source = dest
+                        rval += f"\tMAKE_{dest.upper()}_NO_AR{comment}\n"
+                    rval += f"""\t{inst}.w\t{s68k},{d68k}{comment}
 \tPUSH_SR\t{comment} save CC
 \tMAKE_{dest.upper()[0]}\t{comment} update MSB reg
 \tPOP_SR\t{comment} restore CC"""
@@ -590,6 +576,7 @@ def generic_load(inst,args,comment):
                     else:
                         if is_move:
                             rval += f"\tLOAD_{dest.upper()}\t#{src}{comment}"
+
                         else:
                             rdest = registers_16[dest]
                             rval += f"\tMAKE_{dest.upper()}_NO_AR{comment}\n\t{inst}.w\t#{src},{rdest}{comment}\n\tMAKE_{dest[0].upper()}"
@@ -1218,8 +1205,7 @@ def follows_sr_protected_block(nout_lines,i):
 prev_fp = None
 
 reg_a = registers["a"]
-clrxcflags_inst = ["CLR_XC_FLAGS"]
-setxcflags_inst = ["SET_XC_FLAGS"]
+
 
 # sub/add aren't included as they're the translation of dec/inc which don't affect C
 # those are 68000 instructions (used in post-processing)
@@ -1596,9 +1582,13 @@ if True:
 
 * only in dev mode, else call GET_UNCHECKED_ADDRESS_FUNC
 \t.macro\tGET_ADDRESS_FUNC\tdest
+\t.if\t\\dest!={AW}
 \texg\t{AW},\\dest
+\t.endif
 \t{jsr_instruction}\tget_address
+\t.if\t\\dest!={AW}
 \texg\t{AW},\\dest
+\t.endif
 \t.endm
 
 \t.macro\tCHECK_MAX\treg,arg
@@ -2013,6 +2003,35 @@ if cli_args.no_review:
 else:
     nout_lines = [line for line in buffer.splitlines(True)]
 
+# fix push/pop of registers of different size & base  push ix / pop de needs fixing
+
+prev_line = ""
+for i,org_line in enumerate(nout_lines):
+    line = remcomments(org_line)  # remove comments
+    toks = line.split()
+    if len(toks)==2 and "(a7)+" in toks[1]:
+        prev_toks = prev_line.split()
+        if len(prev_toks)==2 and "-(a7)" in prev_toks[1]:
+            # check sizes
+            pushed_reg = prev_toks[1].split(",")[0]
+            pulled_reg = toks[1].split(",")[1]
+            if toks[0] != prev_toks[0]:
+                # different sizes!
+
+                if prev_toks[0] == "move.l":
+                    # pushing host-based address register, pulling target-based
+                    nout_lines[i-1] = change_instruction(f"move.l\t{pushed_reg},{pulled_reg}",nout_lines,i-1)
+                    nout_lines[i] = change_instruction(f"sub.l\t{registers['mem_base']},{pulled_reg}",nout_lines,i)
+                else:
+                    # pushing target-based address register, pulling host-based
+                    nout_lines[i-1] = ""
+                    nout_lines[i] = change_instruction(f"lea\t({registers['mem_base']},{pushed_reg}.l),{pulled_reg}",nout_lines,i)
+            else:
+                # same size: game should perform a exg
+                nout_lines[i-1] = remove_instruction(nout_lines[i-1])
+                nout_lines[i] = change_instruction(f"exg\t{pushed_reg},{pulled_reg}",nout_lines,i)
+
+    prev_line = line
 
 if cli_args.output_mode and cli_args.optimize:
     # can optimize
@@ -2091,6 +2110,7 @@ ldd:
     subq.w  #1,{AW}
     subq.w  #1,{AW1}
     subq.w    #1,{C}
+    MAKE_B
     rts
 """)
     if "lddr" in special_loop_instructions_met:
@@ -2120,6 +2140,7 @@ lddr:
     subq.w  #1,{AW1}
     subq.w  #1,{AW}
     moveq\t#0,{C}
+    moveq\t#0,{B}
     rts
 """)
     if "ldi" in special_loop_instructions_met:
@@ -2138,6 +2159,7 @@ ldi:
     move.l    {AW},{AW1}
     move.b    (-1,{AW}),(-1,{AW1})
     subq.w    #1,{C}
+    MAKE_B
     rts
 """)
 
@@ -2166,6 +2188,7 @@ ldir:
     move.b    ({AW})+,({AW1})+
     dbf        {C},.loop
     moveq\t#0,{C}
+    moveq\t#0,{B}
     rts
 """)
 
