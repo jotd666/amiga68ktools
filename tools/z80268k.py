@@ -2174,6 +2174,10 @@ ldir:
     MAKE_DE_NO_AR
     MAKE_AR_FROM_HL\t{AW}
     MAKE_AR_FROM_DE\t{AW1}
+    add.w\t{C},{L}
+    add.w\t{C},{E}
+    MAKE_HL_NO_AR
+    MAKE_DE_NO_AR
     subq.w    #1,{C}
 """)
         if cli_args.output_mode == "mit":
@@ -2181,6 +2185,7 @@ ldir:
     move.b    ({AW})+,({AW1})+
     dbf        {C},0b
     moveq\t#0,{C}
+    moveq\t#0,{B}
     rts
 """)
         else:
