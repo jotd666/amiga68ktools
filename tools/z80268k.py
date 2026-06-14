@@ -1795,10 +1795,11 @@ if True:
 \tmove.w\t(sp)+,ccr
 \t.endm
 
+* little endian
 \t.macro    MOVE_W_TO_REG    src,dest
-\tmove.b\t(\\src),\\dest
-\trol.w\t#8,\\dest
 \tmove.b\t(1,\\src),\\dest
+\trol.w\t#8,\\dest
+\tmove.b\t(\\src),\\dest
 \t.endm
 
 \t.macro\tMOVE_W_FROM_REG    src,dest
@@ -2106,6 +2107,8 @@ rrd:
 {out_start_line_comment} < D1: decremented (16 bit)
 ldd:
     MAKE_BC_NO_AR
+    LOAD_HL {AW}
+    LOAD_DE {AW1}
     move.b    ({AW}),({AW1})
     subq.w  #1,{AW}
     subq.w  #1,{AW1}
@@ -2120,11 +2123,15 @@ ldd:
 {out_start_line_comment} < D1: decremented (16 bit)
 lddr:
     MAKE_BC_NO_AR
-    subq.w    #1,{C}
     addq.w  #1,{L}
     LOAD_HL {AW}
     addq.w  #1,{E}
     LOAD_DE {AW1}
+    sub.w   {C},{E}
+    sub.w   {C},{L}
+    MAKE_HL_NO_AR
+    MAKE_DE_NO_AR
+    subq.w    #1,{C}
 """)
         if cli_args.output_mode == "mit":
             f.write(f"""0:
@@ -2176,8 +2183,8 @@ ldir:
     MAKE_AR_FROM_DE\t{AW1}
     add.w\t{C},{L}
     add.w\t{C},{E}
-    MAKE_HL_NO_AR
-    MAKE_DE_NO_AR
+    MAKE_H
+    MAKE_D
     subq.w    #1,{C}
 """)
         if cli_args.output_mode == "mit":
