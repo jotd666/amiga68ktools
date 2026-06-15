@@ -542,7 +542,7 @@ def generic_load(inst,args,comment):
                 offset,reg = decode_paren_arg(src)
 
                 if reg in registers_16:
-                    rval += f"\tMAKE_AR_FROM_{reg.upper()}\t{AW}{comment}\n"
+                    rval += f"\tMAKE_{reg.upper()}\t{AW}{comment}\n"
             if dest in inv_registers_32:  # a2 or a3 (ix,iy)
                 if src[0]=='(':
                     src = src.strip("()")
@@ -586,7 +586,7 @@ def generic_load(inst,args,comment):
             # in a register, possibly with offset
             offset,reg = decode_paren_arg(dest)
             if reg in registers_16:
-                rval += f"\tMAKE_AR_FROM_{reg.upper()}\t{AW}{comment}\n"
+                rval += f"\tMAKE_{reg.upper()}\t{AW}{comment}\n"
             elif reg in inv_registers_32:
                 # direct access using ix,iy host address
                 address_reg = reg
