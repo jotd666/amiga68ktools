@@ -737,9 +737,14 @@ def f_ex(args,comment):
     regsp = f'({registers["sp"]})'
 
     if arg0 in registers_16 and arg1 in registers_16:
-        txt = f"\tMAKE_{arg0.upper()}_NO_AR{comment}\n\tMAKE_{arg1.upper()}_NO_AR{comment}\n"
+        # since it's a 16-bit reg pair, we also need to exchange high part
+        # (or we could also use MAKE_xx but it would be less efficient and unneeded)
+        # compute MSB register names to exchange them as well
+        highreg0 = registers[arg0[0]]
+        highreg1 = registers[arg1[0]]
         arg0 = registers_16[arg0]
         arg1 = registers_16[arg1]
+        txt = f"\texg\t{highreg0},{highreg1}{comment}\n"
     elif arg1==regsp or arg0==regsp:
         # exchange (a7) with HL/DE/BC: this usually is used to jump
         # but sometimes it's just a save/restore
