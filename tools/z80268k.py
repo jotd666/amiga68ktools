@@ -1580,6 +1580,7 @@ if True:
 \t.endm
 
 \t.macro\tREAD_ADDRESS\tsrc,dest
+\tmoveq\t#0,{DW}
 \tMOVE_W_TO_REG\ta0,{DW}
 \tGET_ADDRESS_FUNC\t{DW}
 \tmove.l\t{DW},\\dest
@@ -2284,28 +2285,26 @@ cpd:
 """)
 
     if "exx" in special_loop_instructions_met:
-        regs = "d1-d4/a0/a1/a4"
-        regs_size = 7*4
+        regs = f"{B}/{C}/{D}/{E}/{H}/{L}"
+        regs_size = (regs.count("/")+1)*4
         f.write(f"""
 {out_start_line_comment} < all registers {regs}
 {out_start_line_comment} > all registers swapped
 {out_start_line_comment}: note regscopy must be defined somewhere in RAM
 {out_start_line_comment}: with a size of {regs_size*2}
 exx:
-\tmove.l\ta6,-(a7)
-    lea     regscopy+28,a6
-    {out_start_line_comment} save current regs in region 1
-    movem.l {regs},-(a6)
-    {out_start_line_comment} restore old regs from region 2
-    lea     regscopy+28,a6
-    movem.l (a6),{regs}
-    {out_start_line_comment} now copy region 1 to region 2
+    lea     regscopy+{regs_size},a0
+    * save current regs in region 1
+    movem.l {regs},-(a0)
+    * restore old regs from region 2
+    lea     regscopy+{regs_size},a0
+    movem.l (a0),{regs}
+    * now copy region 1 to region 2
     movem.l {regs},-(a7)
-    lea     regscopy,a6
-    movem.l (a6)+,{regs}
-    movem.l {regs},(a6)
+    lea     regscopy,a0
+    movem.l (a0)+,{regs}
+    movem.l {regs},(a0)
     movem.l (a7)+,{regs}
-\tmove.l\t(a7)+,a6
     rts
 """)
     if "cpdr" in special_loop_instructions_met:
