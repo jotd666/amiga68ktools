@@ -1670,17 +1670,17 @@ if True:
 
 \t.macro\tLOAD_HL\targument
 \tmove.w\t\\argument,{L}
-\tMAKE_H
+\tmove.b\t\\argument>>8,{H}
 \t.endm
 
 \t.macro\tLOAD_BC\targument
 \tmove.w\t\\argument,{C}
-\tMAKE_B
+\tmove.b\t\\argument>>8,{B}
 \t.endm
 
 \t.macro\tLOAD_DE\targument
 \tmove.w\t\\argument,{E}
-\tMAKE_D
+\tmove.b\t\\argument>>8,{D}
 \t.endm
 
 \t.macro CLR_XC_FLAGS
@@ -2129,14 +2129,16 @@ ldd:
 {out_start_line_comment} < D1: decremented (16 bit)
 lddr:
     MAKE_BC_NO_AR
+    MAKE_DE_NO_AR
+    MAKE_HL_NO_AR
+    MAKE_AR_FROM_HL {AW}
+    MAKE_AR_FROM_DE {AW1}
     addq.w  #1,{L}
-    LOAD_HL {AW}
     addq.w  #1,{E}
-    LOAD_DE {AW1}
     sub.w   {C},{E}
     sub.w   {C},{L}
-    MAKE_HL_NO_AR
-    MAKE_DE_NO_AR
+    MAKE_H
+    MAKE_D
     subq.w    #1,{C}
 """)
         if cli_args.output_mode == "mit":
@@ -2165,12 +2167,13 @@ ldi:
     MAKE_BC_NO_AR
     MAKE_DE_NO_AR
     MAKE_HL_NO_AR
-    addq.w    #1,{L}
-    addq.w    #1,{E}
     MAKE_AR_FROM_HL\t{AW}
     MAKE_AR_FROM_DE\t{AW1}
-    move.l    {AW},{AW1}
-    move.b    (-1,{AW}),(-1,{AW1})
+    addq.w    #1,{L}
+    addq.w    #1,{E}
+    MAKE_H
+    MAKE_D
+    move.b    ({AW}),({AW1})
     subq.w    #1,{C}
     MAKE_B
     rts
