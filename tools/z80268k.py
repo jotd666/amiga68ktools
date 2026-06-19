@@ -833,9 +833,9 @@ def f_xor(args,comment):
     return out
 
 def f_rl(args,comment):
-    return f_logical_op("roxl",args,comment)
+    return "\tSET_X_FROM_C\n"+f_logical_op("roxl",args,comment)
 def f_rr(args,comment):
-    return f_logical_op("roxr",args,comment)
+    return "\tSET_X_FROM_C\n"+f_logical_op("roxr",args,comment)
 
 def f_rlc(args,comment):
     return f_logical_op("rol",args,comment)
