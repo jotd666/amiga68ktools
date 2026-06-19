@@ -683,7 +683,11 @@ def f_inc(args,comment):
     return f_dec_or_inc("addq",args,comment)
 
 def f_dec_or_inc(inst,args,comment):
-    return generic_load(inst,[args[0],"1"],comment)
+    arg = args[0]
+    if arg in inv_registers_32:
+        return f"\t{inst}.w\t#1,{arg}{comment}"
+
+    return generic_load(inst,[arg,"1"],comment)
 
 def f_sbc(args,comment):
     return generic_load("subx",args,comment)
@@ -2033,6 +2037,10 @@ for i,org_line in enumerate(nout_lines):
                     # pushing target-based address register, pulling host-based
                     nout_lines[i-1] = ""
                     nout_lines[i] = change_instruction(f"lea\t({registers['mem_base']},{pushed_reg}.l),{pulled_reg}",nout_lines,i)
+                z80_reg = inv_registers_16.get(pulled_reg)
+                if z80_reg:
+                    # we have to update high register as well
+                    nout_lines[i] += f"\tMAKE_{z80_reg[0]} {out_comment} [...]\n"
             else:
                 # same size: game should perform a exg
                 nout_lines[i-1] = remove_instruction(nout_lines[i-1])
