@@ -133,17 +133,27 @@ def optimize(lines,verbose=False):
     reg16_suffix = ["HL","DE","BC"]
 
     prev_line = ""
-##    # simplify PUSH/MAKE_A/POP/MAKE_D pattern, PUSH/POP are useless in that case
+    # simplify PUSH/MAKE_A/POP/MAKE_D pattern, PUSH/POP are useless in that case
     for i,org_line in enumerate(new_lines):
         line = remcomments(org_line)  # remove comments
 
-        prev_line = line
 
         if "tst.b" in line.split():
             arg = line.split()[1]
             prev_args = prev_line.split()
-            if prev_args and prev_args[-1]==arg:
+            if prev_args and prev_args[-1].split(",")[-1]==arg:   # prev_args[-1] is typically (a0),d0
+                # same register as target of previous instruction & tst: no need for tst
                 new_lines[i] = remove_instruction(new_lines[i])  # remove tst.b if follows op on same register
+            else:
+                # we should check if a condition follows tst.b. If not, we should clear carry instead
+                next_line = remcomments(new_lines[i+1]).split()[0]
+                if next_line.endswith(".b"):
+                    next_line = next_line[:-2]
+                if next_line not in conditional_branch_instructions:
+                    # "and a" is used to clear C before sbc/adc. We need to clear X before addx/subx
+                    new_lines[i] = change_instruction("CLR_XC_FLAGS",lines,i)
+
+        prev_line = line
     # remove empty
     new_lines = [n for n in new_lines if n]
 
@@ -807,11 +817,12 @@ def f_cp(args,comment):
     return generic_load("cmp",args,comment)
 
 def f_and(args,comment):
-    # and a special optim
+    # and a special optim + carry clear
+    rval = ""  #f"\tCLR_XC_FLAGS{comment}\n"
     if args[0]==registers['a']:
-        return f"\ttst.b\t{registers['a']}{comment}"
+        return rval+f"\ttst.b\t{registers['a']}{comment}"
 
-    return generic_load("and",args,comment)
+    return rval+generic_load("and",args,comment)
 def f_or(args,comment):
     return generic_load("or",args,comment)
 
