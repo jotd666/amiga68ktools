@@ -188,7 +188,7 @@ def optimize(lines,verbose=False):
 
     return new_lines
 
-tool_version = "2.3"
+tool_version = "2.4"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -204,6 +204,7 @@ parser.add_argument("-c","--code-output",help="68000 source code output file",re
 parser.add_argument("-d","--date-check",help="convert only if input file is more recent than output",action="store_true")
 parser.add_argument("-O","--optimize",help="remove redundant address loads",action="store_true")
 parser.add_argument("-I","--include-output",help="include output file",required=True)
+parser.add_argument("-a","--aligned-memory",help="consider memory aligned on 0xmmmm0000",action="store_true")
 parser.add_argument("input_file")
 
 
@@ -529,7 +530,34 @@ def generic_load(inst,args,comment):
             if op_size == 1:
                 rval += f"\t{inst}.b\t{src},{dest}{comment}"
             elif op_size == 4:
-                rval += f"\t{inst}.l\t{src},{dest}{comment}"
+                # this is tricky: we cannot just do instruction (add/sub in that case)
+                # with longword addressing, because IX/IY registers are mapped on host
+                # memory for performance reasons. It would work for small values, but as
+                # soon as the values are big, or negative, we expect the register to "wrap"
+                #
+                # we cannot do a wrap simply on a 32 bit address register but
+                # - if memory is aligned on 16 bit page, we can use temp data register, add word
+                #   and copy to target again
+                # - if memory is not aligned, it is more complex and wastes more instructions, but it's
+                #   still doable
+                # - in the end, if we know the value to add and we're not concerned by address wrapping,
+                #   it's better to use an operation with immediate value
+                #
+                #   ex: ld  de,$ffe0 + add  ix,de  => subq #0x20,a2
+                if cli_args.aligned_memory:
+                    pre=""
+                    post=""
+                else:
+                    # not aligned: more operations to perform. We still have
+                    # to use a data register to avoid sign extension on address register!
+                    pre = f"\tsub.l\t{MEMBASE},{DW}{comment}\n"
+                    post = f"\tadd.l\t{MEMBASE},{DW}{comment}\n"
+
+                rval += f"""\tmove.l\t{dest},{DW}{comment}  [inspect_for_manual_optimization]
+{pre}\t{inst}.w\t{src},{DW}{comment}
+{post}\tmove.l\t{DW},{dest}{comment}
+"""
+
             else:
                 # dest is 16 bits
                 if is_move:
