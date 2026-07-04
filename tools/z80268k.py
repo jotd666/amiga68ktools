@@ -654,7 +654,11 @@ def generic_load(inst,args,comment):
                 rval += f"\tclr.b\t{targ}{comment}"
             else:
                 rval += f"\t{inst}.{op_size}\t{source},{targ}{comment}"
-
+        else:
+            # probably incorrect, or iyh/ixh, etc.. convert in "best effort" mode
+            if not src_is_reg:
+                src = "#"+src
+            rval += f"\t{inst}.b\t{src},{dest}{comment}"
 
     return rval
 
@@ -814,8 +818,8 @@ def f_push(args,comment):
     if arg in registers_16:
         rval = f"\tMAKE_{arg.upper()}_NO_AR{comment}\n\tmove.w\t{registers_16[arg]},-({registers['sp']}){comment}"
     elif arg == "af":
-        # target stack is always even. Push CC first, avoids the use of movem
-        rval = f"\tPUSH_SR\t{comment}\n\tmove.w\t{registers['a']},-({registers['sp']}){comment}"
+        # target stack is always even. Push CC first, then use movem to preserve flags
+        rval = f"\tPUSH_SR\t{comment}\n\tmovem.w\t{registers['a']},-({registers['sp']}){comment}"
     elif arg in inv_registers and arg.startswith("a"):
         rval = f"\tmove.l\t{arg},-({registers['sp']}){comment}"
     else:
@@ -1306,8 +1310,8 @@ for i,line in enumerate(nout_lines):
             if prev_fp:
                 if prev_fp[0] == "movem.l" and "-(sp)" in prev_fp[1]:
                     nout_lines[i] += issue_warning("push to stack+return",newline=True)
-                elif prev_fp[0] in cmp_instructions:
-                    nout_lines[i] += issue_warning("stray cmp (check caller)",newline=True)
+##                elif prev_fp[0] in cmp_instructions:
+##                    nout_lines[i] += issue_warning("stray cmp (check caller)",newline=True)
 
         elif finst in ["addx.b","subx.b","abcd","sbcd"]:
             if fp[1][0]=="#":
@@ -1522,7 +1526,7 @@ for i,line in enumerate(nout_lines):
                     inst_no_size = prev_fp[0].split(".")[0]
                     # also consider that jsr + jcc/jcs/jne/jeq is not a problem. A lot of programs use C flag as return code
                     # consider that rts+jcc isn't a problem, converting jp cc,label does that.
-                    if (inst_no_size != "rts" and inst_no_size not in carry_generating_instructions and
+                    if (inst_no_size != "rts" and inst_no_size != "movem" and inst_no_size not in carry_generating_instructions and
                     inst_no_size not in conditional_branch_instructions and inst_no_size not in routine_call_instructions):
                         if not follows_sr_protected_block(nout_lines,i):
                             nout_lines[i] += issue_warning(f"stray {finst} test after {prev_fp[0]}",newline=True)
@@ -1531,7 +1535,7 @@ for i,line in enumerate(nout_lines):
                     inst_no_size = prev_fp[0].split(".")[0]
                     # also consider that jsr + jcc is not a problem. A lot of programs use C flag as return code
                     # consider that rts+jcc isn't a problem, converting jp cc,label does that.
-                    if (inst_no_size != "rts" and inst_no_size not in z_generating_instructions and
+                    if (inst_no_size != "rts"  and inst_no_size != "movem" and inst_no_size not in z_generating_instructions and
                     inst_no_size not in conditional_branch_instructions and inst_no_size not in routine_call_instructions):
                         if not follows_sr_protected_block(nout_lines,i):
                             nout_lines[i] += issue_warning(f"stray {finst} test after {prev_fp[0]}",newline=True)
