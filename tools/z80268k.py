@@ -618,7 +618,7 @@ def generic_load(inst,args,comment):
 
                         else:
                             rdest = registers_16[dest]
-                            rval += f"\tMAKE_{dest.upper()}_NO_AR{comment}\n\t{inst}.w\t#{src},{rdest}{comment}\n\tMAKE_{dest[0].upper()}"
+                            rval += f"\tMAKE_{dest.upper()}_NO_AR{comment}\n\t{inst}.w\t#{src},{rdest}{comment}\n\tMAKE_{dest[0].upper()}{comment}"
 
     else:
         if dest[0]=='(':
