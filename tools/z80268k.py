@@ -1265,7 +1265,7 @@ reg_a = registers["a"]
 
 flag_generating_instructions = {"subq","addq","add","sub","cmp","lsr","lsl","asl","asr","ror","rol","roxr","roxl","subx","addx","abcd","sbcd"}
 z_generating_instructions = flag_generating_instructions | {"and","or","tst","btst","eor"}
-carry_generating_instructions = flag_generating_instructions | {"CLR_XC_FLAGS","SET_XC_FLAGS"}
+carry_generating_instructions = flag_generating_instructions | {"CLR_XC_FLAGS","SET_XC_FLAGS","EXG_AF_AF_PRIME"}
 conditional_branch_instructions = {"bpl","bmi","bls","bne","beq","bhi","blo","bcc","bcs","blt","ble","bge","bgt"}
 conditional_branch_instructions.update({f"j{x[1:]}" for x in conditional_branch_instructions})
 routine_call_instructions = {"bsr","jbsr","jsr"}
