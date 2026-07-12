@@ -1725,17 +1725,17 @@ if True:
 
 \t.macro\tLOAD_HL\targument
 \tmove.w\t\\argument,{L}
-\tmove.b\t\\argument>>8,{H}
+\tmove.b\t(\\argument)>>8,{H}
 \t.endm
 
 \t.macro\tLOAD_BC\targument
 \tmove.w\t\\argument,{C}
-\tmove.b\t\\argument>>8,{B}
+\tmove.b\t(\\argument)>>8,{B}
 \t.endm
 
 \t.macro\tLOAD_DE\targument
 \tmove.w\t\\argument,{E}
-\tmove.b\t\\argument>>8,{D}
+\tmove.b\t(\\argument)>>8,{D}
 \t.endm
 
 \t.macro CLR_XC_FLAGS
@@ -2104,7 +2104,7 @@ if cli_args.output_mode and cli_args.optimize:
     print("Optimization phase")
     nout_lines = optimize(nout_lines)
 
-with open(cli_args.code_output,"w") as f:
+with open(cli_args.code_output,"w",errors="ignore") as f:
     f.writelines(nout_lines)
 
 ##    f.write(f"""{out_start_line_comment} < D0: byte possibly containing lowernibble > 9
