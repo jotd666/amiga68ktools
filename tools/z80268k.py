@@ -848,6 +848,13 @@ def f_sub(args,comment):
 def f_cp(args,comment):
     return generic_load("cmp",args,comment)
 
+def f_rld(args,comment):
+    if args == ['(hl)']:
+        return f"\t{jsr_instruction}\trld{comment}"
+def f_rrd(args,comment):
+    if args == ['(hl)']:
+        return f"\t{jsr_instruction}\trrd{comment}"
+
 def f_and(args,comment):
     # and a special optim + carry clear
     rval = ""  #f"\tCLR_XC_FLAGS{comment}\n"
@@ -2348,20 +2355,22 @@ cpd:
 {out_start_line_comment}: note regscopy must be defined somewhere in RAM
 {out_start_line_comment}: with a size of {regs_size*2}
 exx:
-    lea     regscopy+{regs_size},a0
+    lea     regscopy+{regs_size},{AW}
     * save current regs in region 1
-    movem.l {regs},-(a0)
+    movem.l {regs},-({AW})
     * restore old regs from region 2
-    lea     regscopy+{regs_size},a0
-    movem.l (a0),{regs}
+    lea     regscopy+{regs_size},{AW}
+    movem.l ({AW}),{regs}
     * now copy region 1 to region 2
     movem.l {regs},-(a7)
-    lea     regscopy,a0
-    movem.l (a0)+,{regs}
-    movem.l {regs},(a0)
+    lea     regscopy,{AW}
+    movem.l ({AW})+,{regs}
+    movem.l {regs},({AW})
     movem.l (a7)+,{regs}
     rts
 """)
+
+
     if "cpdr" in special_loop_instructions_met:
         f.write(f"""
 {out_start_line_comment} < A0: source (HL)
