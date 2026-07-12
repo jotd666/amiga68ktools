@@ -5,14 +5,18 @@
 #
 # this code has been successfully used to convert the following games
 #
-# - Pleiads
+# - Commando
+# - Rally X
+# - Mr Do
+# - Dig Dug
+# - Vulgus
 
 # you'll have to implement the macro GET_ADDRESS_FUNC to return pointer on memory layout
 # to replace lea/move/... in memory
 # extract RAM memory constants as defines, not variables
 # works like an emulator
 #
-# This is a full rewrite based on the 6809 converter, because the old Z80 converter required too
+# This is a full rewrite based on the Z80 converter, because the old Z80 converter required too
 # much manual rewrite, debugging, wrong code. Took a long time to make a small game right
 #
 # if memory is not banked, it is possible to create a full 64k address space
@@ -36,25 +40,10 @@
 #
 # limitations:
 #
-# the main limitation is the inability to stick to the stack model.
+# C flags are more volatile on 68000. So dbnz must be changed to dbf, and more adaptations
+# in some specific cases
 #
-# TODO
-
-# optims: remove MAKE_HL if H(D5) or L(D6) not changed in between, same for DE/BC
-#     MAKE_H then    MAKE_HL => we can remove MAKE_HL / BC / DE
-#     remove MAKE_HL after LOAD_HL
-# optims: remove tst.b d0 after move.xxx ,d0
-#    subq.b    #1,(a0)                             | [$2416: dec (hl)]
-#    MAKE_HL                                    | [$2417: ld a,(hl)]  remove make_hl because a0 is already OK
-#    move.b    (a0),d0                             | [...]
 #
-#  .w operation on d6 plus MAKE_H => remove MAKE_HL, replace by MAKE_AR_FROM_HL
-# adjust continuation comments which are incorrect at times
-# optimize: don't remove MAKE_HL after LOAD_HL, just change by GET_REG_UNCHECKED_ADDRESS 0,d6, and remove from MAKE_HL
-# as this could just mean to load a value
-#
-#  AF88: 21 27 EA    ld   hl,$AE63  => wrong code
-#  in the end insert continuation comments when addresses repeat, not when generating
 
 import re,itertools,os,collections,glob,io,pathlib,sys
 import argparse
@@ -188,7 +177,7 @@ def optimize(lines,verbose=False):
 
     return new_lines
 
-tool_version = "2.4"
+tool_version = "2.5"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -614,7 +603,7 @@ def generic_load(inst,args,comment):
                         rval += f"\t{inst}.b\t#{src},{dest}{comment}"
                     else:
                         if is_move:
-                            rval += f"\tLOAD_{dest.upper()}\t#{src}{comment}"
+                            rval += f"\tLOAD_{dest.upper()}\t{src}{comment}"
 
                         else:
                             rdest = registers_16[dest]
@@ -1724,18 +1713,18 @@ if True:
 \t.endm
 
 \t.macro\tLOAD_HL\targument
-\tmove.w\t\\argument,{L}
-\tmove.b\t(\\argument)>>8,{H}
+\tmove.w\t#\\argument,{L}
+\tmove.b\t#(\\argument)>>8,{H}
 \t.endm
 
 \t.macro\tLOAD_BC\targument
-\tmove.w\t\\argument,{C}
-\tmove.b\t(\\argument)>>8,{B}
+\tmove.w\t#\\argument,{C}
+\tmove.b\t#(\\argument)>>8,{B}
 \t.endm
 
 \t.macro\tLOAD_DE\targument
-\tmove.w\t\\argument,{E}
-\tmove.b\t(\\argument)>>8,{D}
+\tmove.w\t#\\argument,{E}
+\tmove.b\t#(\\argument)>>8,{D}
 \t.endm
 
 \t.macro CLR_XC_FLAGS
@@ -2040,6 +2029,50 @@ GET_ADDRESS:MACRO
 \tGET_UNCHECKED_ADDRESS_FUNC\t{AW}
 \trts
 
+* < A0: source (HL)
+* < A1: destination (DE)
+* < D1: length (16 bit)
+ldir_video:
+    MAKE_BC_NO_AR
+    MAKE_HL_NO_AR
+    MAKE_DE_NO_AR
+    MAKE_AR_UNCHECKED_FROM_HL    a1
+    MAKE_AR_UNCHECKED_FROM_DE    a0
+    add.w    d2,d6
+    add.w    d2,d4
+    MAKE_H
+    MAKE_D
+    subq.w    #1,d2
+0:
+    move.b    (a1)+,(a0)
+    VIDEO_BYTE_DIRTY
+    addq    #1,a0
+    dbf        d2,0b
+    moveq    #0,d2
+    moveq    #0,d1
+    rts
+
+* < A0: source (HL)
+* < A1: destination (DE)
+* < D1: length (16 bit)
+ldir_unchecked:
+    MAKE_BC_NO_AR
+    MAKE_HL_NO_AR
+    MAKE_DE_NO_AR
+    MAKE_AR_UNCHECKED_FROM_HL    a1
+    MAKE_AR_UNCHECKED_FROM_DE    a0
+    add.w    d2,d6
+    add.w    d2,d4
+    MAKE_H
+    MAKE_D
+    subq.w    #1,d2
+0:
+    move.b    (a1)+,(a0)
+    addq    #1,a0
+    dbf        d2,0b
+    moveq    #0,d2
+    moveq    #0,d1
+    rts
 
 """)
 
@@ -2172,8 +2205,8 @@ rrd:
 {out_start_line_comment} < D1: decremented (16 bit)
 ldd:
     MAKE_BC_NO_AR
-    LOAD_HL {AW}
-    LOAD_DE {AW1}
+    MAKE_AR_FROM_HL {AW}
+    MAKE_AR_FROM_DE {AW1}
     move.b    ({AW}),({AW1})
     subq.w  #1,{AW}
     subq.w  #1,{AW1}
