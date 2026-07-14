@@ -370,9 +370,13 @@ for input_file in input_files:
                                 if fitok in ["RTS","BRA","JMP","LBRA","RTI"] or (fitok=="PULS" and "PC" in itoks[1]):
                                     pass
                                 else:
+                                    print(line)
                                     warn(f"instruction discontinuity at ${address:04x}, prev inst at ${prev_address:04x}")
                         previous_nb_bytes = len(m.group(2).split())
+
                         prev_address = address
+                        if "[no_return]" in line:
+                            prev_address = None
                         instruction = m.group(4)
 
                     address_lines[address] = i
