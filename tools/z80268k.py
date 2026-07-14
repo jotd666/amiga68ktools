@@ -44,6 +44,27 @@
 # in some specific cases
 #
 #
+#
+# *** Construct tagging: [push_function]
+#
+# when you encounter constructs like
+# ld  hl,function_xxx
+# push hl
+# ...
+# ret
+#
+# you can tag the "ld" instruction with "; [push_function]" comment
+# converter will turn the push data into pea code so it jumps and doesn't crash
+#
+# *** Construct tagging: [pop_address]
+#
+# when you encounter constructs like
+#
+# pop hl
+# ret
+#
+# and hl is just used to skip the caller, you can tag the pop instruction with "; [pop_address]"
+# it won't set hl but it's not needed, it will replace by a add #4,sp
 
 import re,itertools,os,collections,glob,io,pathlib,sys
 import argparse
@@ -61,6 +82,77 @@ def remove_continuing_lines(lines,i):
         else:
             break
 
+
+def add_entrypoint(address):
+    addresses_to_reference.add(address)
+
+def clear_reg(reg):
+    return f"\tmoveq\t#0,{registers[reg]}{continuation_comment}\n"
+
+def parse_hex(s,default=None):
+    is_hex = s.startswith(("$","0x"))
+    s = s.strip("$")
+    try:
+        return int(s,16 if is_hex else 10)
+    except ValueError as e:
+        if s.startswith("%"):
+            return int(s[1:],2)
+        if default is None:
+            raise
+        else:
+            return default
+
+def arg2label(s):
+    try:
+        address = parse_hex(s)
+        return f"{lab_prefix}{address:04x}"
+    except ValueError:
+        # already resolved as a name
+        return s
+
+def get_reg_size(d):
+    return reg_size[d]
+
+def decode_2_args(args):
+    dest,src = args
+    src_is_reg = src in inv_registers or src in registers_16 or src in registers_32
+    dest_is_reg = dest in inv_registers or dest in registers_16 or dest in registers_32
+    return dest,src,src_is_reg,dest_is_reg
+
+def decode_paren_arg(dest):
+    dest = dest.strip("()")
+    toks = dest.split(",")
+    if len(toks)==1:
+        return None,toks[0]
+    else:
+        return toks
+
+def remove_instruction(line):
+    comment_pos = line.index(out_comment)
+    return " "*comment_pos + line[comment_pos:]
+
+def replace_instruction(new_instruction,line):
+    comment_pos = line.index(out_comment)
+    return new_instruction + " "*(comment_pos-len(new_instruction)) + line[comment_pos:]
+
+def follows_sr_protected_block(nout_lines,i):
+    # we have a chance of protected block only if POP_SR
+    # was just before the branch test
+    if i>0 and "POP_SR" not in nout_lines[i-1]:
+        return False
+
+##    for j in range(i-2,1,-1):
+##        line = nout_lines[j]
+##        if line.startswith("\trts"):
+##            # sequence break:
+##                return False
+##
+##        if line.startswith("\tPUSH_SR"):
+##            # encountered POP then PUSH while going back
+##            finst = nout_lines[j-1].split()[0]
+##            return finst in carry_generating_instructions
+
+    return True
 
 def get_line_address(line):
     try:
@@ -177,7 +269,7 @@ def optimize(lines,verbose=False):
 
     return new_lines
 
-tool_version = "2.5"
+tool_version = "2.6"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -449,50 +541,6 @@ m68_regs = set(registers.values())
 
 
 
-
-def add_entrypoint(address):
-    addresses_to_reference.add(address)
-
-def clear_reg(reg):
-    return f"\tmoveq\t#0,{registers[reg]}{continuation_comment}\n"
-
-def parse_hex(s,default=None):
-    is_hex = s.startswith(("$","0x"))
-    s = s.strip("$")
-    try:
-        return int(s,16 if is_hex else 10)
-    except ValueError as e:
-        if s.startswith("%"):
-            return int(s[1:],2)
-        if default is None:
-            raise
-        else:
-            return default
-
-def arg2label(s):
-    try:
-        address = parse_hex(s)
-        return f"{lab_prefix}{address:04x}"
-    except ValueError:
-        # already resolved as a name
-        return s
-
-def get_reg_size(d):
-    return reg_size[d]
-
-def decode_2_args(args):
-    dest,src = args
-    src_is_reg = src in inv_registers or src in registers_16 or src in registers_32
-    dest_is_reg = dest in inv_registers or dest in registers_16 or dest in registers_32
-    return dest,src,src_is_reg,dest_is_reg
-
-def decode_paren_arg(dest):
-    dest = dest.strip("()")
-    toks = dest.split(",")
-    if len(toks)==1:
-        return None,toks[0]
-    else:
-        return toks
 
 # trying to factorize operations
 
@@ -1173,6 +1221,24 @@ for i,(l,is_inst,address) in enumerate(lines):
 
     out_lines.append(out+"\n")
 
+
+# processing tags:
+for i,line in enumerate(out_lines):
+    if "[push_function]" in line:
+        toks = line.split()
+        line = remove_instruction(out_lines[i])
+        pa = toks[1].strip("#")
+        address = parse_hex(pa,-1)
+        if address != -1:
+            add_entrypoint(address)
+        out_lines[i+1] = change_instruction(f"pea\t{pa}",out_lines,i+1)
+    elif "[pop_address]" in line:
+        if "MAKE_" in line:
+            line = ""
+        else:
+            line = change_instruction("addq.w\t#4,sp",out_lines,i)
+    out_lines[i] = line
+
 for address in addresses_to_reference:
     al = address_lines.get(address)
     if al is not None:
@@ -1221,33 +1287,6 @@ for line in out_lines:
 
     nout_lines.append(line+"\n")
 
-def remove_instruction(line):
-    comment_pos = line.index(out_comment)
-    return " "*comment_pos + line[comment_pos:]
-
-def replace_instruction(new_instruction,line):
-    comment_pos = line.index(out_comment)
-    return new_instruction + " "*(comment_pos-len(new_instruction)) + line[comment_pos:]
-
-def follows_sr_protected_block(nout_lines,i):
-    # we have a chance of protected block only if POP_SR
-    # was just before the branch test
-    if i>0 and "POP_SR" not in nout_lines[i-1]:
-        return False
-
-##    for j in range(i-2,1,-1):
-##        line = nout_lines[j]
-##        if line.startswith("\trts"):
-##            # sequence break:
-##                return False
-##
-##        if line.startswith("\tPUSH_SR"):
-##            # encountered POP then PUSH while going back
-##            finst = nout_lines[j-1].split()[0]
-##            return finst in carry_generating_instructions
-
-    return True
-
 # add review flag message in case of move.x followed by a branch
 # also add review for writes to unlabelled memory
 # also post-optimize stuff
@@ -1274,7 +1313,7 @@ for i,line in enumerate(nout_lines):
     comment = f"{out_comment} [${current_address:04x}: "
     line = line.rstrip()
     toks = line.split("|",maxsplit=1)
-    if len(toks)==2:
+    if len(toks)==2 and toks[0].strip():
         fp = toks[0].rstrip().split()
         finst = fp[0]
 
@@ -1655,6 +1694,18 @@ if True:
 \tGET_REG_ADDRESS\t0,{C},\\dest
 \t.endm
 
+\t.macro\tMAKE_AR_UNCHECKED_FROM_HL\tdest
+\tGET_REG_UNCHECKED_ADDRESS\t0,{L},\\dest
+\t.endm
+\t.macro\tMAKE_AR_UNCHECKED_FROM_DE    dest
+\tGET_REG_UNCHECKED_ADDRESS\t0,{E},\\dest
+\t.endm
+\t.macro\tMAKE_AR_UNCHECKED_FROM_BC    dest
+\tGET_REG_UNCHECKED_ADDRESS\t0,{C},\\dest
+\t.endm
+
+
+
 \t.macro\tMAKE_HL_NO_AR
 {out_start_line_comment} add {H} as MSB of {L} so {L}.W = HL, load target reg
 \trol.w\t#8,{L}
@@ -1666,6 +1717,11 @@ if True:
 \tMAKE_HL_NO_AR
 \tMAKE_AR_FROM_HL\t\\dest
 \t.endm
+
+    .macro    MAKE_HL_UNCHECKED    dest
+    MAKE_HL_NO_AR
+    MAKE_AR_UNCHECKED_FROM_HL    \\dest
+    .endm
 
 \t.macro\tMAKE_H
 {out_start_line_comment} update {H} from {L}.W = HL
@@ -1686,6 +1742,11 @@ if True:
 \tMAKE_AR_FROM_BC\t\\dest
 \t.endm
 
+    .macro    MAKE_BC_UNCHECKED    dest
+    MAKE_BC_NO_AR
+    MAKE_AR_UNCHECKED_FROM_BC    \\dest
+    .endm
+
 \t.macro\tMAKE_B
 {out_start_line_comment} update {B} from {C}.W = HL
 \trol.w\t#8,{C}
@@ -1704,6 +1765,12 @@ if True:
 \tMAKE_DE_NO_AR
 \tMAKE_AR_FROM_DE\t\\dest
 \t.endm
+
+    .macro    MAKE_DE_UNCHECKED    dest
+    MAKE_DE_NO_AR
+    MAKE_AR_UNCHECKED_FROM_DE    \\dest
+    .endm
+
 
 \t.macro\tMAKE_D
 {out_start_line_comment} update {D} from {E}.W = HL
