@@ -1224,15 +1224,7 @@ for i,(l,is_inst,address) in enumerate(lines):
 
 # processing tags:
 for i,line in enumerate(out_lines):
-    if "[push_function]" in line:
-        toks = line.split()
-        line = remove_instruction(out_lines[i])
-        pa = toks[1].strip("#")
-        address = parse_hex(pa,-1)
-        if address != -1:
-            add_entrypoint(address)
-        out_lines[i+1] = change_instruction(f"pea\t{pa}",out_lines,i+1)
-    elif "[pop_address]" in line:
+    if "[pop_address]" in line:
         if "MAKE_" in line:
             line = ""
         else:
