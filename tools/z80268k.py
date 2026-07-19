@@ -1292,7 +1292,7 @@ reg_a = registers["a"]
 
 flag_generating_instructions = {"subq","addq","add","sub","cmp","lsr","lsl","asl","asr","ror","rol","roxr","roxl","subx","addx","abcd","sbcd"}
 z_generating_instructions = flag_generating_instructions | {"and","or","tst","btst","eor"}
-carry_generating_instructions = flag_generating_instructions | {"CLR_XC_FLAGS","SET_XC_FLAGS","EXG_AF_AF_PRIME"}
+carry_generating_instructions = flag_generating_instructions | {"CLR_XC_FLAGS","SET_XC_FLAGS","EXG_AF_AF_PRIME","INVERT_XC_FLAGS"}
 conditional_branch_instructions = {"bpl","bmi","bls","bne","beq","bhi","blo","bcc","bcs","blt","ble","bge","bgt"}
 conditional_branch_instructions.update({f"j{x[1:]}" for x in conditional_branch_instructions})
 routine_call_instructions = {"bsr","jbsr","jsr"}
@@ -1345,7 +1345,7 @@ for i,line in enumerate(nout_lines):
                 # can't have immediate mode for those, use a work register to make it legal
                 src=fp[1].split(",")[0]
                 nout_lines[i] = f"\tmove.b\t{src},{DW} {comment}\n"+nout_lines[i].replace(src,DW)
-        elif finst not in conditional_branch_instructions and finst != "PUSH_SR" and prev_fp and prev_fp[0] in cmp_instructions:
+        elif finst not in conditional_branch_instructions and finst != "PUSH_SR" and finst != "INVERT_XC_FLAGS" and prev_fp and prev_fp[0] in cmp_instructions:
                 nout_lines[i] = issue_warning(f"stray cmp before {finst} (insert SET_X_FROM_C)",newline=True)+nout_lines[i]
 
 
