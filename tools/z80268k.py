@@ -921,9 +921,9 @@ def f_xor(args,comment):
     return out
 
 def f_rl(args,comment):
-    return "\tSET_X_FROM_C\n"+f_logical_op("roxl",args,comment)
+    return f"\tSET_X_FROM_C{comment}\n"+f_logical_op("roxl",args,comment)
 def f_rr(args,comment):
-    return "\tSET_X_FROM_C\n"+f_logical_op("roxr",args,comment)
+    return f"\tSET_X_FROM_C{comment}\n"+f_logical_op("roxr",args,comment)
 
 def f_rlc(args,comment):
     return f_logical_op("rol",args,comment)
@@ -1542,7 +1542,7 @@ current_address=0
 for i,line in enumerate(nout_lines):
     current_address = get_line_address(line) or current_address
     line = line.rstrip()
-    toks = line.split("|",maxsplit=1)
+    toks = line.split(out_comment,maxsplit=1)
     if len(toks)==2:
         fp = toks[0].rstrip().split()
         if fp:
@@ -1566,6 +1566,12 @@ for i,line in enumerate(nout_lines):
                     inst_no_size not in conditional_branch_instructions and inst_no_size not in routine_call_instructions):
                         if not follows_sr_protected_block(nout_lines,i):
                             nout_lines[i] += issue_warning(f"stray {finst} test after {prev_fp[0]}",newline=True)
+            elif finst == "SET_X_FROM_C":
+                # make sure that previous instruction changes C or it is a catastrophe
+                if prev_fp:
+                    inst_no_size = prev_fp[0].split(".")[0]
+                    if inst_no_size not in carry_generating_instructions:
+                        nout_lines[i] += issue_warning(f"stray {finst} (carry clobbered) after {prev_fp[0]}",newline=True)
         prev_fp = fp
         if re.search("GET_.*_ADDRESS",toks[0]) and follows_sr_protected_block(nout_lines,i):
             if i>3 and "PUSH_SR" in nout_lines[i-3]:
