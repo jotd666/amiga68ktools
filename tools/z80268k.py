@@ -6,10 +6,10 @@
 # this code has been successfully used to convert the following games
 #
 # - Commando
+# - Vulgus
 # - Rally X
 # - Mr Do
 # - Dig Dug
-# - Vulgus
 
 # you'll have to implement the macro GET_ADDRESS_FUNC to return pointer on memory layout
 # to replace lea/move/... in memory
@@ -269,7 +269,7 @@ def optimize(lines,verbose=False):
 
     return new_lines
 
-tool_version = "2.6"
+tool_version = "2.7"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -1089,8 +1089,8 @@ for i,(l,is_inst,address) in enumerate(lines):
         # now we can split according to remaining spaces
         itoks = inst.split()
 
-        if inst in special_loop_instructions:
-            special_loop_instructions_met.add(inst)  # note down that it's used
+        if itoks and itoks[0] in special_loop_instructions:
+            special_loop_instructions_met.add(itoks[0])  # note down that it's used
 
         if len(itoks)==1:
             inst = inst.lower()
@@ -2303,8 +2303,10 @@ lddr:
     dbf        {C},.loop
 """)
         f.write(f"""
-    subq.w  #1,{AW1}
-    subq.w  #1,{AW}
+    subq.w  #1,{L}
+    MAKE_H
+    subq.w  #1,{E}
+    MAKE_D
     moveq\t#0,{C}
     moveq\t#0,{B}
     rts
