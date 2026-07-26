@@ -1992,7 +1992,8 @@ for i,line in enumerate(nout_lines):
                     inst_no_size = prev_fp[0].split(".")[0]
                     # also consider that jsr + jcc is not a problem. A lot of programs use C flag as return code
                     if (inst_no_size not in carry_generating_instructions and
-                    inst_no_size not in conditional_branch_instructions and inst_no_size not in routine_call_instructions):
+                    inst_no_size not in conditional_branch_instructions and inst_no_size != "ABX"
+                    and inst_no_size not in routine_call_instructions):
                         if not follows_sr_protected_block(nout_lines,i):
                             nout_lines[i] += issue_warning("stray bcc/bcs test",newline=True)
         prev_fp = fp
@@ -2121,9 +2122,11 @@ if True:
 \t.endm
 
 \t.macro\tABX
+\tPUSH_SR
 \tmoveq\t#0,{DW}
 \tmove.b\t{B},{DW}
 \tadd.w\t{DW},{X}
+\tPOP_SR
 \t.endm
 
 \t.macro\tABA

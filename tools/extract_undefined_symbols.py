@@ -31,4 +31,4 @@ for e in s:
 if args.debug_script:
     with open(args.debug_script,"w") as f:
         for n,i in enumerate(sorted(addresses)):
-            f.write(f"dasm d-{n:03d}-{i:04x}.asm,{i:04x},20\n")
+            f.write(f"dasm d-{n:03d}-{i:04x}.asm,{i:04x},30\n")
