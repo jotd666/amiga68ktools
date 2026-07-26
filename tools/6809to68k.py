@@ -900,9 +900,13 @@ def generic_lea(dest,args,comment):
         raise Exception("Unsupported pre-decrement")
         rval += f"\n\tsubq.{regsize}\t#{pre_increment},{second_arg}{comment}"
 
+
     if second_arg==registers[dest]:
         if first_arg:
             rval += f"\t{inst}{quick}.w\t{first_arg},{second_arg}{comment}"
+        else:
+            # offset == 0 and source == dest: check register == 0, update Z
+            rval = f"\ttst.w\t{first_arg}{comment}"
     else:
         dest_68k = registers[dest]
         rval += f"\tmove.w\t{second_arg},{dest_68k}{comment}\n"
