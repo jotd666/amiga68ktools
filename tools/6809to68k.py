@@ -126,6 +126,7 @@ def optimize(lines,verbose=False):
     prev_lineno = -1
     prev_toks = []
 
+
     new_lines2 = []
     for i,org_line in enumerate(new_lines):
         line = remcomments(org_line)  # remove comments
@@ -906,7 +907,7 @@ def generic_lea(dest,args,comment):
             rval += f"\t{inst}{quick}.w\t{first_arg},{second_arg}{comment}"
         else:
             # offset == 0 and source == dest: check register == 0, update Z
-            rval = f"\ttst.w\t{first_arg}{comment}"
+            rval = f"\ttst.w\t{second_arg}{comment}"
     else:
         dest_68k = registers[dest]
         rval += f"\tmove.w\t{second_arg},{dest_68k}{comment}\n"

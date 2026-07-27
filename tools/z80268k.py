@@ -45,17 +45,6 @@
 #
 #
 #
-# *** Construct tagging: [push_function]
-#
-# when you encounter constructs like
-# ld  hl,function_xxx
-# push hl
-# ...
-# ret
-#
-# you can tag the "ld" instruction with "; [push_function]" comment
-# converter will turn the push data into pea code so it jumps and doesn't crash
-#
 # *** Construct tagging: [pop_address]
 #
 # when you encounter constructs like
@@ -1221,14 +1210,23 @@ for i,(l,is_inst,address) in enumerate(lines):
 
     out_lines.append(out+"\n")
 
+# we'd like to resplit lines so each line has exactly one "\n" but it seems to shift automatic label creation
+# so we'll leave it as is
 
 # processing tags:
+# (this is a bad idea to do that in the converter and I'm regretting it
+# this should have remained in the post-processing script to avoid bugs)
+
 for i,line in enumerate(out_lines):
     if "[pop_address]" in line:
-        if "MAKE_" in line:
-            line = ""
-        else:
-            line = change_instruction("addq.w\t#4,sp",out_lines,i)
+        if "move.w" in line:
+            # line can be multi-line, "change_instruction" doesn't work well
+            # retrieve address manually
+            m = re.search("\[\$(\w+:[^\]]*)]",line)
+            line = "\taddq.w\t#4,sp"
+            if m:
+                line += f"\t{out_comment} [${m.group(1)}] [pop_address]"
+            line += "\n"
     out_lines[i] = line
 
 for address in addresses_to_reference:
@@ -1243,7 +1241,8 @@ for address in addresses_to_reference:
 
 # cosmetic: compute optimal position for pipe comments
 # make proper lines again
-out_lines = "".join(out_lines).splitlines()
+out_lines = "".join(out_lines).splitlines()   # warning: no \n in the end now
+
 # first remove all tabs and spaces before pipe chars
 out_lines = [re.sub("\s+\|","|",line) for line in out_lines]
 # add spaces & tabs. This isn't going to be perfect, but good
