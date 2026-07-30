@@ -26,7 +26,6 @@
 ##- optim: grouping of simple shifts from 68k code
 ##- check cmp followed by roxr or addx/subx
 ##- review: sbc/adc after cmp without prior sec/clc/add/sub
-##- if SBC_IMM    0x00 found later, don't optimize sbc into sub!
 ##- addx: set Z flag before
 ##- sbcd/abcd warning: check bpl flag afterwards, change to bcc
 ##- alternating OP_W_ON_ZP_ADDRESS and OP_R_ON_ZP_ADDRESS: remove PUSH/POP SR
@@ -1012,15 +1011,18 @@ for i,line in enumerate(nout_lines):
                     nout_lines[sed_line] = f"\tSET_Z_FLAG  {out_comment} required as sbcd doesn't set Z on 0 result\n"
                     nout_lines[i] = replace_sub_instruction(finst,"sbcd",nout_lines[i])
                 else:
-                    nout_lines[i-1] = nout_lines[i-1].replace(setxcflags_inst[0],"")
-                    nout_lines[i] = replace_sub_instruction(finst,"sub.b",nout_lines[i])
+                    pass
+                    # too dangerous to optimize SEC+SBC by SUB as subsequent SBC  #00 would invert carry
+                    # and it would be wrong. Better optimize by hand if necessary
+##                    nout_lines[i-1] = nout_lines[i-1].replace(setxcflags_inst[0],"")
+##                    nout_lines[i] = replace_sub_instruction(finst,"sub.b",nout_lines[i])
                 # check if next line is bcc/bcs
                 nlt = nout_lines[i+1].split(out_comment)[0].split()
                 if nlt and nlt[0][1:] in ["cc","cs"]:
                     # we have to insert carry inverse flag like SBC does
                     nout_lines[i+1] = "\tINVERT_XC_FLAGS\n"+nout_lines[i+1]
 
-        elif finst_cc not in ["ne","eq","mi"] and prev_fp and prev_fp[0] == "cmp.b":
+        elif finst_cc not in ["ne","eq","mi","pl"] and prev_fp and prev_fp[0] == "cmp.b":
 
             if optimizer_on:
                 if "=>bc" in nout_lines[i]:
