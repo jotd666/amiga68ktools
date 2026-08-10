@@ -15,20 +15,24 @@ def replace_color_from_dict(img,color_replacement_dict):
     remove colors of img if belongs to colorset (set of RGB tuples)
     works in-place
     """
+    data = img.load()
+
     for x in range(img.size[0]):
         for y in range(img.size[1]):
-            c = img.getpixel((x,y))
-            img.putpixel((x,y),color_replacement_dict.get(c,c))
+            c = data[x, y]
+            data[x, y] = color_replacement_dict.get(c,c)
 
 def replace_color(img,colorset,replacement_color):
     """
     remove colors of img if belongs to colorset (set of RGB tuples)
     """
+    data = img.load()
+
     for x in range(img.size[0]):
         for y in range(img.size[1]):
-            c = img.getpixel((x,y))
+            c = data[x, y]
             if c in colorset:
-                img.putpixel((x,y),replacement_color)
+                data[x, y] = replacement_color
 
 def closest_color(c1,colorlist):
     """
@@ -359,9 +363,10 @@ def palette_extract(input_image,palette_precision_mask=0xFF,pad_count=0,pad_valu
 
     # count same colors
     rval = set()
+    data = img.load()
     for y in range(height):
         for x in range(width):
-            p = img.getpixel((x,y))
+            p = data[x,y]
             p = tuple(x & palette_precision_mask for x in p)
             rval.add(p)
     rval = sorted(rval)

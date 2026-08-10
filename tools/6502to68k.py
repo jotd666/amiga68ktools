@@ -49,6 +49,8 @@ parser.add_argument("input_file")
 parser.add_argument("output_file")
 parser.add_argument("output_include_file")
 
+version = "1.2"
+
 cli_args = parser.parse_args()
 
 optimizer_on = not cli_args.dont_optimize
@@ -77,6 +79,7 @@ if cli_args.output_mode == "mit":
     out_word_decl = ".word"
     out_long_decl = ".long"
     jsr_instruction = "jbsr"
+    jump_instruction = "jra"
 else:
     out_comment = ";"
     out_start_line_comment = out_comment
@@ -84,6 +87,7 @@ else:
     out_byte_decl = "dc.b"
     out_long_decl = "dc.l"
     jsr_instruction = "jsr"
+    jump_instruction = "jmp"
 
 # input & output comments are "*" and "|" (MIT syntax)
 # some day I may set as as an option...
@@ -122,6 +126,15 @@ def change_tst_to_btst(nout_lines,i):
     nout_lines[i-1] = nout_lines[i-1].replace("tst.b\t","btst.b\t#6,")
     nout_lines[i] = (nout_lines[i].replace("bvc\t","beq\t",1).replace("bvs\t","bne\t",1)
     + "          ^^^^^^ TODO: check bit 6 of operand\n")
+
+def change_instruction(code,lines,i):
+    line = lines[i]
+    toks = line.split(out_comment)
+    if len(toks)==2:
+        toks[0] = f"\t{code}"
+        return f" {out_comment} ".join(toks)
+    return line
+
 
 address_re = re.compile("^([0-9A-F]{4}):")
 label_re = re.compile("^(\w+):")
@@ -493,7 +506,7 @@ def f_jmp(args,comment):
     if "(" in arg:
         # indirect jump: not supported direct: note the error
         out = '\tERROR\t"indirect jmp"\n'
-    out += f"\tjmp\t{label}{comment}"
+    out += f"\t{jump_instruction}\t{label}{comment}"
 
     if target_address is not None:
         # note down that we have to insert a label here
@@ -799,9 +812,9 @@ def find_sed_line(lines,start):
     for i in range(start,0,-1):
         toks = lines[i].split()
         if toks:
-            if "rts" in toks or "jmp" in toks:
+            if "rts" in toks or jump_instruction in toks or "cld]" in toks:
                 return None
-            if "sed]" in toks:
+            if "sed]" in toks or "abcd" in toks:
                 return i
     return None
 
@@ -993,7 +1006,7 @@ for i,line in enumerate(nout_lines):
                 if sed_line:
                     print(f"detected & removed sed instruction at line {sed_line+1}, turning addx to abcd")
                     # it's actually a abcd operation
-                    nout_lines[sed_line] = f"\tSET_Z_FLAG  {out_comment} required as abcd doesn't set Z on 0 result\n"
+                    nout_lines[sed_line] = change_instruction("SET_Z_FLAG",nout_lines,sed_line) # abcd doesn't set Z on 0 result\n"
                     nout_lines[i] = nout_lines[i].replace("addx.b","abcd")
                 else:
                     nout_lines[i-1] = nout_lines[i-1].replace(clrxcflags_inst[0],"")
@@ -1008,7 +1021,7 @@ for i,line in enumerate(nout_lines):
                 sed_line = find_sed_line(nout_lines,i-2)
                 if sed_line:
                     print(f"detected & removed sed instruction at line {sed_line+1}, turning subx to sbcd")
-                    nout_lines[sed_line] = f"\tSET_Z_FLAG  {out_comment} required as sbcd doesn't set Z on 0 result\n"
+                    nout_lines[sed_line] = change_instruction("SET_Z_FLAG",nout_lines,sed_line)  # required as sbcd doesn't set Z on 0 result\n
                     nout_lines[i] = replace_sub_instruction(finst,"sbcd",nout_lines[i])
                 else:
                     pass
@@ -1098,13 +1111,6 @@ for line in nout_lines_2:
 if True:   # can be turned off, code is valid without that
     i = 0
 
-    def change_instruction(code,lines,i):
-        line = lines[i]
-        toks = line.split(out_comment)
-        if len(toks)==2:
-            toks[0] = f"\t{code}"
-            return f" {out_comment} ".join(toks)
-        return line
 
     while i < len(nout_lines):
         line = nout_lines[i]
@@ -1179,7 +1185,7 @@ f = io.StringIO()
 finc = io.StringIO()
 
 if True:
-    f.write(f"""{out_start_line_comment} Converted with 6502to68k by JOTD
+    f.write(f"""{out_start_line_comment} Converted with 6502to68k version {version} by JOTD
 {out_start_line_comment}
 {out_start_line_comment} make sure you call "cpu_init" first so bits 8-15 of data registers
 {out_start_line_comment} are zeroed out so we can use (ax,dy.w) addressing mode
