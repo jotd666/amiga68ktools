@@ -189,7 +189,7 @@ def optimize(lines,verbose=False):
     new_lines2 = [n for n in new_lines2 if n]
     return new_lines2
 
-tool_version = "1.11"
+tool_version = "1.12"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -2033,7 +2033,7 @@ if optimize_dp:
             ninst = None
             if len(ntoks)>1:
                 # only on some instructions, or it's going to be a pain to check stray jcc, ...
-                if ntoks[0] in {"move.b","clr.b","add.b","addq.b","sub.b","subq.b","cmp.b","tst.b"}:
+                if ntoks[0] in {"move.b","clr.b","add.b","addq.b","sub.b","subq.b","cmp.b","tst.b","neg.b","not.b"}:
                     # extra check: see if the move destination is not a data work register, which means that
                     # the instruction is actually a shift/eor instruction, which would be killed by the optimization
                     # below as the rest of the block uses work address register which is not loaded when optimizing
