@@ -268,6 +268,7 @@ parser.add_argument("-o","--output-mode",help="output mode either mot style or m
 ,default=asm_styles[0])
 parser.add_argument("-w","--no-review",help="don't insert review lines",action="store_true")
 parser.add_argument("-s","--spaces",help="replace tabs by x spaces",type=int)
+parser.add_argument("-C","--error-on-carry-jsr",help="insert an error if jsr+jcc/jcs",action="store_true")
 parser.add_argument("-n","--no-mame-prefixes",help="treat as real source, not MAME disassembly",action="store_true")
 parser.add_argument("-l","--label-prefix",help="useful with multiple banks. default 'l_'", default='l_')
 parser.add_argument("-c","--code-output",help="68000 source code output file",required=True)
@@ -1553,7 +1554,8 @@ for i,line in enumerate(nout_lines):
                     # also consider that jsr + jcc/jcs/jne/jeq is not a problem. A lot of programs use C flag as return code
                     # consider that rts+jcc isn't a problem, converting jp cc,label does that.
                     if (inst_no_size != "rts" and inst_no_size != "movem" and inst_no_size not in carry_generating_instructions and
-                    inst_no_size not in conditional_branch_instructions and inst_no_size not in routine_call_instructions):
+                    inst_no_size not in conditional_branch_instructions and
+                    (inst_no_size not in routine_call_instructions or cli_args.error_on_carry_jsr)):
                         if not follows_sr_protected_block(nout_lines,i):
                             nout_lines[i] += issue_warning(f"stray {finst} test after {prev_fp[0]}",newline=True)
             elif finst in ("bne","beq","jne","jeq"):
