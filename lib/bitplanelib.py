@@ -5,6 +5,7 @@ PALETTE_FORMAT_ASMGNU = 1<<1
 PALETTE_FORMAT_BINARY = 1<<2
 PALETTE_FORMAT_COPPERLIST = 1<<3
 PALETTE_FORMAT_PNG = 1<<4
+PALETTE_FORMAT_TEXT = 1<<5
 
 class BitplaneException(Exception):
     pass
@@ -260,6 +261,14 @@ def __palette_dump(palette,f,pformat,low_nibble):
     colreg = 0
     dcw = "dc.w" if pformat & PALETTE_FORMAT_ASMMOT else ".word"
     hexs = "$" if pformat & PALETTE_FORMAT_ASMMOT else "0x"
+
+    if pformat & PALETTE_FORMAT_TEXT:
+        # this is a debug format which dumps order, RGB32 and RGB4
+        for i,p in enumerate(palette):
+            r,g,b = p
+            value = (round4(r) << 8) + (round4(g) << 4) + round4(b)
+            f.write(f"0x{i:02x}: {str(p):14s} rgb4=0x{value:04x}\n")
+        return
 
     for r,g,b in palette:
         if (pformat & PALETTE_FORMAT_BINARY) == 0:

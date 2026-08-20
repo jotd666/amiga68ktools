@@ -1907,6 +1907,16 @@ if True:
 \t.endif
 
 * same for 68000 and 68020+
+
+\t.macro CHECK_MSW reg
+\tswap\t\\reg
+\ttst.w\t\\reg
+\tjeq\tokay\\@
+\tILLEGAL    | change by some other way to detect MSB problem
+okay\\@:
+\tswap\\reg
+\t.endm
+
 \t.macro POP_SR
 \tmove.w\t(sp)+,ccr
 \t.endm
@@ -1964,6 +1974,7 @@ if True:
 """)
         for unchecked in ["","UNCHECKED_"]:
             f.write(f"""\t.macro GET_REG_{unchecked}ADDRESS\toffset,reg,dest
+\tCHECK_MSW\t\\reg
 \t.ifeq\t\\offset
 \tmove.l\t\\reg,\\dest
 \t.else
@@ -2226,7 +2237,8 @@ with open(cli_args.code_output,"w",errors="ignore") as f:
 {out_start_line_comment} < HL
 {out_start_line_comment} < D0 (A)
 rld:
-    movem.w    d1/d2,-(a7)
+    move.w    d1,-(a7)
+    move.w    d2,-(a7)
     move.b    {A},d1        {out_comment} backup A
     clr.w    d2            {out_comment} make sure high bits of D2 are clear
     MAKE_AR_FROM_HL {AW}
@@ -2238,7 +2250,8 @@ rld:
     lsr.w    #8,d2        {out_comment} get 4 shifted bits of (HL)
     and.b    #{out_hex_sign}F0,{A}    {out_comment} keep only the 4 highest bits of A
     or.b    d2,{A}        {out_comment} insert high bits from (HL) into first bits of A
-    movem.w    (a7)+,d1/d2
+    move.w    (a7)+,d2
+    move.w    (a7)+,d1
     rts
 
 """)
@@ -2248,7 +2261,8 @@ rld:
 {out_start_line_comment} < A0 (HL)
 {out_start_line_comment} < D0 (A)
 rrd:
-    movem.w    d1/d2,-(a7)
+    move.w    d1,-(a7)
+    move.w    d2,-(a7)
     move.b    {A},d1        {out_comment} backup A
     clr.w    d2            {out_comment} make sure high bits of D2 are clear
     move.b    ({AW}),d2        {out_comment} read (HL)
@@ -2261,7 +2275,8 @@ rrd:
     and.b    #{out_hex_sign}F,d2
     and.b    #{out_hex_sign}F0,{A}    {out_comment} keep only the 4 highest bits of A
     or.b    d2,{A}        {out_comment} insert lowest bits from (HL) into first bits of A
-    movem.w    (a7)+,d1/d2
+    move.w    (a7)+,d2
+    move.w    (a7)+,d1
     rts
 
 """)
