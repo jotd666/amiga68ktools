@@ -2203,9 +2203,9 @@ for i,org_line in enumerate(nout_lines):
                     # we have to update high register as well
                     nout_lines[i] += f"\tMAKE_{z80_reg[0]} {out_comment} [...]\n"
             else:
-                # same size: game should perform a exg
+                # same size: game should perform a move
                 nout_lines[i-1] = remove_instruction(nout_lines[i-1])
-                nout_lines[i] = change_instruction(f"exg\t{pushed_reg},{pulled_reg}",nout_lines,i)
+                nout_lines[i] = change_instruction(f"move.l\t{pushed_reg},{pulled_reg}",nout_lines,i)
 
     prev_line = line
 

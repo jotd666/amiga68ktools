@@ -321,7 +321,7 @@ def palette_to_image(palette,output):
         x += sqs
 
     if output:
-        #img.convert("P",dither=0).save(output)
+        #img.convert("P",dither=0).save(output)   # causes issues
         img.save(output)
     return img
 
