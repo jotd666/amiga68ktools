@@ -772,7 +772,7 @@ def f_sta(args,comment):
 def f_stu(args,comment):
     return generic_store('u',args,comment,word=True)
 def f_sts(args,comment):
-    return f'\tERROR\t"review stack save"\n' + generic_store('s',args,comment,word=True)
+    return f'\tERROR\t"review S save"\n' + generic_store('s',args,comment,word=True)
 def f_std(args,comment):
     return MAKE_D_PREFIX+generic_store('b',args,comment,word=True)
 def f_stb(args,comment):
@@ -790,7 +790,7 @@ def f_leay(args,comment):
 def f_leau(args,comment):
     return generic_lea('u',args,comment)
 def f_leas(args,comment):
-    return f'\tERROR\t"review stack set from register"\n' + generic_lea('s',args,comment)
+    return f'\tERROR\t"review S set from register"\n' + generic_lea('s',args,comment)
 
 def f_ldy(args,comment):
     return generic_load('y',args,comment, word=True)
@@ -1143,7 +1143,6 @@ def generic_indexed_to(inst,src,args,comment,word=False):
         index_reg = args[1]
         increment = index_reg.count("+")
         decrement = index_reg.count("-")
-        print("fKKK",increment,decrement)
         index_reg = index_reg.strip("[]+-")
         offset = arg.strip("[,]") or "0"
         if offset in inv_registers:
