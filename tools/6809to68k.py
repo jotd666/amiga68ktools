@@ -12,6 +12,8 @@
 # - Double Dragon
 # - Mappy
 # - Roc'NRope
+# - Super Pacman
+# - Rolling Thunder
 
 # you'll have to implement the macro GET_ADDRESS_FUNC to return pointer on memory layout
 # to replace lea/move/... in memory
@@ -189,7 +191,7 @@ def optimize(lines,verbose=False):
     new_lines2 = [n for n in new_lines2 if n]
     return new_lines2
 
-tool_version = "1.12"
+tool_version = "1.13"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -1088,8 +1090,8 @@ def generic_indexed_to(inst,src,args,comment,word=False):
         empty_first_arg = not args[0]
         if empty_first_arg:
             # 6809 mode that is not on 6502: ,X or ,X+...
-            increment = args[1].count("+")
-            decrement = args[1].count("-")
+            increment = index_reg.count("+")
+            decrement = index_reg.count("-")
             sa = index_reg.strip("+-")
 
             if decrement:
@@ -1139,15 +1141,25 @@ def generic_indexed_to(inst,src,args,comment,word=False):
 \t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}"""
     elif arg[0] == '[':
         index_reg = args[1]
+        increment = index_reg.count("+")
+        decrement = index_reg.count("-")
+        print("fKKK",increment,decrement)
+        index_reg = index_reg.strip("[]+-")
         offset = arg.strip("[,]") or "0"
         if offset in inv_registers:
             macro = "GET_REG_REG_INDIRECT_ADDRESS"
         else:
             macro = "GET_REG_INDIRECT_ADDRESS"
         # 2 arguments: process if first is empty: ex STD [,X] or not STD [2,X]
-        return f"""\t{macro}\t{offset},{index_reg.strip(',]')}{comment}
-\t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}"""
+        if decrement:
+            rval += f"\tsubq.w\t#{decrement},{index_reg}{continuation_comment}\n"
 
+        rval += f"""\t{macro}\t{offset},{index_reg.strip(',]')}{comment}
+\t{inst}\t{regsrc}({registers['awork1']}){continuation_comment}
+"""
+        if increment:
+            rval += f"\taddq.w\t#{increment},{index_reg}{continuation_comment}\n"
+        return rval
 
     gaf,arg,value = get_get_address_function(arg)
 
