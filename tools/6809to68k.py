@@ -191,7 +191,7 @@ def optimize(lines,verbose=False):
     new_lines2 = [n for n in new_lines2 if n]
     return new_lines2
 
-tool_version = "1.13"
+tool_version = "1.14"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -1246,8 +1246,12 @@ def generic_indexed_from(inst,dest,args,comment,word=False):
                 if arg in inv_registers:
                     # first arg is also a register
                     out,arg = get_substitution_extended_reg(arg)
-                    # if a or b, mask must be applied, sign extension and switch to work reg!
-                    out += f"\tGET_REG_REG_INDIRECT_ADDRESS\t{arg},{regsrc}{comment}"
+                    if not arg:
+                        # first arg is empty: 0
+                        out += f"\tGET_REG_INDIRECT_ADDRESS\t0,{regsrc}{comment}"
+                    else:
+                        # if a or b, mask must be applied, sign extension and switch to work reg!
+                        out += f"\tGET_REG_REG_INDIRECT_ADDRESS\t{arg},{regsrc}{comment}"
                     if inst:
                         out += f"\n\t{inst}\t({registers['awork1']}),{regdst}{continuation_comment}"
                 else:

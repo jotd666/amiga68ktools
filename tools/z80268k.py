@@ -1914,7 +1914,7 @@ if True:
 \tjeq\tokay\\@
 \tILLEGAL    | change by some other way to detect MSB problem
 okay\\@:
-\tswap\\reg
+\tswap\t\\reg
 \t.endm
 
 \t.macro POP_SR
