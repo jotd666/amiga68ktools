@@ -45,6 +45,12 @@
 # - post_proc: tst.w + GET_.*ADDRESS => remove tst.w
 # - cmpd generates cmp.w which is not 68000 friendly (odd adress)
 #
+#
+# tagging:
+#
+# [no_return]: if a JSR pops the stack, tag the line so discontinuous instruction detector ignores it
+# [cc_handled]: if the function (converted to 68k) handles cc properly (no manual changes in the end that would break CC), use this tag
+#
 # limitations:
 #
 # the main limitation is the inability to stick to the stack model. pulu/pshu are possible but
@@ -191,7 +197,7 @@ def optimize(lines,verbose=False):
     new_lines2 = [n for n in new_lines2 if n]
     return new_lines2
 
-tool_version = "1.14"
+tool_version = "1.15"
 
 asm_styles = ("mit","mot")
 parser = argparse.ArgumentParser()
@@ -330,12 +336,15 @@ input_files = glob.glob(str(cli_args.input_file))
 if not input_files:
     raise Exception(f"{cli_args.input_file}: no match")
 
+functions_that_return_cc = set()
+
 for input_file in input_files:
     with open(input_file,"rb") as f:
         if len(input_files)>1:
             lines.append((f"{out_start_line_comment} input file {os.path.basename(input_file)}",False,None))
         prev_address = None
         previous_nb_bytes = None
+        prev_instruction = None
         instruction = None
 
         for i,line in enumerate(f):
@@ -365,6 +374,10 @@ for input_file in input_files:
                         address = int(m.group(1),0x10)
 
                         if prev_address:
+                            if prev_instruction and prev_instruction.split()[0] in ["JSR","BSR"] and instruction.split()[0] in {"BLO","BHI","BNE","BEQ","BCC","BCS","BPL","BMI"}:
+                                fcc = prev_instruction.split()[1]
+                                functions_that_return_cc.add(fcc)  # note down the function that should handle CC properly
+
                             if address < prev_address+previous_nb_bytes:
                                 warn(f"instruction overlap at ${address:04x}, prev inst at ${prev_address:04x}, prev len = {previous_nb_bytes} bytes")
                             elif address > prev_address+previous_nb_bytes:
@@ -380,6 +393,7 @@ for input_file in input_files:
                         prev_address = address
                         if "[no_return]" in line:
                             prev_address = None
+                        prev_instruction = instruction
                         instruction = m.group(4)
 
                     address_lines[address] = i
@@ -389,7 +403,12 @@ for input_file in input_files:
                     txt = line.rstrip()
             lines.append((txt,is_inst,address))
 
-
+    # second pass, check [cc_handled] tags
+    for txt,is_inst,address in lines:
+        if not is_inst and (m:=label_re.match(txt)):
+            function_name = m.group(1)
+            if not '[cc_handled]' in txt and function_name in functions_that_return_cc:
+                warn(f"Function {function_name}: review CC return and tag [cc_handled]")
 def issue_warning(msg,newline=False):
     rval =  f'\t{error}\t"review {msg}"'
     if newline:
