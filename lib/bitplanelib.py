@@ -483,12 +483,19 @@ BLIT_SHIFT_PAD = 1
 BLIT_ALIGN_PAD = 2
 
 def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,forced_nb_planes=None,
-                    palette_precision_mask=0xFF,generate_mask=MASK_NONE,blit_pad=BLIT_NO_PAD,mask_color=(0,0,0)):
+                    palette_precision_mask=0xFF,generate_mask=MASK_NONE,blit_pad=BLIT_NO_PAD,mask_color=(0,0,0),interleave=False):
     """ rebuild raw bitplanes with palette (ordered) and any image which has
     the proper number of colors and color match
     pass None as output_filename to avoid writing to file
     returns image raw data
     palette_precision_mask: 0xFF: no mask, full precision when looking up the colors, 0xF0: ECS palette mask, or custom
+    interleave: False: planar output (plane 0, plane 1, ..., then mask if generated)
+                True: interleaved output: for each line, one row per plane
+                (p0 p1 ... pN-1), so all planes can be blitted at once.
+                If a mask is generated, it follows the image data as a
+                separate block, interleaved the same way (each mask row
+                repeated once per plane), so a single cookie-cut blit can
+                use the same modulo for mask and data
     """
     # quick palette index lookup, with a privilege of the lowest color numbers
     # where there are duplicates (example: EHB emulated palette)
@@ -568,6 +575,21 @@ def palette_image2raw(input_image,output_filename,palette,add_dimensions=False,f
     if generate_mask == MASK_INVERTED:
         for offset in range(nb_planes*plane_size,len(out)):
             out[offset] = (~out[offset])%0x100
+    if interleave:
+        row_size = width//8
+        ilv = []
+        for y in range(height):
+            for pindex in range(nb_planes):
+                start = pindex*plane_size + y*row_size
+                ilv.extend(out[start:start+row_size])
+        if generate_mask:
+            mask_start = nb_planes*plane_size
+            for y in range(height):
+                start = mask_start + y*row_size
+                row = out[start:start+row_size]
+                for pindex in range(nb_planes):
+                    ilv.extend(row)
+        out = ilv
 
     out = bytes(out)
 

@@ -53,7 +53,7 @@ with open(args.asm_file) as f:
                     rate = "low"
                 count = (count*100)//max_count
                 line = re.sub(" \[freq=.*","",line)
-                line = line.rstrip() + f" [freq={rate}, count={count}%]\n"
+                line = line.rstrip() + f" [freq={rate}, count={count:02d}%]\n"
         lines.append(line)
 
 print(f"Writing asm file {args.asm_file}...")
