@@ -1,6 +1,6 @@
 
 from PIL import Image
-import argparse
+import argparse,ast
 
 
 def get_tile_rect(index, tiles_per_row, tile_size):
@@ -26,25 +26,29 @@ def copy_tiles(base_img, src_img, tile_indices, tile_size):
 
 def parse_range(rng_str):
     result = set()
+    if rng_str.startswith("@"):
+        with open(rng_str[1:]) as f:
+            result = list(ast.literal_eval(f.read()))
+    else:
+        parts = rng_str.split(',')
+        for part in parts:
+            if '-' in part:
+                a, b = part.split('-')
+                result.update(range(int(a,0x10), int(b,0x10) + 1))
+            else:
+                result.add(int(part,0x10))
 
-    parts = rng_str.split(',')
-    for part in parts:
-        if '-' in part:
-            a, b = part.split('-')
-            result.update(range(int(a,0x10), int(b,0x10) + 1))
-        else:
-            result.add(int(part,0x10))
 
     return sorted(result)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Tile sheet merger")
-    parser.add_argument("base", help="Base tile sheet (destination)")
-    parser.add_argument("source", help="Source tile sheet")
+    parser.add_argument("base", help="Base tile sheet (where tiles are replaced)")
+    parser.add_argument("source", help="Source tile sheet (tiles with indexes as params are copied from it)")
     parser.add_argument("output", help="Output tile sheet")
     parser.add_argument("--tiles", required=True,
-                        help="Tile indices (e.g. 0-10,32,40-50, in hexadecimal)")
+                        help="Tile indices (e.g. 0-10,32,40-50, in hexadecimal) or @file (json list)")
     parser.add_argument("--tile-size", type=int, default=16,
                         help="Tile size (default: 16)")
 
