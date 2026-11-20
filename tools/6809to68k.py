@@ -12,8 +12,9 @@
 # - Double Dragon
 # - Mappy
 # - Roc'NRope
-# - Super Pacman
+# - Super Pacman (unreleased)
 # - Rolling Thunder
+# - Pacland
 
 # you'll have to implement the macro GET_ADDRESS_FUNC to return pointer on memory layout
 # to replace lea/move/... in memory
@@ -1481,6 +1482,8 @@ def f_bpl(args,comment):
     return f_bcond("pl",args,comment)
 def f_bls(args,comment):
     return f_bcond("ls",args,comment)
+def f_brn(args,comment):
+    return f"nop{comment}"
 
 def f_bcond(cond,args,comment):
     func = args[0]
