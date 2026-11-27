@@ -228,8 +228,8 @@ single_instructions = {"nop":"nop",  # no need to convert to no-operation
 "inx":f"addq.b\t#1,{X}",
 "iny":f"addq.b\t#1,{Y}",
 "inc":f"addq.b\t#1,{A}",
-"pha":f"movem.w\t{A},-(sp)",  # movem preserves CCR like original 6502 inst.
-"pla":f"move.w\t(sp)+,{A}",  # move not movem as pla sets N and Z
+"pha":f"PUSH_A",  # movem preserves CCR like original 6502 inst.
+"pla":f"POP_A",  # move not movem as pla sets N and Z, Z is set incorrectly
 "php":"PUSH_SR",
 "plp":"POP_SR",
 "lsr":f"lsr\t#1,{A}",   # for code that doesn't use "A" parameter for shift ops
@@ -1210,6 +1210,15 @@ if True:
     .macro    ERROR    arg
     .error    "\\arg"     | comment out to disable errors
     .endm
+
+\t.macro PUSH_A
+\tmovem.w\t{A},-(sp)
+\t.endm
+
+\t.macro POP_A
+\tmove.w\t(sp)+,{A}
+\ttst.b\t{A}   | else N flag could be wrong (Gravitar!)
+\t.endm
 
 \t.ifdef\tMC68020
 * 68020 optimized
