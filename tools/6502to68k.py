@@ -992,7 +992,7 @@ for i,line in enumerate(nout_lines):
         if finst == "rts":
             # if previous instruction sets X flag properly, don't bother, but rol/ror do not!!
             if prev_fp:
-                if prev_fp == ["movem.w","d0,-(sp)"]:
+                if prev_fp == ["PUSH_A"]:
                     nout_lines[i] += '          ERROR  "review push to stack+return"\n'
                 elif prev_fp[0] == "cmp.b":
                     nout_lines[i] += '          ERROR  "review stray cmp (check caller)"\n'
